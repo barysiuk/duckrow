@@ -69,6 +69,7 @@ func RegistryDirKey(repoURL string) string {
 // The clone is stored in a directory derived from the repo URL to avoid
 // collisions when different repos share the same manifest name.
 func (rm *RegistryManager) Add(repoURL string) (*RegistryManifest, error) {
+	repoURL = strings.TrimSpace(repoURL)
 	if repoURL == "" {
 		return nil, fmt.Errorf("repository URL is required")
 	}
@@ -118,6 +119,7 @@ func (rm *RegistryManager) Add(repoURL string) (*RegistryManifest, error) {
 
 // Remove deletes a registry clone from disk using the repo URL to locate it.
 func (rm *RegistryManager) Remove(repoURL string) error {
+	repoURL = strings.TrimSpace(repoURL)
 	if repoURL == "" {
 		return fmt.Errorf("registry repo URL is required")
 	}
@@ -137,6 +139,7 @@ func (rm *RegistryManager) Remove(repoURL string) error {
 
 // Refresh runs git pull on a registry clone to update it.
 func (rm *RegistryManager) Refresh(repoURL string) (*RegistryManifest, error) {
+	repoURL = strings.TrimSpace(repoURL)
 	if repoURL == "" {
 		return nil, fmt.Errorf("registry repo URL is required")
 	}

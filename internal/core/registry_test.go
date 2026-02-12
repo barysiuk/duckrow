@@ -353,6 +353,16 @@ func TestRegistryManager_Remove(t *testing.T) {
 			t.Fatal("expected error for empty repo URL")
 		}
 	})
+
+	t.Run("error when repo URL is whitespace only", func(t *testing.T) {
+		registriesDir := t.TempDir()
+		rm := NewRegistryManager(registriesDir)
+
+		err := rm.Remove("   ")
+		if err == nil {
+			t.Fatal("expected error for whitespace-only repo URL")
+		}
+	})
 }
 
 // Integration tests that require git — skipped with -short
@@ -418,6 +428,39 @@ func TestRegistryManager_Add_Integration(t *testing.T) {
 			t.Fatal("expected error for empty URL")
 		}
 	})
+
+	t.Run("error when URL is whitespace only", func(t *testing.T) {
+		registriesDir := t.TempDir()
+		rm := NewRegistryManager(registriesDir)
+
+		_, err := rm.Add("   ")
+		if err == nil {
+			t.Fatal("expected error for whitespace-only URL")
+		}
+	})
+
+	t.Run("trims trailing whitespace from URL", func(t *testing.T) {
+		registriesDir := t.TempDir()
+		rm := NewRegistryManager(registriesDir)
+
+		bareRepo := t.TempDir()
+		setupTestGitRepo(t, bareRepo)
+
+		// Add with trailing spaces — should succeed.
+		manifest, err := rm.Add(bareRepo + "  ")
+		if err != nil {
+			t.Fatalf("Add() with trailing spaces error = %v", err)
+		}
+		if manifest.Name != "test-org" {
+			t.Errorf("manifest.Name = %q, want %q", manifest.Name, "test-org")
+		}
+
+		// Clone should be stored under the trimmed URL's key.
+		dirKey := RegistryDirKey(bareRepo)
+		if !dirExists(filepath.Join(registriesDir, dirKey)) {
+			t.Error("registry should be stored under trimmed URL key")
+		}
+	})
 }
 
 func TestRegistryManager_Refresh_Integration(t *testing.T) {
@@ -466,6 +509,16 @@ func TestRegistryManager_Refresh_Integration(t *testing.T) {
 		_, err := rm.Refresh("")
 		if err == nil {
 			t.Fatal("expected error for empty repo URL")
+		}
+	})
+
+	t.Run("error when repo URL is whitespace only", func(t *testing.T) {
+		registriesDir := t.TempDir()
+		rm := NewRegistryManager(registriesDir)
+
+		_, err := rm.Refresh("   ")
+		if err == nil {
+			t.Fatal("expected error for whitespace-only repo URL")
 		}
 	})
 }
