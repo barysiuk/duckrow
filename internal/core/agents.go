@@ -80,6 +80,31 @@ func ResolveAgentSkillsDir(agent AgentDef, baseDir string) string {
 	return filepath.Join(baseDir, agent.SkillsDir)
 }
 
+// ResolveAgentsByNames returns agents matching the given names.
+// Returns an error if any name doesn't match a known agent.
+func ResolveAgentsByNames(agents []AgentDef, names []string) ([]AgentDef, error) {
+	agentMap := make(map[string]AgentDef, len(agents))
+	for _, a := range agents {
+		agentMap[a.Name] = a
+	}
+
+	var resolved []AgentDef
+	for _, name := range names {
+		agent, ok := agentMap[name]
+		if !ok {
+			var valid []string
+			for _, a := range agents {
+				if !a.Universal {
+					valid = append(valid, a.Name)
+				}
+			}
+			return nil, fmt.Errorf("unknown agent %q; available: %s", name, strings.Join(valid, ", "))
+		}
+		resolved = append(resolved, agent)
+	}
+	return resolved, nil
+}
+
 // ResolveAgentGlobalSkillsDir resolves the global skill directory for an agent,
 // expanding ~ and environment variables.
 func ResolveAgentGlobalSkillsDir(agent AgentDef) string {

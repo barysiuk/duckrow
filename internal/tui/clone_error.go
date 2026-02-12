@@ -54,8 +54,9 @@ type cloneErrorModel struct {
 	origin cloneRetryOrigin
 
 	// For retryOriginInstall: the skill info and target folder.
-	installSkill  core.RegistrySkillInfo
-	installFolder string
+	installSkill        core.RegistrySkillInfo
+	installFolder       string
+	installTargetAgents []core.AgentDef
 
 	// For retryOriginRegistryAdd: the original registry URL.
 	registryURL string
@@ -87,11 +88,12 @@ func (m cloneErrorModel) setSize(width, height int) cloneErrorModel {
 }
 
 // activateForInstall sets up the clone error overlay for a failed skill install.
-func (m cloneErrorModel) activateForInstall(ce *core.CloneError, skill core.RegistrySkillInfo, folder string) cloneErrorModel {
+func (m cloneErrorModel) activateForInstall(ce *core.CloneError, skill core.RegistrySkillInfo, folder string, targetAgents []core.AgentDef) cloneErrorModel {
 	m.cloneErr = ce
 	m.origin = retryOriginInstall
 	m.installSkill = skill
 	m.installFolder = folder
+	m.installTargetAgents = targetAgents
 	m.registryURL = ""
 	m.editing = false
 	m.retrying = false
@@ -244,6 +246,7 @@ func (m cloneErrorModel) buildRetryCmd(app *App, url string) tea.Cmd {
 func (m cloneErrorModel) retryInstallCmd(app *App, url string) tea.Cmd {
 	skill := m.installSkill
 	folder := m.installFolder
+	targetAgents := m.installTargetAgents
 
 	return func() tea.Msg {
 		// Parse the (possibly edited) URL to get a valid source.
@@ -284,8 +287,9 @@ func (m cloneErrorModel) retryInstallCmd(app *App, url string) tea.Cmd {
 
 		installer := core.NewInstaller(app.agents)
 		_, err = installer.InstallFromSource(source, core.InstallOptions{
-			TargetDir:  folder,
-			IsInternal: true,
+			TargetDir:    folder,
+			IsInternal:   true,
+			TargetAgents: targetAgents,
 		})
 		if err != nil {
 			// Check if this is a clone error (clone itself failed).

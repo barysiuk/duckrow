@@ -3,6 +3,7 @@ package cmd
 import (
 	"fmt"
 	"os"
+	"strings"
 
 	"github.com/barysiuk/duckrow/internal/core"
 	"github.com/spf13/cobra"
@@ -18,7 +19,13 @@ Sources can be:
   owner/repo@skill-name   Specific skill from a repo
   ./local/path            Local directory
   https://github.com/...  Full URL
-  git@host:owner/repo.git SSH clone URL`,
+  git@host:owner/repo.git SSH clone URL
+
+By default, skills are installed to .agents/skills/ which is read by
+universal agents (OpenCode, Codex, Gemini CLI, GitHub Copilot).
+
+To also create symlinks for non-universal agents, pass --agents:
+  --agents cursor,claude-code   Symlink to Cursor and Claude Code`,
 	Args: cobra.ExactArgs(1),
 	RunE: func(cmd *cobra.Command, args []string) error {
 		d, err := newDeps()
@@ -47,12 +54,29 @@ Sources can be:
 
 		skillFilter, _ := cmd.Flags().GetString("skill")
 		internal, _ := cmd.Flags().GetBool("internal")
+		agentsFlag, _ := cmd.Flags().GetString("agents")
+
+		// Resolve target agents: universal-only unless --agents is provided.
+		var targetAgents []core.AgentDef
+		if agentsFlag != "" {
+			names := strings.Split(agentsFlag, ",")
+			for i := range names {
+				names[i] = strings.TrimSpace(names[i])
+			}
+			specified, resolveErr := core.ResolveAgentsByNames(d.agents, names)
+			if resolveErr != nil {
+				return resolveErr
+			}
+			targetAgents = core.GetUniversalAgents(d.agents)
+			targetAgents = append(targetAgents, specified...)
+		}
 
 		installer := core.NewInstaller(d.agents)
 		result, err := installer.InstallFromSource(source, core.InstallOptions{
 			TargetDir:       targetDir,
 			SkillFilter:     skillFilter,
 			IncludeInternal: internal,
+			TargetAgents:    targetAgents,
 		})
 		if err != nil {
 			return err
@@ -73,5 +97,6 @@ func init() {
 	installCmd.Flags().StringP("dir", "d", "", "Target directory (default: current directory)")
 	installCmd.Flags().StringP("skill", "s", "", "Install only a specific skill by name")
 	installCmd.Flags().Bool("internal", false, "Include internal skills")
+	installCmd.Flags().String("agents", "", "Comma-separated agent names to also symlink into (e.g. cursor,claude-code)")
 	rootCmd.AddCommand(installCmd)
 }

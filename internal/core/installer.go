@@ -37,10 +37,11 @@ func NewInstaller(agents []AgentDef) *Installer {
 
 // InstallOptions configures an installation.
 type InstallOptions struct {
-	TargetDir       string // Directory to install skills into (project root)
-	SkillFilter     string // If set, only install this specific skill name
-	IncludeInternal bool   // Include skills with metadata.internal: true
-	IsInternal      bool   // If true, this is from an internal registry (disable telemetry)
+	TargetDir       string     // Directory to install skills into (project root)
+	SkillFilter     string     // If set, only install this specific skill name
+	IncludeInternal bool       // Include skills with metadata.internal: true
+	IsInternal      bool       // If true, this is from an internal registry (disable telemetry)
+	TargetAgents    []AgentDef // Explicit list of agents to install for; if nil, defaults to universal-only
 }
 
 // InstallResult represents the result of a skill installation.
@@ -119,17 +120,20 @@ func (inst *Installer) InstallFromSource(source *ParsedSource, opts InstallOptio
 		discovered = filtered
 	}
 
-	// Detect which agents to install to
-	detectedAgents := DetectAgentsInFolder(inst.agents, opts.TargetDir)
-	if len(detectedAgents) == 0 {
-		// Fall back to universal agents
-		detectedAgents = GetUniversalAgents(inst.agents)
+	// Determine which agents to install for.
+	// If the caller provided an explicit list, use it.
+	// Otherwise default to universal agents only (they read .agents/skills/ directly).
+	var targetAgents []AgentDef
+	if len(opts.TargetAgents) > 0 {
+		targetAgents = opts.TargetAgents
+	} else {
+		targetAgents = GetUniversalAgents(inst.agents)
 	}
 
 	// Install each discovered skill
 	result := &InstallResult{}
 	for _, skill := range discovered {
-		installed, err := inst.installSkill(skill, detectedAgents, opts)
+		installed, err := inst.installSkill(skill, targetAgents, opts)
 		if err != nil {
 			return nil, fmt.Errorf("installing skill %q: %w", skill.Metadata.Name, err)
 		}

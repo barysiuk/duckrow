@@ -90,15 +90,19 @@ description: Test symlink creation
 
 	targetDir := t.TempDir()
 
-	// Create cursor and claude directories to trigger agent detection
-	if err := os.MkdirAll(filepath.Join(targetDir, ".cursor", "skills"), 0o755); err != nil {
-		t.Fatalf("MkdirAll(.cursor) error: %v", err)
-	}
-	if err := os.MkdirAll(filepath.Join(targetDir, ".claude", "skills"), 0o755); err != nil {
-		t.Fatalf("MkdirAll(.claude) error: %v", err)
+	agents, _ := LoadAgents()
+
+	// Find the cursor and claude-code agents to explicitly target them.
+	var targetAgents []AgentDef
+	for _, a := range agents {
+		if a.Name == "cursor" || a.Name == "claude-code" {
+			targetAgents = append(targetAgents, a)
+		}
+		if a.Universal {
+			targetAgents = append(targetAgents, a)
+		}
 	}
 
-	agents, _ := LoadAgents()
 	installer := NewInstaller(agents)
 
 	source := &ParsedSource{
@@ -107,7 +111,8 @@ description: Test symlink creation
 	}
 
 	result, err := installer.InstallFromSource(source, InstallOptions{
-		TargetDir: targetDir,
+		TargetDir:    targetDir,
+		TargetAgents: targetAgents,
 	})
 	if err != nil {
 		t.Fatalf("InstallFromSource() error: %v", err)
@@ -144,6 +149,71 @@ description: Test symlink creation
 	expectedTarget := "../../.agents/skills/symlink-test"
 	if target != expectedTarget {
 		t.Errorf("symlink target = %q, want %q", target, expectedTarget)
+	}
+}
+
+func TestInstaller_DefaultUniversalOnly(t *testing.T) {
+	// When no TargetAgents is provided, only the canonical .agents/skills/ dir
+	// should be created (universal agents). No agent-specific directories.
+	srcDir := t.TempDir()
+	if err := os.WriteFile(filepath.Join(srcDir, "SKILL.md"), []byte(`---
+name: universal-test
+description: Test default universal-only install
+---
+`), 0o644); err != nil {
+		t.Fatalf("WriteFile() error: %v", err)
+	}
+
+	targetDir := t.TempDir()
+	agents, _ := LoadAgents()
+	installer := NewInstaller(agents)
+
+	source := &ParsedSource{
+		Type:      SourceTypeLocal,
+		LocalPath: srcDir,
+	}
+
+	result, err := installer.InstallFromSource(source, InstallOptions{
+		TargetDir: targetDir,
+	})
+	if err != nil {
+		t.Fatalf("InstallFromSource() error: %v", err)
+	}
+
+	if len(result.InstalledSkills) != 1 {
+		t.Fatalf("expected 1 installed skill, got %d", len(result.InstalledSkills))
+	}
+
+	// Canonical dir should exist.
+	canonicalPath := filepath.Join(targetDir, ".agents", "skills", "universal-test")
+	if _, err := os.Stat(canonicalPath); err != nil {
+		t.Errorf("canonical directory not created: %v", err)
+	}
+
+	// No agent-specific directories should be created.
+	for _, agent := range agents {
+		if agent.Universal {
+			continue
+		}
+		agentDir := filepath.Join(targetDir, agent.SkillsDir, "universal-test")
+		if _, err := os.Stat(agentDir); err == nil {
+			t.Errorf("agent dir %s should not exist when no TargetAgents specified", agent.SkillsDir)
+		}
+	}
+
+	// Installed agents should only be universal ones.
+	installed := result.InstalledSkills[0]
+	for _, agentName := range installed.Agents {
+		found := false
+		for _, agent := range agents {
+			if agent.DisplayName == agentName && agent.Universal {
+				found = true
+				break
+			}
+		}
+		if !found {
+			t.Errorf("unexpected non-universal agent %q in installed agents", agentName)
+		}
 	}
 }
 
