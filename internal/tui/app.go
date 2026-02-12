@@ -81,6 +81,9 @@ type App struct {
 
 	// Toast notifications (replaces old statusText/err banner).
 	toast toastModel
+
+	// Confirmation dialog (replaces help bar when active).
+	confirm confirmModel
 }
 
 // NewApp creates a new App model with the given core dependencies.
@@ -115,6 +118,7 @@ func NewApp(config *core.ConfigManager, agents []core.AgentDef) App {
 		help:           h,
 		previewSpinner: s,
 		toast:          newToastModel(),
+		confirm:        newConfirmModel(),
 	}
 }
 
@@ -331,7 +335,22 @@ func (a App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		a.toast, cmd = a.toast.show(fmt.Sprintf("Error: %v", msg.err), toastError)
 		return a, cmd
 
+	case confirmResultMsg:
+		// Confirmation result — currently a no-op at the app level.
+		// Individual callers react via the onConfirm command they provided.
+		return a, nil
+
 	case tea.KeyMsg:
+		// Confirmation dialog intercepts all keys when active.
+		if a.confirm.active {
+			var cmd tea.Cmd
+			var consumed bool
+			a.confirm, cmd, consumed = a.confirm.update(msg)
+			if consumed {
+				return a, cmd
+			}
+		}
+
 		// Handle skill preview keys separately — viewport needs arrow/pgup/pgdn.
 		if a.activeView == viewSkillPreview {
 			if key.Matches(msg, keys.Back) || key.Matches(msg, keys.Quit) {
@@ -501,6 +520,11 @@ func (a App) View() string {
 		content = a.renderPreview()
 	case viewCloneError:
 		content = a.cloneError.view()
+	}
+
+	// If a confirmation dialog is active, overlay it on the content area.
+	if a.confirm.active {
+		content = a.confirm.view()
 	}
 
 	// Clamp content to the text area so it can't inflate the box.
@@ -682,6 +706,7 @@ func (a *App) propagateSize() {
 	a.install = a.install.setSize(w, h)
 	a.settings = a.settings.setSize(w, h)
 	a.cloneError = a.cloneError.setSize(w, h)
+	a.confirm = a.confirm.setSize(w, h)
 
 	// Update preview viewport if active.
 	if a.activeView == viewSkillPreview {

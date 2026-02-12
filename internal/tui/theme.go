@@ -101,6 +101,23 @@ var (
 	// Section header rule (the ─── line after the label).
 	sectionRuleStyle = lipgloss.NewStyle().
 				Foreground(colorBorder)
+
+	// Confirmation dialog.
+	dialogBoxStyle = lipgloss.NewStyle().
+			Border(lipgloss.RoundedBorder()).
+			BorderForeground(colorPrimary).
+			Padding(1, 2)
+
+	dialogButtonStyle = lipgloss.NewStyle().
+				Foreground(lipgloss.Color("#FFF7DB")).
+				Background(colorMuted).
+				Padding(0, 2)
+
+	dialogActiveButtonStyle = lipgloss.NewStyle().
+				Foreground(lipgloss.Color("#FFF7DB")).
+				Background(colorDanger).
+				Padding(0, 2).
+				Bold(true)
 )
 
 // renderSectionHeader renders a section label with short rules on both sides:

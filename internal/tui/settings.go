@@ -110,7 +110,7 @@ func (m settingsModel) update(msg tea.Msg, app *App) (settingsModel, tea.Cmd) {
 			return m.handleEnter(app)
 
 		case key.Matches(msg, keys.Delete):
-			return m, m.handleDelete(app)
+			return m.handleDelete(app)
 
 		case key.Matches(msg, keys.Refresh):
 			if m.section == settingsRegistries && len(m.cfg.Registries) > 0 {
@@ -219,12 +219,12 @@ func (m settingsModel) handleInputSubmit(value string, app *App) tea.Cmd {
 	return nil
 }
 
-func (m settingsModel) handleDelete(app *App) tea.Cmd {
+func (m settingsModel) handleDelete(app *App) (settingsModel, tea.Cmd) {
 	switch m.section {
 	case settingsRegistries:
 		if m.cursor < len(m.cfg.Registries) {
 			reg := m.cfg.Registries[m.cursor]
-			return func() tea.Msg {
+			deleteCmd := func() tea.Msg {
 				regMgr := core.NewRegistryManager(app.config.RegistriesDir())
 				_ = regMgr.Remove(reg.Repo)
 
@@ -244,20 +244,30 @@ func (m settingsModel) handleDelete(app *App) tea.Cmd {
 				}
 				return app.reloadConfig()()
 			}
+			app.confirm = app.confirm.show(
+				fmt.Sprintf("Remove registry %s?", reg.Name),
+				deleteCmd,
+			)
+			return m, nil
 		}
 
 	case settingsFolders:
 		if m.cursor < len(m.cfg.Folders) {
-			path := m.cfg.Folders[m.cursor].Path
-			return func() tea.Msg {
-				if err := app.folders.Remove(path); err != nil {
+			folder := m.cfg.Folders[m.cursor]
+			deleteCmd := func() tea.Msg {
+				if err := app.folders.Remove(folder.Path); err != nil {
 					return errMsg{err: err}
 				}
 				return app.reloadConfig()()
 			}
+			app.confirm = app.confirm.show(
+				fmt.Sprintf("Remove folder %s?", shortenPath(folder.Path)),
+				deleteCmd,
+			)
+			return m, nil
 		}
 	}
-	return nil
+	return m, nil
 }
 
 func (m settingsModel) refreshSelectedRegistry(app *App) tea.Cmd {
