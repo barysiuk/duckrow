@@ -82,6 +82,27 @@ func (fm *FolderManager) Remove(path string) error {
 	return nil
 }
 
+// IsTracked checks whether a folder path is in the tracked list.
+// The path is resolved to an absolute path before comparison.
+func (fm *FolderManager) IsTracked(path string) (bool, error) {
+	absPath, err := resolveFolderPath(path)
+	if err != nil {
+		return false, err
+	}
+
+	cfg, err := fm.config.Load()
+	if err != nil {
+		return false, fmt.Errorf("loading config: %w", err)
+	}
+
+	for _, f := range cfg.Folders {
+		if f.Path == absPath {
+			return true, nil
+		}
+	}
+	return false, nil
+}
+
 // List returns all tracked folders.
 func (fm *FolderManager) List() ([]TrackedFolder, error) {
 	cfg, err := fm.config.Load()
