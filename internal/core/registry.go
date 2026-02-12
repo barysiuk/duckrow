@@ -205,6 +205,7 @@ func readManifest(dir string) (*RegistryManifest, error) {
 }
 
 // gitClone clones a repository to the given directory.
+// On failure it returns a *CloneError with classified diagnostics.
 func gitClone(url, ref, destDir string, timeout time.Duration) error {
 	args := []string{"clone", "--depth", "1"}
 	if ref != "" {
@@ -217,13 +218,14 @@ func gitClone(url, ref, destDir string, timeout time.Duration) error {
 
 	output, err := runWithTimeout(cmd, timeout)
 	if err != nil {
-		return fmt.Errorf("git clone failed: %w\nOutput: %s", err, strings.TrimSpace(output))
+		return ClassifyCloneError(url, FormatCommand(url, ref), output)
 	}
 
 	return nil
 }
 
 // gitPull runs git pull in the given directory.
+// On failure it returns a *CloneError with classified diagnostics.
 func gitPull(dir string, timeout time.Duration) error {
 	cmd := exec.Command("git", "pull", "--ff-only")
 	cmd.Dir = dir
@@ -231,8 +233,21 @@ func gitPull(dir string, timeout time.Duration) error {
 
 	output, err := runWithTimeout(cmd, timeout)
 	if err != nil {
-		return fmt.Errorf("git pull failed: %w\nOutput: %s", err, strings.TrimSpace(output))
+		// Determine the remote URL for error classification.
+		remoteURL := gitRemoteURL(dir)
+		return ClassifyCloneError(remoteURL, "git pull --ff-only", output)
 	}
 
 	return nil
+}
+
+// gitRemoteURL reads the origin remote URL from a git repository.
+func gitRemoteURL(dir string) string {
+	cmd := exec.Command("git", "remote", "get-url", "origin")
+	cmd.Dir = dir
+	out, err := cmd.Output()
+	if err != nil {
+		return ""
+	}
+	return strings.TrimSpace(string(out))
 }

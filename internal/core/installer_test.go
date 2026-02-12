@@ -2,6 +2,7 @@ package core
 
 import (
 	"os"
+	"os/exec"
 	"path/filepath"
 	"testing"
 )
@@ -328,6 +329,142 @@ func TestSanitizeName(t *testing.T) {
 			}
 		})
 	}
+}
+
+func TestInstaller_CloneWithOverride(t *testing.T) {
+	if testing.Short() {
+		t.Skip("skipping integration test in short mode")
+	}
+
+	// Create a local git repo with a SKILL.md to serve as the "real" clone target.
+	repoDir := t.TempDir()
+	skillDir := filepath.Join(repoDir, "skills", "override-skill")
+	if err := os.MkdirAll(skillDir, 0o755); err != nil {
+		t.Fatalf("MkdirAll() error: %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(skillDir, "SKILL.md"), []byte(`---
+name: override-skill
+description: Skill installed via clone URL override
+metadata:
+  version: "1.0.0"
+---
+
+# Override Skill
+`), 0o644); err != nil {
+		t.Fatalf("WriteFile(SKILL.md) error: %v", err)
+	}
+
+	setupTestGitRepoInDir(t, repoDir)
+
+	// Parse a source as "fake-owner/fake-repo" — this would normally try GitHub.
+	source, err := ParseSource("fake-owner/fake-repo")
+	if err != nil {
+		t.Fatalf("ParseSource() error: %v", err)
+	}
+
+	// The default CloneURL points to https://github.com/fake-owner/fake-repo.git
+	// which doesn't exist. Apply an override to redirect to the local git repo.
+	overrides := map[string]string{
+		"fake-owner/fake-repo": repoDir,
+	}
+	applied := source.ApplyCloneURLOverride(overrides)
+	if !applied {
+		t.Fatal("expected override to be applied")
+	}
+	if source.CloneURL != repoDir {
+		t.Fatalf("CloneURL = %q, want %q", source.CloneURL, repoDir)
+	}
+
+	targetDir := t.TempDir()
+	agents, _ := LoadAgents()
+	installer := NewInstaller(agents)
+
+	result, err := installer.InstallFromSource(source, InstallOptions{
+		TargetDir: targetDir,
+	})
+	if err != nil {
+		t.Fatalf("InstallFromSource() error: %v", err)
+	}
+
+	if len(result.InstalledSkills) != 1 {
+		t.Fatalf("expected 1 installed skill, got %d", len(result.InstalledSkills))
+	}
+	if result.InstalledSkills[0].Name != "override-skill" {
+		t.Errorf("Name = %q, want %q", result.InstalledSkills[0].Name, "override-skill")
+	}
+
+	// Verify the SKILL.md is on disk
+	skillMd := filepath.Join(targetDir, ".agents", "skills", "override-skill", "SKILL.md")
+	if !fileExists(skillMd) {
+		t.Error("SKILL.md not found after install with override")
+	}
+}
+
+func TestInstaller_CloneFailureReturnsCloneError(t *testing.T) {
+	if testing.Short() {
+		t.Skip("skipping integration test in short mode")
+	}
+
+	// Try to install from a nonexistent repository.
+	source := &ParsedSource{
+		Type:     SourceTypeGitHub,
+		Owner:    "nonexistent-owner-xyz",
+		Repo:     "nonexistent-repo-xyz",
+		CloneURL: "https://github.com/nonexistent-owner-xyz/nonexistent-repo-xyz.git",
+	}
+
+	targetDir := t.TempDir()
+	agents, _ := LoadAgents()
+	installer := NewInstaller(agents)
+
+	_, err := installer.InstallFromSource(source, InstallOptions{
+		TargetDir: targetDir,
+	})
+	if err == nil {
+		t.Fatal("expected error when cloning nonexistent repo")
+	}
+
+	ce, ok := IsCloneError(err)
+	if !ok {
+		t.Fatalf("expected *CloneError, got %T: %v", err, err)
+	}
+
+	if ce.URL != source.CloneURL {
+		t.Errorf("CloneError.URL = %q, want %q", ce.URL, source.CloneURL)
+	}
+	if ce.Kind == CloneErrUnknown {
+		// It should be classified as something meaningful (auth, not found, etc.)
+		// but this depends on network — just verify it's a real CloneError.
+		t.Logf("CloneError.Kind = %s (acceptable for network-dependent test)", ce.Kind)
+	}
+}
+
+// setupTestGitRepoInDir initializes a git repo in an existing directory.
+// Unlike setupTestGitRepo (in registry_test.go) which also writes a duckrow.json,
+// this only runs git init/add/commit on whatever files are already in the dir.
+func setupTestGitRepoInDir(t *testing.T, dir string) {
+	t.Helper()
+
+	runGit := func(args ...string) {
+		t.Helper()
+		cmd := exec.Command("git", args...)
+		cmd.Dir = dir
+		cmd.Env = append(os.Environ(),
+			"GIT_AUTHOR_NAME=Test",
+			"GIT_AUTHOR_EMAIL=test@test.com",
+			"GIT_COMMITTER_NAME=Test",
+			"GIT_COMMITTER_EMAIL=test@test.com",
+		)
+		out, err := cmd.CombinedOutput()
+		if err != nil {
+			t.Fatalf("git %v failed: %v\n%s", args, err, out)
+		}
+	}
+
+	runGit("init")
+	runGit("checkout", "-b", "main")
+	runGit("add", ".")
+	runGit("commit", "-m", "initial")
 }
 
 func TestInstaller_CloneAndInstall(t *testing.T) {

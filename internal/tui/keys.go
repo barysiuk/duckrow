@@ -17,6 +17,8 @@ type keyMap struct {
 	Delete       key.Binding
 	Refresh      key.Binding
 	Filter       key.Binding
+	Edit         key.Binding
+	Retry        key.Binding
 }
 
 var keys = keyMap{
@@ -71,6 +73,14 @@ var keys = keyMap{
 	Filter: key.NewBinding(
 		key.WithKeys("/"),
 		key.WithHelp("/", "filter"),
+	),
+	Edit: key.NewBinding(
+		key.WithKeys("e"),
+		key.WithHelp("e", "edit URL"),
+	),
+	Retry: key.NewBinding(
+		key.WithKeys("r"),
+		key.WithHelp("r", "retry"),
 	),
 }
 
@@ -151,5 +161,29 @@ func (k previewHelpKeyMap) ShortHelp() []key.Binding {
 }
 
 func (k previewHelpKeyMap) FullHelp() [][]key.Binding {
+	return [][]key.Binding{k.ShortHelp()}
+}
+
+// cloneErrorHelpKeyMap is shown in the clone error overlay.
+type cloneErrorHelpKeyMap struct {
+	editing  bool
+	retrying bool
+}
+
+func (k cloneErrorHelpKeyMap) ShortHelp() []key.Binding {
+	if k.retrying {
+		return []key.Binding{} // No keys during retry.
+	}
+	if k.editing {
+		return []key.Binding{
+			keys.Enter, keys.Back,
+		}
+	}
+	return []key.Binding{
+		keys.Edit, keys.Retry, keys.Back,
+	}
+}
+
+func (k cloneErrorHelpKeyMap) FullHelp() [][]key.Binding {
 	return [][]key.Binding{k.ShortHelp()}
 }

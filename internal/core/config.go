@@ -99,6 +99,27 @@ func (cm *ConfigManager) RegistriesDir() string {
 	return filepath.Join(cm.configDir, "registries")
 }
 
+// SaveCloneURLOverride persists a clone URL override for the given repo key.
+// The repoKey should be "owner/repo" (lowercase). This performs an atomic
+// load-modify-save so concurrent callers don't lose data.
+func (cm *ConfigManager) SaveCloneURLOverride(repoKey, cloneURL string) error {
+	if repoKey == "" || cloneURL == "" {
+		return nil
+	}
+
+	cfg, err := cm.Load()
+	if err != nil {
+		return fmt.Errorf("loading config for clone URL override: %w", err)
+	}
+
+	if cfg.Settings.CloneURLOverrides == nil {
+		cfg.Settings.CloneURLOverrides = make(map[string]string)
+	}
+	cfg.Settings.CloneURLOverrides[repoKey] = cloneURL
+
+	return cm.Save(cfg)
+}
+
 func defaultConfig() *Config {
 	return &Config{
 		Folders:    []TrackedFolder{},

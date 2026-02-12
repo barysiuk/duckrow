@@ -49,6 +49,12 @@ func TestScript(t *testing.T) {
 			// dir-not-exists asserts that a directory does not exist.
 			// Usage: [!] dir-not-exists <path>
 			"dir-not-exists": cmdDirNotExists,
+
+			// setup-config-override writes a config.json with a clone URL override.
+			// Usage: setup-config-override <repo-key> <clone-url>
+			// Creates ~/.duckrow/config.json with the override mapping.
+			// <repo-key> is "owner/repo" and <clone-url> is the target URL.
+			"setup-config-override": cmdSetupConfigOverride,
 		},
 	})
 }
@@ -208,4 +214,53 @@ func searchString(s, substr string) bool {
 		}
 	}
 	return false
+}
+
+// cmdSetupConfigOverride creates a config.json with a clone URL override.
+func cmdSetupConfigOverride(ts *testscript.TestScript, neg bool, args []string) {
+	if neg {
+		ts.Fatalf("setup-config-override does not support negation")
+	}
+	if len(args) != 2 {
+		ts.Fatalf("usage: setup-config-override <repo-key> <clone-url>")
+	}
+
+	repoKey := args[0]
+	cloneURL := ts.MkAbs(args[1]) // Resolve relative paths to absolute
+
+	// Config lives at $HOME/.duckrow/config.json (HOME is set to WORK in setup)
+	home := ts.Getenv("HOME")
+	configDir := filepath.Join(home, ".duckrow")
+	if err := os.MkdirAll(configDir, 0o755); err != nil {
+		ts.Fatalf("creating config dir: %v", err)
+	}
+
+	type settings struct {
+		AutoAddCurrentDir bool              `json:"autoAddCurrentDir"`
+		CloneURLOverrides map[string]string `json:"cloneURLOverrides,omitempty"`
+	}
+	type config struct {
+		Folders    []interface{} `json:"folders"`
+		Registries []interface{} `json:"registries"`
+		Settings   settings      `json:"settings"`
+	}
+
+	cfg := config{
+		Folders:    []interface{}{},
+		Registries: []interface{}{},
+		Settings: settings{
+			AutoAddCurrentDir: true,
+			CloneURLOverrides: map[string]string{
+				repoKey: cloneURL,
+			},
+		},
+	}
+
+	data, err := json.MarshalIndent(cfg, "", "  ")
+	if err != nil {
+		ts.Fatalf("marshaling config: %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(configDir, "config.json"), data, 0o644); err != nil {
+		ts.Fatalf("writing config: %v", err)
+	}
 }

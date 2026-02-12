@@ -1,6 +1,7 @@
 package core
 
 import (
+	"fmt"
 	"os"
 	"path/filepath"
 	"testing"
@@ -300,6 +301,123 @@ description: A skill at a specific path
 	}
 	if len(skills) != 1 {
 		t.Fatalf("expected 1 skill, got %d", len(skills))
+	}
+}
+
+func TestDiscoverSkills_DeeplyNested(t *testing.T) {
+	dir := t.TempDir()
+
+	// Create skills nested multiple levels deep (like pandadoc-studio/skills repo)
+	// skills/communication/granola-digest/SKILL.md
+	// skills/engineering/dokploy/SKILL.md
+	paths := []struct {
+		dir  string
+		name string
+	}{
+		{"skills/communication/granola-digest", "granola-digest"},
+		{"skills/communication/slack-digest", "slack-digest"},
+		{"skills/engineering/dokploy", "dokploy"},
+	}
+
+	for _, p := range paths {
+		skillDir := filepath.Join(dir, p.dir)
+		if err := os.MkdirAll(skillDir, 0o755); err != nil {
+			t.Fatalf("MkdirAll() error: %v", err)
+		}
+		content := fmt.Sprintf("---\nname: %s\ndescription: A test skill\n---\n", p.name)
+		if err := os.WriteFile(filepath.Join(skillDir, "SKILL.md"), []byte(content), 0o644); err != nil {
+			t.Fatalf("WriteFile() error: %v", err)
+		}
+	}
+
+	// Should find all 3 skills recursively.
+	skills, err := DiscoverSkills(dir, "", false)
+	if err != nil {
+		t.Fatalf("DiscoverSkills() error: %v", err)
+	}
+	if len(skills) != 3 {
+		t.Fatalf("expected 3 skills, got %d", len(skills))
+	}
+
+	names := make(map[string]bool)
+	for _, s := range skills {
+		names[s.Metadata.Name] = true
+	}
+	for _, p := range paths {
+		if !names[p.name] {
+			t.Errorf("expected to find skill %q", p.name)
+		}
+	}
+}
+
+func TestDiscoverSkills_DeeplyNestedWithSubpath(t *testing.T) {
+	dir := t.TempDir()
+
+	// Simulate registry source "owner/repo/skills/communication/granola-digest"
+	// where SubPath = "skills/communication/granola-digest"
+	skillDir := filepath.Join(dir, "skills", "communication", "granola-digest")
+	if err := os.MkdirAll(skillDir, 0o755); err != nil {
+		t.Fatalf("MkdirAll() error: %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(skillDir, "SKILL.md"), []byte(`---
+name: granola-digest
+description: A test skill
+---
+`), 0o644); err != nil {
+		t.Fatalf("WriteFile() error: %v", err)
+	}
+
+	// With exact subpath, should find the skill.
+	skills, err := DiscoverSkills(dir, "skills/communication/granola-digest", false)
+	if err != nil {
+		t.Fatalf("DiscoverSkills() error: %v", err)
+	}
+	if len(skills) != 1 {
+		t.Fatalf("expected 1 skill, got %d", len(skills))
+	}
+	if skills[0].Metadata.Name != "granola-digest" {
+		t.Errorf("Name = %q, want %q", skills[0].Metadata.Name, "granola-digest")
+	}
+}
+
+func TestDiscoverSkills_SkipsHiddenDirs(t *testing.T) {
+	dir := t.TempDir()
+
+	// Skill in .git should be skipped.
+	gitSkillDir := filepath.Join(dir, ".git", "hooks", "my-skill")
+	if err := os.MkdirAll(gitSkillDir, 0o755); err != nil {
+		t.Fatalf("MkdirAll() error: %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(gitSkillDir, "SKILL.md"), []byte(`---
+name: git-skill
+description: Should not be found
+---
+`), 0o644); err != nil {
+		t.Fatalf("WriteFile() error: %v", err)
+	}
+
+	// Skill in .agents should be found (it's exempt).
+	agentsSkillDir := filepath.Join(dir, ".agents", "skills", "real-skill")
+	if err := os.MkdirAll(agentsSkillDir, 0o755); err != nil {
+		t.Fatalf("MkdirAll() error: %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(agentsSkillDir, "SKILL.md"), []byte(`---
+name: real-skill
+description: Should be found
+---
+`), 0o644); err != nil {
+		t.Fatalf("WriteFile() error: %v", err)
+	}
+
+	skills, err := DiscoverSkills(dir, "", false)
+	if err != nil {
+		t.Fatalf("DiscoverSkills() error: %v", err)
+	}
+	if len(skills) != 1 {
+		t.Fatalf("expected 1 skill, got %d", len(skills))
+	}
+	if skills[0].Metadata.Name != "real-skill" {
+		t.Errorf("Name = %q, want %q", skills[0].Metadata.Name, "real-skill")
 	}
 }
 
