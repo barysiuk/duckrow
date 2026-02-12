@@ -3,7 +3,10 @@ package cmd
 import (
 	"fmt"
 
+	tea "github.com/charmbracelet/bubbletea"
 	"github.com/spf13/cobra"
+
+	"github.com/barysiuk/duckrow/internal/tui"
 )
 
 // Version info set via ldflags at build time.
@@ -19,9 +22,22 @@ var rootCmd = &cobra.Command{
 	Long: `DuckRow manages AI agent skills across multiple project folders.
 
 Track folders, install and remove skills, manage private registries,
-and see what's installed everywhere - all from a single tool.`,
+and see what's installed everywhere - all from a single tool.
+
+Run without arguments to launch the interactive TUI.`,
 	SilenceUsage:  true,
 	SilenceErrors: true,
+	RunE: func(cmd *cobra.Command, args []string) error {
+		d, err := newDeps()
+		if err != nil {
+			return err
+		}
+
+		app := tui.NewApp(d.config, d.agents)
+		p := tea.NewProgram(app, tea.WithAltScreen())
+		_, err = p.Run()
+		return err
+	},
 }
 
 var versionCmd = &cobra.Command{
