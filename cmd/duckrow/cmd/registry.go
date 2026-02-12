@@ -3,6 +3,7 @@ package cmd
 import (
 	"fmt"
 	"os"
+	"strings"
 
 	"github.com/barysiuk/duckrow/internal/core"
 	"github.com/spf13/cobra"
@@ -37,9 +38,9 @@ The repository must contain a duckrow.json manifest at its root.`,
 			return err
 		}
 
-		// Check if registry already exists in config
+		// Check if registry with same repo already exists in config
 		for _, r := range cfg.Registries {
-			if r.Name == manifest.Name {
+			if r.Repo == args[0] {
 				fmt.Fprintf(os.Stdout, "Updated registry: %s (%d skills)\n", manifest.Name, len(manifest.Skills))
 				return nil
 			}
@@ -89,7 +90,7 @@ var registryListCmd = &cobra.Command{
 
 		fmt.Fprintf(os.Stdout, "Registries (%d):\n", len(cfg.Registries))
 		for _, reg := range cfg.Registries {
-			manifest, err := rm.LoadManifest(reg.Name)
+			manifest, err := rm.LoadManifest(reg.Repo)
 			if err != nil {
 				fmt.Fprintf(os.Stdout, "  %s  %s  (error: %v)\n", reg.Name, reg.Repo, err)
 				continue
@@ -112,9 +113,9 @@ var registryListCmd = &cobra.Command{
 }
 
 var registryRefreshCmd = &cobra.Command{
-	Use:   "refresh [name]",
+	Use:   "refresh [name-or-repo]",
 	Short: "Refresh registry data",
-	Long:  `Pull latest changes for a registry. If no name given, refreshes all registries.`,
+	Long:  `Pull latest changes for a registry. If no argument given, refreshes all registries. Accepts a registry name or repo URL.`,
 	Args:  cobra.MaximumNArgs(1),
 	RunE: func(cmd *cobra.Command, args []string) error {
 		d, err := newDeps()
@@ -130,8 +131,12 @@ var registryRefreshCmd = &cobra.Command{
 		rm := core.NewRegistryManager(d.config.RegistriesDir())
 
 		if len(args) > 0 {
-			// Refresh specific registry
-			manifest, err := rm.Refresh(args[0])
+			// Find the registry by name or repo URL
+			reg, err := findRegistry(cfg.Registries, args[0])
+			if err != nil {
+				return err
+			}
+			manifest, err := rm.Refresh(reg.Repo)
 			if err != nil {
 				return err
 			}
@@ -146,7 +151,7 @@ var registryRefreshCmd = &cobra.Command{
 		}
 
 		for _, reg := range cfg.Registries {
-			manifest, err := rm.Refresh(reg.Name)
+			manifest, err := rm.Refresh(reg.Repo)
 			if err != nil {
 				fmt.Fprintf(os.Stderr, "Error refreshing %s: %v\n", reg.Name, err)
 				continue
@@ -158,9 +163,9 @@ var registryRefreshCmd = &cobra.Command{
 }
 
 var registryRemoveCmd = &cobra.Command{
-	Use:   "remove <name>",
+	Use:   "remove <name-or-repo>",
 	Short: "Remove a registry",
-	Long:  `Remove a registry from the config and delete its local clone.`,
+	Long:  `Remove a registry from the config and delete its local clone. Accepts a registry name or repo URL.`,
 	Args:  cobra.ExactArgs(1),
 	RunE: func(cmd *cobra.Command, args []string) error {
 		d, err := newDeps()
@@ -173,19 +178,19 @@ var registryRemoveCmd = &cobra.Command{
 			return fmt.Errorf("loading config: %w", err)
 		}
 
-		// Remove from config
-		found := false
+		// Find the registry by name or repo URL
+		reg, err := findRegistry(cfg.Registries, args[0])
+		if err != nil {
+			return err
+		}
+
+		// Remove from config (match by repo URL for precision)
 		registries := make([]core.Registry, 0, len(cfg.Registries))
 		for _, r := range cfg.Registries {
-			if r.Name == args[0] {
-				found = true
+			if r.Repo == reg.Repo {
 				continue
 			}
 			registries = append(registries, r)
-		}
-
-		if !found {
-			return fmt.Errorf("registry %q not found in config", args[0])
 		}
 
 		cfg.Registries = registries
@@ -195,14 +200,49 @@ var registryRemoveCmd = &cobra.Command{
 
 		// Remove local clone
 		rm := core.NewRegistryManager(d.config.RegistriesDir())
-		if err := rm.Remove(args[0]); err != nil {
+		if err := rm.Remove(reg.Repo); err != nil {
 			// Not fatal — config is already updated
 			fmt.Fprintf(os.Stderr, "Warning: could not remove local clone: %v\n", err)
 		}
 
-		fmt.Fprintf(os.Stdout, "Removed registry: %s\n", args[0])
+		fmt.Fprintf(os.Stdout, "Removed registry: %s\n", reg.Name)
 		return nil
 	},
+}
+
+// findRegistry resolves a registry argument (name or repo URL) to a single Registry.
+// If the argument matches a repo URL exactly, that registry is returned.
+// If it matches a name and only one registry has that name, it is returned.
+// If multiple registries share the name, an error lists the repo URLs.
+func findRegistry(registries []core.Registry, arg string) (*core.Registry, error) {
+	// Try exact repo match first
+	for i := range registries {
+		if registries[i].Repo == arg {
+			return &registries[i], nil
+		}
+	}
+
+	// Try name match
+	var matches []core.Registry
+	for _, r := range registries {
+		if r.Name == arg {
+			matches = append(matches, r)
+		}
+	}
+
+	switch len(matches) {
+	case 0:
+		return nil, fmt.Errorf("registry %q not found", arg)
+	case 1:
+		return &matches[0], nil
+	default:
+		var repos []string
+		for _, m := range matches {
+			repos = append(repos, m.Repo)
+		}
+		return nil, fmt.Errorf("multiple registries named %q; specify the repo URL instead:\n  %s",
+			arg, strings.Join(repos, "\n  "))
+	}
 }
 
 func init() {

@@ -23,6 +23,49 @@ func createTestManifest(t *testing.T, dir string, manifest RegistryManifest) {
 	}
 }
 
+// createTestRegistryClone creates a fake registry clone in the registries dir
+// at the path derived from the repo URL (using RegistryDirKey).
+func createTestRegistryClone(t *testing.T, registriesDir, repoURL string, manifest RegistryManifest) string {
+	t.Helper()
+	dirKey := RegistryDirKey(repoURL)
+	regDir := filepath.Join(registriesDir, dirKey)
+	createTestManifest(t, regDir, manifest)
+	return regDir
+}
+
+func TestRegistryDirKey(t *testing.T) {
+	t.Run("different repos produce different keys", func(t *testing.T) {
+		key1 := RegistryDirKey("git@github.com:org/repo-a.git")
+		key2 := RegistryDirKey("git@github.com:org/repo-b.git")
+		if key1 == key2 {
+			t.Errorf("expected different keys, got %q for both", key1)
+		}
+	})
+
+	t.Run("same repo produces same key", func(t *testing.T) {
+		key1 := RegistryDirKey("git@github.com:org/repo.git")
+		key2 := RegistryDirKey("git@github.com:org/repo.git")
+		if key1 != key2 {
+			t.Errorf("expected same key, got %q and %q", key1, key2)
+		}
+	})
+
+	t.Run("includes readable part from SSH URL", func(t *testing.T) {
+		key := RegistryDirKey("git@github.com:myorg/skills.git")
+		// Should contain "myorg-skills" prefix
+		if len(key) < 10 {
+			t.Errorf("key %q seems too short", key)
+		}
+	})
+
+	t.Run("includes readable part from HTTPS URL", func(t *testing.T) {
+		key := RegistryDirKey("https://github.com/myorg/skills.git")
+		if len(key) < 10 {
+			t.Errorf("key %q seems too short", key)
+		}
+	})
+}
+
 func TestReadManifest(t *testing.T) {
 	t.Run("parses valid manifest", func(t *testing.T) {
 		dir := t.TempDir()
@@ -111,9 +154,8 @@ func TestRegistryManager_LoadManifest(t *testing.T) {
 		registriesDir := t.TempDir()
 		rm := NewRegistryManager(registriesDir)
 
-		// Create a fake registry clone
-		regDir := filepath.Join(registriesDir, "my-org")
-		createTestManifest(t, regDir, RegistryManifest{
+		repoURL := "git@example.com:my-org/skills.git"
+		createTestRegistryClone(t, registriesDir, repoURL, RegistryManifest{
 			Name:        "my-org",
 			Description: "My org skills",
 			Skills: []SkillEntry{
@@ -121,7 +163,7 @@ func TestRegistryManager_LoadManifest(t *testing.T) {
 			},
 		})
 
-		manifest, err := rm.LoadManifest("my-org")
+		manifest, err := rm.LoadManifest(repoURL)
 		if err != nil {
 			t.Fatalf("LoadManifest() error = %v", err)
 		}
@@ -138,7 +180,7 @@ func TestRegistryManager_LoadManifest(t *testing.T) {
 		registriesDir := t.TempDir()
 		rm := NewRegistryManager(registriesDir)
 
-		_, err := rm.LoadManifest("nonexistent")
+		_, err := rm.LoadManifest("git@example.com:nonexistent.git")
 		if err == nil {
 			t.Fatal("expected error for nonexistent registry")
 		}
@@ -149,19 +191,21 @@ func TestRegistryManager_LoadAllManifests(t *testing.T) {
 	registriesDir := t.TempDir()
 	rm := NewRegistryManager(registriesDir)
 
-	// Create two fake registry clones
-	createTestManifest(t, filepath.Join(registriesDir, "org-a"), RegistryManifest{
+	repoA := "git@example.com:a.git"
+	repoB := "git@example.com:b.git"
+
+	createTestRegistryClone(t, registriesDir, repoA, RegistryManifest{
 		Name:   "org-a",
 		Skills: []SkillEntry{{Name: "s1", Description: "S1", Source: "a/s1"}},
 	})
-	createTestManifest(t, filepath.Join(registriesDir, "org-b"), RegistryManifest{
+	createTestRegistryClone(t, registriesDir, repoB, RegistryManifest{
 		Name:   "org-b",
 		Skills: []SkillEntry{{Name: "s2", Description: "S2", Source: "b/s2"}},
 	})
 
 	registries := []Registry{
-		{Name: "org-a", Repo: "git@example.com:a.git"},
-		{Name: "org-b", Repo: "git@example.com:b.git"},
+		{Name: "org-a", Repo: repoA},
+		{Name: "org-b", Repo: repoB},
 		{Name: "org-missing", Repo: "git@example.com:missing.git"},
 	}
 
@@ -169,11 +213,11 @@ func TestRegistryManager_LoadAllManifests(t *testing.T) {
 	if len(results) != 2 {
 		t.Fatalf("len(results) = %d, want 2", len(results))
 	}
-	if results["org-a"].Name != "org-a" {
-		t.Errorf("org-a manifest name = %q", results["org-a"].Name)
+	if results[repoA].Name != "org-a" {
+		t.Errorf("org-a manifest name = %q", results[repoA].Name)
 	}
-	if results["org-b"].Name != "org-b" {
-		t.Errorf("org-b manifest name = %q", results["org-b"].Name)
+	if results[repoB].Name != "org-b" {
+		t.Errorf("org-b manifest name = %q", results[repoB].Name)
 	}
 }
 
@@ -181,14 +225,17 @@ func TestRegistryManager_ListSkills(t *testing.T) {
 	registriesDir := t.TempDir()
 	rm := NewRegistryManager(registriesDir)
 
-	createTestManifest(t, filepath.Join(registriesDir, "org-a"), RegistryManifest{
+	repoA := "git@example.com:a.git"
+	repoB := "git@example.com:b.git"
+
+	createTestRegistryClone(t, registriesDir, repoA, RegistryManifest{
 		Name: "org-a",
 		Skills: []SkillEntry{
 			{Name: "s1", Description: "S1", Source: "a/s1"},
 			{Name: "s2", Description: "S2", Source: "a/s2"},
 		},
 	})
-	createTestManifest(t, filepath.Join(registriesDir, "org-b"), RegistryManifest{
+	createTestRegistryClone(t, registriesDir, repoB, RegistryManifest{
 		Name: "org-b",
 		Skills: []SkillEntry{
 			{Name: "s3", Description: "S3", Source: "b/s3"},
@@ -196,8 +243,8 @@ func TestRegistryManager_ListSkills(t *testing.T) {
 	})
 
 	registries := []Registry{
-		{Name: "org-a", Repo: "git@example.com:a.git"},
-		{Name: "org-b", Repo: "git@example.com:b.git"},
+		{Name: "org-a", Repo: repoA},
+		{Name: "org-b", Repo: repoB},
 	}
 
 	skills := rm.ListSkills(registries)
@@ -209,11 +256,63 @@ func TestRegistryManager_ListSkills(t *testing.T) {
 	if skills[0].RegistryName != "org-a" {
 		t.Errorf("skills[0].RegistryName = %q, want %q", skills[0].RegistryName, "org-a")
 	}
+	if skills[0].RegistryRepo != repoA {
+		t.Errorf("skills[0].RegistryRepo = %q, want %q", skills[0].RegistryRepo, repoA)
+	}
 	if skills[0].Skill.Name != "s1" {
 		t.Errorf("skills[0].Skill.Name = %q, want %q", skills[0].Skill.Name, "s1")
 	}
 	if skills[2].RegistryName != "org-b" {
 		t.Errorf("skills[2].RegistryName = %q, want %q", skills[2].RegistryName, "org-b")
+	}
+	if skills[2].RegistryRepo != repoB {
+		t.Errorf("skills[2].RegistryRepo = %q, want %q", skills[2].RegistryRepo, repoB)
+	}
+}
+
+func TestRegistryManager_ListSkills_SameNameDifferentRepos(t *testing.T) {
+	registriesDir := t.TempDir()
+	rm := NewRegistryManager(registriesDir)
+
+	repoA := "git@github.com:org/registry-a.git"
+	repoB := "git@github.com:org/registry-b.git"
+
+	// Both registries have the same manifest name but different repos
+	createTestRegistryClone(t, registriesDir, repoA, RegistryManifest{
+		Name: "same-name",
+		Skills: []SkillEntry{
+			{Name: "skill-from-a", Description: "From A", Source: "a/skill"},
+		},
+	})
+	createTestRegistryClone(t, registriesDir, repoB, RegistryManifest{
+		Name: "same-name",
+		Skills: []SkillEntry{
+			{Name: "skill-from-b", Description: "From B", Source: "b/skill"},
+		},
+	})
+
+	registries := []Registry{
+		{Name: "same-name", Repo: repoA},
+		{Name: "same-name", Repo: repoB},
+	}
+
+	skills := rm.ListSkills(registries)
+	if len(skills) != 2 {
+		t.Fatalf("len(skills) = %d, want 2 (one from each registry)", len(skills))
+	}
+
+	// Each skill should come from a different repo
+	if skills[0].Skill.Name != "skill-from-a" {
+		t.Errorf("skills[0].Skill.Name = %q, want %q", skills[0].Skill.Name, "skill-from-a")
+	}
+	if skills[0].RegistryRepo != repoA {
+		t.Errorf("skills[0].RegistryRepo = %q, want %q", skills[0].RegistryRepo, repoA)
+	}
+	if skills[1].Skill.Name != "skill-from-b" {
+		t.Errorf("skills[1].Skill.Name = %q, want %q", skills[1].Skill.Name, "skill-from-b")
+	}
+	if skills[1].RegistryRepo != repoB {
+		t.Errorf("skills[1].RegistryRepo = %q, want %q", skills[1].RegistryRepo, repoB)
 	}
 }
 
@@ -222,10 +321,10 @@ func TestRegistryManager_Remove(t *testing.T) {
 		registriesDir := t.TempDir()
 		rm := NewRegistryManager(registriesDir)
 
-		regDir := filepath.Join(registriesDir, "to-delete")
-		createTestManifest(t, regDir, RegistryManifest{Name: "to-delete"})
+		repoURL := "git@example.com:org/to-delete.git"
+		regDir := createTestRegistryClone(t, registriesDir, repoURL, RegistryManifest{Name: "to-delete"})
 
-		err := rm.Remove("to-delete")
+		err := rm.Remove(repoURL)
 		if err != nil {
 			t.Fatalf("Remove() error = %v", err)
 		}
@@ -239,19 +338,19 @@ func TestRegistryManager_Remove(t *testing.T) {
 		registriesDir := t.TempDir()
 		rm := NewRegistryManager(registriesDir)
 
-		err := rm.Remove("nonexistent")
+		err := rm.Remove("git@example.com:nonexistent.git")
 		if err == nil {
 			t.Fatal("expected error for nonexistent registry")
 		}
 	})
 
-	t.Run("error when name is empty", func(t *testing.T) {
+	t.Run("error when repo URL is empty", func(t *testing.T) {
 		registriesDir := t.TempDir()
 		rm := NewRegistryManager(registriesDir)
 
 		err := rm.Remove("")
 		if err == nil {
-			t.Fatal("expected error for empty name")
+			t.Fatal("expected error for empty repo URL")
 		}
 	})
 }
@@ -279,14 +378,15 @@ func TestRegistryManager_Add_Integration(t *testing.T) {
 			t.Errorf("manifest.Name = %q, want %q", manifest.Name, "test-org")
 		}
 
-		// Verify clone exists at named location
-		namedDir := filepath.Join(registriesDir, "test-org")
-		if !dirExists(namedDir) {
+		// Verify clone exists at repo-key-derived location
+		dirKey := RegistryDirKey(bareRepo)
+		keyedDir := filepath.Join(registriesDir, dirKey)
+		if !dirExists(keyedDir) {
 			t.Error("registry not cloned to expected location")
 		}
 
-		// Verify manifest can be loaded
-		loaded, err := rm.LoadManifest("test-org")
+		// Verify manifest can be loaded by repo URL
+		loaded, err := rm.LoadManifest(bareRepo)
 		if err != nil {
 			t.Fatalf("LoadManifest() after Add() error = %v", err)
 		}
@@ -338,8 +438,8 @@ func TestRegistryManager_Refresh_Integration(t *testing.T) {
 			t.Fatalf("Add() error = %v", err)
 		}
 
-		// Refresh should succeed (even though nothing changed)
-		manifest, err := rm.Refresh("test-org")
+		// Refresh should succeed (even though nothing changed) — use repo URL
+		manifest, err := rm.Refresh(bareRepo)
 		if err != nil {
 			t.Fatalf("Refresh() error = %v", err)
 		}
@@ -353,19 +453,19 @@ func TestRegistryManager_Refresh_Integration(t *testing.T) {
 		registriesDir := t.TempDir()
 		rm := NewRegistryManager(registriesDir)
 
-		_, err := rm.Refresh("nonexistent")
+		_, err := rm.Refresh("git@example.com:nonexistent.git")
 		if err == nil {
 			t.Fatal("expected error for nonexistent registry")
 		}
 	})
 
-	t.Run("error when name is empty", func(t *testing.T) {
+	t.Run("error when repo URL is empty", func(t *testing.T) {
 		registriesDir := t.TempDir()
 		rm := NewRegistryManager(registriesDir)
 
 		_, err := rm.Refresh("")
 		if err == nil {
-			t.Fatal("expected error for empty name")
+			t.Fatal("expected error for empty repo URL")
 		}
 	})
 }
@@ -410,7 +510,8 @@ func TestRegistryManager_Add_CloneError(t *testing.T) {
 		}
 
 		// Verify the remote URL of the clone matches the source
-		cloneDir := filepath.Join(registriesDir, "test-org")
+		dirKey := RegistryDirKey(bareRepo)
+		cloneDir := filepath.Join(registriesDir, dirKey)
 		remoteURL := gitRemoteURL(cloneDir)
 		if remoteURL != bareRepo {
 			t.Errorf("remote URL = %q, want %q", remoteURL, bareRepo)

@@ -84,7 +84,10 @@ func (m settingsModel) update(msg tea.Msg, app *App) (settingsModel, tea.Cmd) {
 				m.textInput.Blur()
 				m.textInput.SetValue("")
 				if value != "" {
-					return m, m.handleInputSubmit(value, app)
+					submitCmd := m.handleInputSubmit(value, app)
+					var toastCmd tea.Cmd
+					app.toast, toastCmd = app.toast.show("Adding registry...", toastLoading)
+					return m, tea.Batch(submitCmd, toastCmd)
 				}
 				return m, nil
 			default:
@@ -111,7 +114,11 @@ func (m settingsModel) update(msg tea.Msg, app *App) (settingsModel, tea.Cmd) {
 
 		case key.Matches(msg, keys.Refresh):
 			if m.section == settingsRegistries && len(m.cfg.Registries) > 0 {
-				return m, m.refreshSelectedRegistry(app)
+				refreshCmd := m.refreshSelectedRegistry(app)
+				regName := m.cfg.Registries[m.cursor].Name
+				var toastCmd tea.Cmd
+				app.toast, toastCmd = app.toast.show("Refreshing "+regName+"...", toastLoading)
+				return m, tea.Batch(refreshCmd, toastCmd)
 			}
 			return m, nil
 		}
@@ -188,10 +195,16 @@ func (m settingsModel) handleInputSubmit(value string, app *App) tea.Cmd {
 				return registryAddDoneMsg{url: value, err: fmt.Errorf("adding registry: %w", err)}
 			}
 
-			// Save registry to config.
+			// Save registry to config (skip if same repo already exists).
 			cfg, err := app.config.Load()
 			if err != nil {
 				return registryAddDoneMsg{url: value, err: err}
+			}
+			for _, r := range cfg.Registries {
+				if r.Repo == value {
+					// Same repo already registered — just report success.
+					return registryAddDoneMsg{url: value, name: manifest.Name}
+				}
 			}
 			cfg.Registries = append(cfg.Registries, core.Registry{
 				Name: manifest.Name,
@@ -213,7 +226,7 @@ func (m settingsModel) handleDelete(app *App) tea.Cmd {
 			reg := m.cfg.Registries[m.cursor]
 			return func() tea.Msg {
 				regMgr := core.NewRegistryManager(app.config.RegistriesDir())
-				_ = regMgr.Remove(reg.Name)
+				_ = regMgr.Remove(reg.Repo)
 
 				cfg, err := app.config.Load()
 				if err != nil {
@@ -221,7 +234,7 @@ func (m settingsModel) handleDelete(app *App) tea.Cmd {
 				}
 				newRegs := make([]core.Registry, 0, len(cfg.Registries))
 				for _, r := range cfg.Registries {
-					if r.Name != reg.Name {
+					if r.Repo != reg.Repo {
 						newRegs = append(newRegs, r)
 					}
 				}
@@ -254,7 +267,7 @@ func (m settingsModel) refreshSelectedRegistry(app *App) tea.Cmd {
 	reg := m.cfg.Registries[m.cursor]
 	return func() tea.Msg {
 		regMgr := core.NewRegistryManager(app.config.RegistriesDir())
-		_, err := regMgr.Refresh(reg.Name)
+		_, err := regMgr.Refresh(reg.Repo)
 		if err != nil {
 			// Use registryAddDoneMsg so app.go can detect clone errors
 			// from gitPull and show the clone error overlay.
