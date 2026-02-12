@@ -74,10 +74,11 @@ type SkillMetadataDetails struct {
 type AgentDef struct {
 	Name            string   `json:"name"`
 	DisplayName     string   `json:"displayName"`
-	SkillsDir       string   `json:"skillsDir"`       // Project-relative skill directory (e.g. ".cursor/skills")
-	GlobalSkillsDir string   `json:"globalSkillsDir"` // Global skill directory (e.g. "~/.cursor/skills")
-	DetectPaths     []string `json:"detectPaths"`     // Paths to check for agent presence
-	Universal       bool     `json:"universal"`       // If true, uses .agents/skills as skillsDir
+	SkillsDir       string   `json:"skillsDir"`               // Project-relative skill directory (e.g. ".cursor/skills")
+	AltSkillsDirs   []string `json:"altSkillsDirs,omitempty"` // Additional native skill directories the agent reads from
+	GlobalSkillsDir string   `json:"globalSkillsDir"`         // Global skill directory (e.g. "~/.cursor/skills")
+	DetectPaths     []string `json:"detectPaths"`             // Paths to check for agent presence
+	Universal       bool     `json:"universal"`               // If true, uses .agents/skills as skillsDir
 }
 
 // ParsedSource represents a parsed skill source string.

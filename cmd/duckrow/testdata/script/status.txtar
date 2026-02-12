@@ -4,22 +4,62 @@
 mkdir myproject
 exec duckrow status myproject
 stdout 'Folder: .*myproject \[not tracked\]'
-stdout 'Agents: none detected'
 stdout 'Skills: none installed'
 stdout 'This folder is not tracked by DuckRow'
 stdout 'To add it, run: duckrow add myproject'
+! stdout 'Agents:'
 
 # Status with no args defaults to current directory (which is untracked)
 exec duckrow status
 stdout '\[not tracked\]'
-stdout 'Agents: none detected'
 stdout 'Skills: none installed'
 stdout 'To add it, run: duckrow add \.'
+! stdout 'Agents:'
 
 # Add a folder and check status shows [tracked]
 exec duckrow add myproject
 exec duckrow status myproject
 stdout 'Folder: .*myproject \[tracked\]'
-stdout 'Agents: none detected'
 stdout 'Skills: none installed'
 ! stdout 'not tracked'
+
+# Skill in agent-specific dir (.opencode/skills) is discovered with path annotation
+mkdir agentproject/.opencode/skills/tell-jokes
+cp opencode-skill.md agentproject/.opencode/skills/tell-jokes/SKILL.md
+exec duckrow status agentproject
+stdout 'tell-jokes \[\.opencode/skills/tell-jokes\]'
+stdout 'Tell programming jokes'
+! stdout 'Agents:'
+
+# Skill in .cursor/skills is discovered with path annotation
+mkdir cursorproject/.cursor/skills/lint-fix
+cp cursor-skill.md cursorproject/.cursor/skills/lint-fix/SKILL.md
+exec duckrow status cursorproject
+stdout 'lint-fix \[\.cursor/skills/lint-fix\]'
+! stdout 'Agents:'
+
+# Skill in canonical .agents/skills is still discovered with path annotation
+mkdir canonproject/.agents/skills/code-review
+cp canonical-skill.md canonproject/.agents/skills/code-review/SKILL.md
+exec duckrow status canonproject
+stdout 'code-review \[\.agents/skills/code-review\]'
+stdout 'Review code'
+
+-- opencode-skill.md --
+---
+name: tell-jokes
+description: Tell programming jokes
+---
+# Tell Jokes
+-- cursor-skill.md --
+---
+name: lint-fix
+description: Fix lint errors
+---
+# Lint Fix
+-- canonical-skill.md --
+---
+name: code-review
+description: Review code
+---
+# Code Review

@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"sort"
 	"strings"
 
 	"gopkg.in/yaml.v3"
@@ -26,43 +27,78 @@ func NewScanner(agents []AgentDef) *Scanner {
 }
 
 // ScanFolder scans a project folder for installed skills.
-// It reads SKILL.md files from the canonical .agents/skills/ directory
-// and checks which agents have each skill via their skill directories.
+// It reads SKILL.md files from all agent skill directories (both primary skillsDir
+// and altSkillsDirs) and deduplicates by skill name, preferring the canonical
+// .agents/skills/ path when a skill appears in multiple locations.
 func (s *Scanner) ScanFolder(folderPath string) ([]InstalledSkill, error) {
-	canonicalDir := filepath.Join(folderPath, canonicalSkillsDir)
+	// Collect all unique skill directory paths from agent definitions
+	skillsDirs := s.allSkillsDirs()
 
-	entries, err := os.ReadDir(canonicalDir)
-	if err != nil {
-		if os.IsNotExist(err) {
-			return nil, nil // No skills installed
+	// Track discovered skills by name for deduplication.
+	// Prefer canonical path when a skill exists in multiple directories.
+	type candidate struct {
+		skill       InstalledSkill
+		isCanonical bool
+	}
+	found := make(map[string]candidate)
+
+	for _, relDir := range skillsDirs {
+		absDir := filepath.Join(folderPath, relDir)
+		isCanonical := relDir == canonicalSkillsDir
+
+		entries, err := os.ReadDir(absDir)
+		if err != nil {
+			continue // Directory doesn't exist or can't be read
 		}
-		return nil, fmt.Errorf("reading skills directory: %w", err)
+
+		for _, entry := range entries {
+			if !entry.IsDir() {
+				continue
+			}
+
+			skillPath := filepath.Join(absDir, entry.Name())
+			skillMdPath := filepath.Join(skillPath, skillFileName)
+
+			metadata, err := ParseSkillMd(skillMdPath)
+			if err != nil {
+				continue // Skip entries without valid SKILL.md
+			}
+
+			existing, exists := found[metadata.Name]
+			if exists && existing.isCanonical {
+				continue // Canonical path wins, skip this duplicate
+			}
+
+			agents := s.detectAgentsForSkill(folderPath, entry.Name())
+
+			found[metadata.Name] = candidate{
+				skill: InstalledSkill{
+					Name:        metadata.Name,
+					Description: metadata.Description,
+					Version:     metadata.Metadata.Version,
+					Author:      metadata.Metadata.Author,
+					Path:        skillPath,
+					Agents:      agents,
+				},
+				isCanonical: isCanonical,
+			}
+		}
 	}
 
-	var skills []InstalledSkill
-	for _, entry := range entries {
-		if !entry.IsDir() {
-			continue
-		}
+	if len(found) == 0 {
+		return nil, nil
+	}
 
-		skillPath := filepath.Join(canonicalDir, entry.Name())
-		skillMdPath := filepath.Join(skillPath, skillFileName)
+	// Collect results in a stable order (sorted by name)
+	names := make([]string, 0, len(found))
+	for name := range found {
+		names = append(names, name)
+	}
+	sort.Strings(names)
 
-		metadata, err := ParseSkillMd(skillMdPath)
-		if err != nil {
-			continue // Skip entries without valid SKILL.md
-		}
-
-		agents := s.detectAgentsForSkill(folderPath, entry.Name())
-
-		skills = append(skills, InstalledSkill{
-			Name:        metadata.Name,
-			Description: metadata.Description,
-			Version:     metadata.Metadata.Version,
-			Author:      metadata.Metadata.Author,
-			Path:        skillPath,
-			Agents:      agents,
-		})
+	skills := make([]InstalledSkill, 0, len(found))
+	for _, name := range names {
+		skills = append(skills, found[name].skill)
 	}
 
 	return skills, nil
@@ -70,34 +106,71 @@ func (s *Scanner) ScanFolder(folderPath string) ([]InstalledSkill, error) {
 
 // DetectAgents returns the names of agents detected in a folder
 // (i.e., agents whose skill directories exist in the folder).
+// Checks both primary skillsDir and altSkillsDirs for each agent.
 func (s *Scanner) DetectAgents(folderPath string) []string {
 	var detected []string
 	seen := make(map[string]bool)
 
 	for _, agent := range s.agents {
-		skillDir := filepath.Join(folderPath, agent.SkillsDir)
-		if dirExists(skillDir) && !seen[agent.DisplayName] {
-			detected = append(detected, agent.DisplayName)
-			seen[agent.DisplayName] = true
+		if seen[agent.DisplayName] {
+			continue
+		}
+
+		dirs := append([]string{agent.SkillsDir}, agent.AltSkillsDirs...)
+		for _, dir := range dirs {
+			skillDir := filepath.Join(folderPath, dir)
+			if dirExists(skillDir) {
+				detected = append(detected, agent.DisplayName)
+				seen[agent.DisplayName] = true
+				break
+			}
 		}
 	}
 	return detected
 }
 
 // detectAgentsForSkill checks which agents have a specific skill installed
-// by looking for the skill directory or symlink in each agent's skill directory.
+// by looking for the skill directory or symlink in each agent's skill directories
+// (both primary skillsDir and altSkillsDirs).
 func (s *Scanner) detectAgentsForSkill(folderPath, skillDirName string) []string {
 	var agents []string
 	seen := make(map[string]bool)
 
 	for _, agent := range s.agents {
-		agentSkillPath := filepath.Join(folderPath, agent.SkillsDir, skillDirName)
-		if pathExists(agentSkillPath) && !seen[agent.DisplayName] {
-			agents = append(agents, agent.DisplayName)
-			seen[agent.DisplayName] = true
+		if seen[agent.DisplayName] {
+			continue
+		}
+
+		dirs := append([]string{agent.SkillsDir}, agent.AltSkillsDirs...)
+		for _, dir := range dirs {
+			agentSkillPath := filepath.Join(folderPath, dir, skillDirName)
+			if pathExists(agentSkillPath) {
+				agents = append(agents, agent.DisplayName)
+				seen[agent.DisplayName] = true
+				break
+			}
 		}
 	}
 	return agents
+}
+
+// allSkillsDirs returns all unique skill directory paths from all agent definitions
+// (both primary skillsDir and altSkillsDirs), with the canonical path first.
+func (s *Scanner) allSkillsDirs() []string {
+	seen := make(map[string]bool)
+	// Start with canonical dir to ensure it's checked first
+	dirs := []string{canonicalSkillsDir}
+	seen[canonicalSkillsDir] = true
+
+	for _, agent := range s.agents {
+		for _, dir := range append([]string{agent.SkillsDir}, agent.AltSkillsDirs...) {
+			if !seen[dir] {
+				dirs = append(dirs, dir)
+				seen[dir] = true
+			}
+		}
+	}
+	return dirs
 }
 
 // ParseSkillMd reads and parses the YAML frontmatter from a SKILL.md file.
