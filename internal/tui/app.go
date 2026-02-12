@@ -7,8 +7,10 @@ import (
 
 	"github.com/charmbracelet/bubbles/help"
 	"github.com/charmbracelet/bubbles/key"
+	"github.com/charmbracelet/bubbles/spinner"
 	"github.com/charmbracelet/bubbles/viewport"
 	tea "github.com/charmbracelet/bubbletea"
+	"github.com/charmbracelet/glamour"
 	"github.com/charmbracelet/lipgloss"
 	"github.com/charmbracelet/x/ansi"
 
@@ -55,6 +57,11 @@ type App struct {
 	// Skill preview.
 	previewViewport viewport.Model
 	previewTitle    string
+	previewLoading  bool
+	previewSpinner  spinner.Model
+
+	// Cached glamour renderer (lazy-initialized on first preview).
+	glamourRenderer *glamour.TermRenderer
 
 	// Help bar.
 	help help.Model
@@ -83,19 +90,25 @@ func NewApp(config *core.ConfigManager, agents []core.AgentDef) App {
 	h := help.New()
 	h.ShortSeparator = "  |  "
 
+	s := spinner.New(
+		spinner.WithSpinner(spinner.Dot),
+		spinner.WithStyle(spinnerStyle),
+	)
+
 	return App{
-		config:       config,
-		agents:       agents,
-		scanner:      scanner,
-		folders:      foldersManager,
-		registry:     registryMgr,
-		cwd:          cwd,
-		activeFolder: cwd,
-		folder:       newFolderModel(),
-		picker:       newPickerModel(),
-		install:      newInstallModel(),
-		settings:     newSettingsModel(),
-		help:         h,
+		config:         config,
+		agents:         agents,
+		scanner:        scanner,
+		folders:        foldersManager,
+		registry:       registryMgr,
+		cwd:            cwd,
+		activeFolder:   cwd,
+		folder:         newFolderModel(),
+		picker:         newPickerModel(),
+		install:        newInstallModel(),
+		settings:       newSettingsModel(),
+		help:           h,
+		previewSpinner: s,
 	}
 }
 
@@ -126,6 +139,12 @@ type installDoneMsg struct {
 type openPreviewMsg struct {
 	title   string
 	content string
+}
+
+// previewRenderedMsg is sent when background glamour rendering completes.
+type previewRenderedMsg struct {
+	content  string
+	renderer *glamour.TermRenderer
 }
 
 // --- Init / Update / View ---
@@ -174,11 +193,53 @@ func (a App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case openPreviewMsg:
 		a.activeView = viewSkillPreview
 		a.previewTitle = msg.title
+		a.previewLoading = true
 		w, h := a.innerContentSize()
-		// -2 for preview's own header + footer lines.
-		vp := viewport.New(w, max(0, h-2))
-		vp.SetContent(msg.content)
+		// -4 for preview's own header, separator, footer, and separator lines.
+		vp := viewport.New(w, max(0, h-4))
 		a.previewViewport = vp
+
+		// Render markdown in background to avoid blocking the UI.
+		rawContent := msg.content
+		cachedRenderer := a.glamourRenderer
+		renderCmd := func() tea.Msg {
+			r := cachedRenderer
+			if r == nil {
+				var err error
+				r, err = glamour.NewTermRenderer(
+					glamour.WithAutoStyle(),
+					glamour.WithWordWrap(w),
+				)
+				if err != nil {
+					return previewRenderedMsg{content: rawContent}
+				}
+			}
+			rendered, err := r.Render(rawContent)
+			if err != nil {
+				rendered = rawContent
+			}
+			return previewRenderedMsg{
+				content:  strings.TrimRight(rendered, "\n"),
+				renderer: r,
+			}
+		}
+		return a, tea.Batch(a.previewSpinner.Tick, renderCmd)
+
+	case previewRenderedMsg:
+		a.previewLoading = false
+		a.previewViewport.SetContent(msg.content)
+		// Cache the renderer for future previews.
+		if msg.renderer != nil {
+			a.glamourRenderer = msg.renderer
+		}
+		return a, nil
+
+	case spinner.TickMsg:
+		if a.previewLoading {
+			var cmd tea.Cmd
+			a.previewSpinner, cmd = a.previewSpinner.Update(msg)
+			return a, cmd
+		}
 		return a, nil
 
 	case statusMsg:
@@ -420,10 +481,15 @@ func (a App) renderPreview() string {
 	line := strings.Repeat("─", max(0, w-lipgloss.Width(title)))
 	header := lipgloss.JoinHorizontal(lipgloss.Center, title, mutedStyle.Render(line))
 
-	pct := fmt.Sprintf(" %3.0f%% ", a.previewViewport.ScrollPercent()*100)
-	footer := mutedStyle.Render(pct)
+	if a.previewLoading {
+		loading := a.previewSpinner.View() + " Rendering preview..."
+		return header + "\n\n" + loading
+	}
 
-	return header + "\n" + a.previewViewport.View() + "\n" + footer
+	pct := fmt.Sprintf(" %3.0f%% ", a.previewViewport.ScrollPercent()*100)
+	footer := previewPctStyle.Render(pct)
+
+	return header + "\n\n" + a.previewViewport.View() + "\n\n" + footer
 }
 
 // isListFiltering returns true if any list sub-model is currently in filter mode.
@@ -509,7 +575,7 @@ func (a *App) propagateSize() {
 	// Update preview viewport if active.
 	if a.activeView == viewSkillPreview {
 		a.previewViewport.Width = w
-		a.previewViewport.Height = max(0, h-2) // header + footer lines within preview
+		a.previewViewport.Height = max(0, h-4) // header + separator + footer + separator
 	}
 }
 

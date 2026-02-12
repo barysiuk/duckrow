@@ -85,9 +85,14 @@ var (
 	// Viewport overlay (SKILL.md preview).
 	viewportTitleStyle = lipgloss.NewStyle().
 				Bold(true).
-				Foreground(lipgloss.Color("#FFFFFF")).
-				Background(colorPrimary).
+				Foreground(lipgloss.Color("#D1D5DB")).
+				Background(colorBorder).
 				Padding(0, 1)
+
+	// Preview scroll percentage badge.
+	previewPctStyle = lipgloss.NewStyle().
+			Foreground(lipgloss.Color("#D1D5DB")).
+			Background(colorBorder)
 
 	// Spinner style.
 	spinnerStyle = lipgloss.NewStyle().
