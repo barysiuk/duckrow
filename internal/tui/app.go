@@ -384,8 +384,9 @@ func (a App) renderHeader() string {
 		hints = headerHintStyle.Render(a.previewTitle)
 	}
 
-	// Right-align hints.
-	left := lipgloss.JoinHorizontal(lipgloss.Top, logo, " ", path)
+	// Indent 1 char to align with content box's left border.
+	indent := " "
+	left := lipgloss.JoinHorizontal(lipgloss.Top, indent, logo, " ", path)
 	gap := a.width - lipgloss.Width(left) - lipgloss.Width(hints) - 1
 	if gap < 1 {
 		gap = 1
@@ -409,7 +410,8 @@ func (a App) renderHelpBar() string {
 		km = previewHelpKeyMap{}
 	}
 
-	return helpStyle.Render(a.help.View(km))
+	// Indent 1 char to align with content box's left border.
+	return " " + helpStyle.Render(a.help.View(km))
 }
 
 func (a App) renderPreview() string {
