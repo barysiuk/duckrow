@@ -1,0 +1,39 @@
+# Test installing with skill filter
+
+# Create a project directory
+mkdir myproject
+
+# Install only "skill-b" from a multi-skill source
+exec duckrow install ./multi-skills -d myproject --skill skill-b
+stdout 'Installed: skill-b'
+! stdout 'skill-a'
+! stdout 'skill-c'
+
+# Verify only skill-b was installed
+exists myproject/.agents/skills/skill-b/SKILL.md
+dir-not-exists myproject/.agents/skills/skill-a
+dir-not-exists myproject/.agents/skills/skill-c
+
+# Install with a nonexistent filter
+! exec duckrow install ./multi-skills -d myproject --skill nonexistent
+stderr 'not found'
+stderr 'Available'
+
+-- multi-skills/skills/skill-a/SKILL.md --
+---
+name: skill-a
+description: Skill A
+---
+# Skill A
+-- multi-skills/skills/skill-b/SKILL.md --
+---
+name: skill-b
+description: Skill B
+---
+# Skill B
+-- multi-skills/skills/skill-c/SKILL.md --
+---
+name: skill-c
+description: Skill C
+---
+# Skill C

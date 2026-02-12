@@ -1,0 +1,26 @@
+# Test adding folders to the tracked list
+
+# Add current directory (default)
+exec duckrow add
+stdout 'Added folder'
+! stderr .
+
+# Add a specific directory
+mkdir myproject
+exec duckrow add myproject
+stdout 'Added folder'
+
+# Adding the same folder again should fail
+! exec duckrow add myproject
+stderr 'already tracked'
+
+# Adding a nonexistent folder should fail
+! exec duckrow add /nonexistent/path
+stderr 'does not exist'
+
+# Adding a file (not a directory) should fail
+! exec duckrow add somefile.txt
+stderr 'not a directory'
+
+-- somefile.txt --
+not a directory

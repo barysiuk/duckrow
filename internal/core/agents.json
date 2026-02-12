@@ -1,0 +1,82 @@
+[
+  {
+    "name": "opencode",
+    "displayName": "OpenCode",
+    "skillsDir": ".agents/skills",
+    "globalSkillsDir": "$XDG_CONFIG/opencode/skills",
+    "detectPaths": ["$XDG_CONFIG/opencode"],
+    "universal": true
+  },
+  {
+    "name": "claude-code",
+    "displayName": "Claude Code",
+    "skillsDir": ".claude/skills",
+    "globalSkillsDir": "~/.claude/skills",
+    "detectPaths": ["~/.claude"],
+    "universal": false
+  },
+  {
+    "name": "cursor",
+    "displayName": "Cursor",
+    "skillsDir": ".cursor/skills",
+    "globalSkillsDir": "~/.cursor/skills",
+    "detectPaths": ["~/.cursor"],
+    "universal": false
+  },
+  {
+    "name": "codex",
+    "displayName": "Codex",
+    "skillsDir": ".agents/skills",
+    "globalSkillsDir": "$CODEX_HOME/skills",
+    "detectPaths": ["$CODEX_HOME", "/etc/codex"],
+    "universal": true
+  },
+  {
+    "name": "gemini-cli",
+    "displayName": "Gemini CLI",
+    "skillsDir": ".agents/skills",
+    "globalSkillsDir": "~/.gemini/skills",
+    "detectPaths": ["~/.gemini"],
+    "universal": true
+  },
+  {
+    "name": "github-copilot",
+    "displayName": "GitHub Copilot",
+    "skillsDir": ".agents/skills",
+    "globalSkillsDir": "~/.copilot/skills",
+    "detectPaths": ["~/.copilot"],
+    "universal": true
+  },
+  {
+    "name": "goose",
+    "displayName": "Goose",
+    "skillsDir": ".goose/skills",
+    "globalSkillsDir": "$XDG_CONFIG/goose/skills",
+    "detectPaths": ["$XDG_CONFIG/goose"],
+    "universal": false
+  },
+  {
+    "name": "windsurf",
+    "displayName": "Windsurf",
+    "skillsDir": ".windsurf/skills",
+    "globalSkillsDir": "~/.codeium/windsurf/skills",
+    "detectPaths": ["~/.codeium/windsurf"],
+    "universal": false
+  },
+  {
+    "name": "cline",
+    "displayName": "Cline",
+    "skillsDir": ".cline/skills",
+    "globalSkillsDir": "~/.cline/skills",
+    "detectPaths": ["~/.cline"],
+    "universal": false
+  },
+  {
+    "name": "continue",
+    "displayName": "Continue",
+    "skillsDir": ".continue/skills",
+    "globalSkillsDir": "~/.continue/skills",
+    "detectPaths": ["~/.continue"],
+    "universal": false
+  }
+]

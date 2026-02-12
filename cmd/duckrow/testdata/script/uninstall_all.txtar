@@ -1,0 +1,35 @@
+# Test uninstalling all skills
+
+# Setup: create project and install multiple skills
+mkdir myproject
+exec duckrow install ./source-a -d myproject
+exec duckrow install ./source-b -d myproject
+exists myproject/.agents/skills/alpha/SKILL.md
+exists myproject/.agents/skills/beta/SKILL.md
+
+# Uninstall all
+exec duckrow uninstall-all -d myproject
+stdout 'Removed: alpha'
+stdout 'Removed: beta'
+stdout 'Removed 2 skill'
+
+# Verify all gone
+dir-not-exists myproject/.agents/skills/alpha
+dir-not-exists myproject/.agents/skills/beta
+
+# Uninstall-all on empty project
+exec duckrow uninstall-all -d myproject
+stdout 'No skills installed'
+
+-- source-a/SKILL.md --
+---
+name: alpha
+description: Alpha skill
+---
+# Alpha
+-- source-b/SKILL.md --
+---
+name: beta
+description: Beta skill
+---
+# Beta

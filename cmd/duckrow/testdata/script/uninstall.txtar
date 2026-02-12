@@ -1,0 +1,30 @@
+# Test uninstalling a skill
+
+# Setup: create project and install a skill
+mkdir myproject
+exec duckrow install ./skill-source -d myproject
+stdout 'Installed: my-skill'
+exists myproject/.agents/skills/my-skill/SKILL.md
+
+# Uninstall the skill
+exec duckrow uninstall my-skill -d myproject
+stdout 'Removed: my-skill'
+! stderr .
+
+# Verify it's gone
+dir-not-exists myproject/.agents/skills/my-skill
+
+# Status should show no skills
+exec duckrow status myproject
+stdout 'Skills: none installed'
+
+# Uninstalling a nonexistent skill should fail
+! exec duckrow uninstall nonexistent -d myproject
+stderr 'not found'
+
+-- skill-source/SKILL.md --
+---
+name: my-skill
+description: A skill to uninstall
+---
+# My Skill

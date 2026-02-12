@@ -1,0 +1,4 @@
+# Test version command
+exec duckrow version
+stdout 'duckrow dev'
+! stderr .

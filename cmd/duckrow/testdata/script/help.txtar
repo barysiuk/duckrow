@@ -1,0 +1,23 @@
+# Test help output lists all commands
+exec duckrow --help
+stdout 'manages AI agent skills'
+stdout 'add'
+stdout 'remove-folder'
+stdout 'folders'
+stdout 'status'
+stdout 'install'
+stdout 'uninstall'
+stdout 'registry'
+stdout 'version'
+! stderr .
+
+# Test help for subcommands
+exec duckrow install --help
+stdout 'source'
+stdout 'GitHub shorthand'
+
+exec duckrow registry --help
+stdout 'add'
+stdout 'list'
+stdout 'refresh'
+stdout 'remove'

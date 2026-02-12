@@ -1,0 +1,93 @@
+# Full end-to-end workflow test
+# Tests the complete lifecycle: add folder -> install -> status -> uninstall -> status
+
+# Phase 1: Setup project
+mkdir myproject
+
+# Phase 2: Add folder to tracking
+exec duckrow add myproject
+stdout 'Added folder'
+
+# Phase 3: List folders
+exec duckrow folders
+stdout 'Tracked folders \(1\)'
+stdout 'myproject'
+
+# Phase 4: Status before install
+exec duckrow status myproject
+stdout 'Skills: none installed'
+
+# Phase 5: Install a skill
+exec duckrow install ./skill-repo -d myproject
+stdout 'Installed: code-review'
+
+# Phase 6: Verify files on disk
+exists myproject/.agents/skills/code-review/SKILL.md
+exists myproject/.agents/skills/code-review/review.md
+
+# Phase 7: Status after install shows skill
+exec duckrow status myproject
+stdout 'code-review'
+stdout 'v2.1.0'
+stdout 'Review code changes'
+
+# Phase 8: Install another skill
+exec duckrow install ./another-skill -d myproject
+stdout 'Installed: test-gen'
+
+# Phase 9: Status shows both skills
+exec duckrow status myproject
+stdout 'Skills \(2\)'
+stdout 'code-review'
+stdout 'test-gen'
+
+# Phase 10: Uninstall one skill
+exec duckrow uninstall code-review -d myproject
+stdout 'Removed: code-review'
+dir-not-exists myproject/.agents/skills/code-review
+
+# Phase 11: Status shows remaining skill
+exec duckrow status myproject
+stdout 'Skills \(1\)'
+stdout 'test-gen'
+! stdout 'code-review'
+
+# Phase 12: Uninstall remaining
+exec duckrow uninstall-all -d myproject
+stdout 'Removed: test-gen'
+
+# Phase 13: Clean state
+exec duckrow status myproject
+stdout 'Skills: none installed'
+
+# Phase 14: Remove folder from tracking
+exec duckrow remove-folder myproject
+stdout 'Removed folder'
+
+exec duckrow folders
+stdout 'No tracked folders'
+
+-- skill-repo/SKILL.md --
+---
+name: code-review
+description: Review code changes
+metadata:
+  version: "2.1.0"
+  author: acme
+---
+# Code Review
+
+Review code changes against best practices.
+-- skill-repo/review.md --
+When reviewing code, check for:
+- Security vulnerabilities
+- Performance issues
+- Code style
+-- another-skill/SKILL.md --
+---
+name: test-gen
+description: Generate test cases
+metadata:
+  version: "1.0.0"
+---
+# Test Generator
