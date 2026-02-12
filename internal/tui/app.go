@@ -367,7 +367,7 @@ func (a App) View() string {
 }
 
 func (a App) renderHeader() string {
-	logo := logoStyle.Render(" DuckRow ")
+	logo := logoStyle.Render("🐤duckrow")
 	path := headerPathStyle.Render(shortenPath(a.activeFolder))
 
 	var hints string
