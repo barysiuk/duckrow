@@ -1,20 +1,25 @@
 # Test status command
 
-# Status of an empty folder
+# Status of an untracked folder shows [not tracked] and hint
 mkdir myproject
 exec duckrow status myproject
-stdout 'Folder: .*myproject'
+stdout 'Folder: .*myproject \[not tracked\]'
 stdout 'Agents: none detected'
 stdout 'Skills: none installed'
+stdout 'This folder is not tracked by DuckRow'
+stdout 'To add it, run: duckrow add myproject'
 
-# Status with no tracked folders and no arg
+# Status with no args defaults to current directory (which is untracked)
 exec duckrow status
-stdout 'No tracked folders'
+stdout '\[not tracked\]'
+stdout 'Agents: none detected'
+stdout 'Skills: none installed'
+stdout 'To add it, run: duckrow add \.'
 
-# Add a folder and check status across all
-mkdir another
+# Add a folder and check status shows [tracked]
 exec duckrow add myproject
-exec duckrow add another
-exec duckrow status
-stdout 'myproject'
-stdout 'another'
+exec duckrow status myproject
+stdout 'Folder: .*myproject \[tracked\]'
+stdout 'Agents: none detected'
+stdout 'Skills: none installed'
+! stdout 'not tracked'

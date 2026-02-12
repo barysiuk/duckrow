@@ -3,6 +3,7 @@ package cmd
 import (
 	"fmt"
 	"os"
+	"path/filepath"
 
 	"github.com/barysiuk/duckrow/internal/core"
 	"github.com/spf13/cobra"
@@ -10,9 +11,9 @@ import (
 
 var statusCmd = &cobra.Command{
 	Use:   "status [path]",
-	Short: "Show skills and agents across tracked folders",
-	Long: `Show installed skills, detected agents, and status for tracked folders.
-If a path is given, shows status for that folder only. Otherwise shows all tracked folders.`,
+	Short: "Show skills and agents for the current folder",
+	Long: `Show installed skills, detected agents, and tracking status for a folder.
+If a path is given, shows status for that folder. Otherwise shows status for the current directory.`,
 	Args: cobra.MaximumNArgs(1),
 	RunE: func(cmd *cobra.Command, args []string) error {
 		d, err := newDeps()
@@ -21,38 +22,55 @@ If a path is given, shows status for that folder only. Otherwise shows all track
 		}
 
 		scanner := core.NewScanner(d.agents)
+		fm := core.NewFolderManager(d.config)
 
+		// Determine target path: explicit argument or current directory
+		var targetPath string
 		if len(args) > 0 {
-			// Single folder status
-			return showFolderStatus(scanner, args[0])
+			targetPath = args[0]
+		} else {
+			cwd, err := os.Getwd()
+			if err != nil {
+				return fmt.Errorf("getting current directory: %w", err)
+			}
+			targetPath = cwd
 		}
 
-		// All tracked folders
-		fm := core.NewFolderManager(d.config)
-		folders, err := fm.List()
+		// Resolve to absolute path for display and tracking check
+		absPath, err := filepath.Abs(targetPath)
 		if err != nil {
+			return fmt.Errorf("resolving path: %w", err)
+		}
+
+		// Check tracking state
+		tracked, _ := fm.IsTracked(absPath)
+
+		// Show folder status with tracking indicator
+		if err := showFolderStatus(scanner, absPath, tracked); err != nil {
 			return err
 		}
 
-		if len(folders) == 0 {
-			fmt.Fprintln(os.Stdout, "No tracked folders. Use 'duckrow add' to add one.")
-			return nil
+		// If not tracked, show a hint
+		if !tracked {
+			fmt.Fprintln(os.Stdout)
+			fmt.Fprintln(os.Stdout, "This folder is not tracked by DuckRow.")
+			if len(args) > 0 {
+				fmt.Fprintf(os.Stdout, "To add it, run: duckrow add %s\n", args[0])
+			} else {
+				fmt.Fprintln(os.Stdout, "To add it, run: duckrow add .")
+			}
 		}
 
-		for i, f := range folders {
-			if i > 0 {
-				fmt.Fprintln(os.Stdout)
-			}
-			if err := showFolderStatus(scanner, f.Path); err != nil {
-				fmt.Fprintf(os.Stderr, "Error scanning %s: %v\n", f.Path, err)
-			}
-		}
 		return nil
 	},
 }
 
-func showFolderStatus(scanner *core.Scanner, path string) error {
-	fmt.Fprintf(os.Stdout, "Folder: %s\n", path)
+func showFolderStatus(scanner *core.Scanner, path string, tracked bool) error {
+	trackLabel := "[not tracked]"
+	if tracked {
+		trackLabel = "[tracked]"
+	}
+	fmt.Fprintf(os.Stdout, "Folder: %s %s\n", path, trackLabel)
 
 	agents := scanner.DetectAgents(path)
 	if len(agents) > 0 {
