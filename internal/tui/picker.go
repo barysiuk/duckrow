@@ -105,7 +105,7 @@ func (m pickerModel) view() string {
 	// --- Render-then-measure ---
 
 	// 1. Render fixed chrome.
-	sectionHeader := sectionHeaderStyle.Render("  SELECT FOLDER") + "\n"
+	sectionHeader := renderSectionHeader("SELECT FOLDER", m.width) + "\n"
 
 	if len(m.folders) == 0 {
 		return sectionHeader +

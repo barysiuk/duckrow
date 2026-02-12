@@ -158,7 +158,7 @@ func (m installModel) view() string {
 	// --- Render-then-measure ---
 
 	// 1. Render fixed chrome.
-	sectionHeader := sectionHeaderStyle.Render("  INSTALL SKILL") + "\n"
+	sectionHeader := renderSectionHeader("INSTALL SKILL", m.width) + "\n"
 
 	if m.installing {
 		return sectionHeader + "  " + m.spinner.View() + " Installing... please wait"

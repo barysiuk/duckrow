@@ -151,9 +151,9 @@ func (m folderModel) view() string {
 	skillCount := len(m.status.Skills)
 	var sectionHeader string
 	if skillCount == 0 {
-		sectionHeader = sectionHeaderStyle.Render("  SKILLS") + "\n"
+		sectionHeader = renderSectionHeader("SKILLS", m.width) + "\n"
 	} else {
-		sectionHeader = sectionHeaderStyle.Render(fmt.Sprintf("  SKILLS (%d installed)", skillCount)) + "\n"
+		sectionHeader = renderSectionHeader(fmt.Sprintf("SKILLS (%d installed)", skillCount), m.width) + "\n"
 	}
 
 	var footer string
@@ -164,19 +164,24 @@ func (m folderModel) view() string {
 		footer = mutedStyle.Render("  No registries configured.") +
 			"  " + headerHintStyle.Render("[s] Settings to add")
 	} else {
-		footer = installedStyle.Render("  All registry skills installed")
+		footer = mutedStyle.Render("  All registry skills installed")
 	}
-	// The footer is preceded by \n and optionally followed by the list's trailing \n.
-	footerBlock := "\n" + footer
+	// Blank line padding between list and footer message.
+	footerBlock := "\n\n" + footer
 
 	// 2. Measure chrome height.
 	chromeH := lipgloss.Height(banner) + lipgloss.Height(sectionHeader) + lipgloss.Height(footerBlock)
 
-	// 3. Size the list to fill remaining space.
+	// 3. Size the list to fit its content, capped by available space.
+	//    Each item is 1 line (delegate Height=1, Spacing=0).
 	if skillCount > 0 {
-		listH := m.height - chromeH
-		if listH < 1 {
-			listH = 1
+		maxH := m.height - chromeH
+		if maxH < 1 {
+			maxH = 1
+		}
+		listH := skillCount
+		if listH > maxH {
+			listH = maxH
 		}
 		m.list.SetSize(m.width, listH)
 	}
@@ -187,7 +192,7 @@ func (m folderModel) view() string {
 	b.WriteString(sectionHeader)
 
 	if skillCount == 0 {
-		b.WriteString(mutedStyle.Render("  No skills installed"))
+		b.WriteString("\n" + mutedStyle.Render("  No skills installed"))
 	} else {
 		b.WriteString(m.list.View())
 	}

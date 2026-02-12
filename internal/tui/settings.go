@@ -343,7 +343,7 @@ func (m settingsModel) view() string {
 	}
 
 	// Registries section.
-	b.WriteString(sectionHeaderStyle.Render("  REGISTRIES"))
+	b.WriteString(renderSectionHeader("REGISTRIES", m.width))
 	b.WriteString("\n")
 
 	if len(m.cfg.Registries) == 0 {
@@ -367,7 +367,7 @@ func (m settingsModel) view() string {
 	b.WriteString("\n\n")
 
 	// Folders section.
-	b.WriteString(sectionHeaderStyle.Render("  FOLDERS"))
+	b.WriteString(renderSectionHeader("FOLDERS", m.width))
 	b.WriteString("\n")
 
 	if len(m.cfg.Folders) == 0 {
@@ -401,7 +401,7 @@ func (m settingsModel) view() string {
 	b.WriteString("\n\n")
 
 	// Preferences section.
-	b.WriteString(sectionHeaderStyle.Render("  PREFERENCES"))
+	b.WriteString(renderSectionHeader("PREFERENCES", m.width))
 	b.WriteString("\n")
 
 	prefs := []struct {

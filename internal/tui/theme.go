@@ -94,4 +94,16 @@ var (
 	// Spinner style.
 	spinnerStyle = lipgloss.NewStyle().
 			Foreground(colorSecondary)
+
+	// Section header rule (the ─── line after the label).
+	sectionRuleStyle = lipgloss.NewStyle().
+				Foreground(colorBorder)
 )
+
+// renderSectionHeader renders a section label with short rules on both sides:
+// "  ── SKILLS ──────"
+func renderSectionHeader(label string, _ int) string {
+	rule := sectionRuleStyle.Render("──")
+	text := sectionHeaderStyle.Render(" " + label + " ")
+	return "  " + rule + text + rule
+}

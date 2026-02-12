@@ -100,7 +100,7 @@ func (d registrySkillDelegate) Update(_ tea.Msg, _ *list.Model) tea.Cmd { return
 func (d registrySkillDelegate) Render(w io.Writer, m list.Model, index int, item list.Item) {
 	switch it := item.(type) {
 	case registrySeparatorItem:
-		_, _ = fmt.Fprint(w, sectionHeaderStyle.Render("  "+it.registryName))
+		_, _ = fmt.Fprint(w, renderSectionHeader(it.registryName, m.Width()))
 
 	case registrySkillItem:
 		isSelected := index == m.Index()
