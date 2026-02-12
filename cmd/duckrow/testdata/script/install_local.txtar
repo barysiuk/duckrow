@@ -1,0 +1,36 @@
+# Test installing skills from a local source
+
+# Create a project directory
+mkdir myproject
+
+# Install from local skill source
+exec duckrow install ./skill-source -d myproject
+stdout 'Installed: test-skill'
+stdout 'Path:'
+! stderr .
+
+# Verify canonical directory was created
+exists myproject/.agents/skills/test-skill/SKILL.md
+exists myproject/.agents/skills/test-skill/prompt.md
+
+# Verify the SKILL.md was copied correctly
+file-contains myproject/.agents/skills/test-skill/SKILL.md 'test-skill'
+
+# Verify status shows the installed skill
+exec duckrow status myproject
+stdout 'test-skill'
+stdout 'A skill for testing'
+
+-- skill-source/SKILL.md --
+---
+name: test-skill
+description: A skill for testing
+metadata:
+  version: "1.0.0"
+  author: tester
+---
+# Test Skill
+
+This is a test skill.
+-- skill-source/prompt.md --
+You are a test skill assistant.

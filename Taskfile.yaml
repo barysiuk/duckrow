@@ -1,0 +1,63 @@
+version: "3"
+
+vars:
+  BINARY_NAME: duckrow
+  VERSION:
+    sh: git describe --tags --always --dirty 2>/dev/null || echo "dev"
+  COMMIT:
+    sh: git rev-parse --short HEAD 2>/dev/null || echo "unknown"
+  DATE:
+    sh: date -u +"%Y-%m-%dT%H:%M:%SZ"
+
+tasks:
+  default:
+    desc: Show available tasks
+    cmds:
+      - task --list-all
+
+  build:
+    desc: Build the binary
+    cmds:
+      - go build -ldflags "-s -w -X github.com/barysiuk/duckrow/cmd/duckrow/cmd.Version={{.VERSION}} -X github.com/barysiuk/duckrow/cmd/duckrow/cmd.Commit={{.COMMIT}} -X github.com/barysiuk/duckrow/cmd/duckrow/cmd.Date={{.DATE}}" -o bin/{{.BINARY_NAME}} ./cmd/duckrow
+    sources:
+      - "**/*.go"
+      - go.mod
+      - go.sum
+    generates:
+      - bin/{{.BINARY_NAME}}
+
+  test:
+    desc: Run all tests
+    cmds:
+      - go test ./... -v
+
+  test:short:
+    desc: Run tests (short mode, skip integration)
+    cmds:
+      - go test ./... -short
+
+  lint:
+    desc: Run golangci-lint
+    cmds:
+      - golangci-lint run ./...
+
+  fmt:
+    desc: Format code
+    cmds:
+      - gofmt -s -w .
+
+  clean:
+    desc: Clean build artifacts
+    cmds:
+      - rm -rf bin/ dist/
+
+  install:
+    desc: Install to GOPATH/bin
+    cmds:
+      - go install -ldflags "-s -w -X github.com/barysiuk/duckrow/cmd/duckrow/cmd.Version={{.VERSION}} -X github.com/barysiuk/duckrow/cmd/duckrow/cmd.Commit={{.COMMIT}} -X github.com/barysiuk/duckrow/cmd/duckrow/cmd.Date={{.DATE}}" ./cmd/duckrow
+
+  run:
+    desc: Build and run
+    cmds:
+      - task: build
+      - ./bin/{{.BINARY_NAME}} {{.CLI_ARGS}}

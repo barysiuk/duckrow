@@ -1,0 +1,67 @@
+# Test registry commands
+# Uses local git repos to avoid network dependency
+
+# Phase 1: No registries initially
+exec duckrow registry list
+stdout 'No registries configured'
+
+# Phase 2: Create a local git repo as a registry
+setup-git-repo my-registry my-org skill-a skill-b
+
+# Phase 3: Add the registry
+exec duckrow registry add my-registry
+stdout 'Added registry: my-org'
+stdout '2 skills'
+! stderr .
+
+# Phase 4: List registries
+exec duckrow registry list
+stdout 'Registries \(1\)'
+stdout 'my-org'
+stdout '2 skills'
+
+# Phase 5: List with verbose flag shows skills
+exec duckrow registry list --verbose
+stdout 'skill-a'
+stdout 'skill-b'
+
+# Phase 6: Refresh the registry
+exec duckrow registry refresh my-org
+stdout 'Refreshed: my-org'
+stdout '2 skills'
+
+# Phase 7: Create and add a second registry
+setup-git-repo other-registry other-org tool-x
+
+exec duckrow registry add other-registry
+stdout 'Added registry: other-org'
+
+exec duckrow registry list
+stdout 'Registries \(2\)'
+stdout 'my-org'
+stdout 'other-org'
+
+# Phase 8: Refresh all registries
+exec duckrow registry refresh
+stdout 'Refreshed: my-org'
+stdout 'Refreshed: other-org'
+
+# Phase 9: Remove a registry
+exec duckrow registry remove my-org
+stdout 'Removed registry: my-org'
+
+exec duckrow registry list
+stdout 'Registries \(1\)'
+! stdout 'my-org'
+stdout 'other-org'
+
+# Phase 10: Remove nonexistent registry fails
+! exec duckrow registry remove nonexistent
+stderr 'not found'
+
+# Phase 11: Remove the last one
+exec duckrow registry remove other-org
+stdout 'Removed registry: other-org'
+
+exec duckrow registry list
+stdout 'No registries configured'

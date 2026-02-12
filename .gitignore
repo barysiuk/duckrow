@@ -1,0 +1,23 @@
+# Build output
+/duckrow
+bin/
+dist/
+
+# Go binaries
+*.exe
+*.exe~
+*.dll
+*.so
+*.dylib
+*.test
+*.out
+
+# Internal docs
+spec/
+
+# Task management
+.todos/
+
+# OS
+.DS_Store
+Thumbs.db

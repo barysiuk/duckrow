@@ -1,0 +1,20 @@
+# Test status command
+
+# Status of an empty folder
+mkdir myproject
+exec duckrow status myproject
+stdout 'Folder: .*myproject'
+stdout 'Agents: none detected'
+stdout 'Skills: none installed'
+
+# Status with no tracked folders and no arg
+exec duckrow status
+stdout 'No tracked folders'
+
+# Add a folder and check status across all
+mkdir another
+exec duckrow add myproject
+exec duckrow add another
+exec duckrow status
+stdout 'myproject'
+stdout 'another'
