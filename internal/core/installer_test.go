@@ -10,8 +10,10 @@ func TestInstaller_InstallFromLocalSource(t *testing.T) {
 	// Create a source directory with a skill
 	srcDir := t.TempDir()
 	skillDir := filepath.Join(srcDir, "skills", "test-skill")
-	os.MkdirAll(skillDir, 0o755)
-	os.WriteFile(filepath.Join(skillDir, "SKILL.md"), []byte(`---
+	if err := os.MkdirAll(skillDir, 0o755); err != nil {
+		t.Fatalf("MkdirAll() error: %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(skillDir, "SKILL.md"), []byte(`---
 name: test-skill
 description: A test skill for installation
 metadata:
@@ -20,10 +22,14 @@ metadata:
 
 # Test Skill
 Instructions here.
-`), 0o644)
+`), 0o644); err != nil {
+		t.Fatalf("WriteFile(SKILL.md) error: %v", err)
+	}
 
 	// Create an additional rules file
-	os.WriteFile(filepath.Join(skillDir, "rules.md"), []byte("# Rules"), 0o644)
+	if err := os.WriteFile(filepath.Join(skillDir, "rules.md"), []byte("# Rules"), 0o644); err != nil {
+		t.Fatalf("WriteFile(rules.md) error: %v", err)
+	}
 
 	// Create target directory
 	targetDir := t.TempDir()
@@ -73,17 +79,23 @@ Instructions here.
 
 func TestInstaller_InstallWithAgentSymlinks(t *testing.T) {
 	srcDir := t.TempDir()
-	os.WriteFile(filepath.Join(srcDir, "SKILL.md"), []byte(`---
+	if err := os.WriteFile(filepath.Join(srcDir, "SKILL.md"), []byte(`---
 name: symlink-test
 description: Test symlink creation
 ---
-`), 0o644)
+`), 0o644); err != nil {
+		t.Fatalf("WriteFile() error: %v", err)
+	}
 
 	targetDir := t.TempDir()
 
 	// Create cursor and claude directories to trigger agent detection
-	os.MkdirAll(filepath.Join(targetDir, ".cursor", "skills"), 0o755)
-	os.MkdirAll(filepath.Join(targetDir, ".claude", "skills"), 0o755)
+	if err := os.MkdirAll(filepath.Join(targetDir, ".cursor", "skills"), 0o755); err != nil {
+		t.Fatalf("MkdirAll(.cursor) error: %v", err)
+	}
+	if err := os.MkdirAll(filepath.Join(targetDir, ".claude", "skills"), 0o755); err != nil {
+		t.Fatalf("MkdirAll(.claude) error: %v", err)
+	}
 
 	agents, _ := LoadAgents()
 	installer := NewInstaller(agents)
@@ -124,7 +136,10 @@ description: Test symlink creation
 	}
 
 	// Verify symlinks point to correct target
-	target, _ := os.Readlink(cursorLink)
+	target, err := os.Readlink(cursorLink)
+	if err != nil {
+		t.Fatalf("Readlink() error: %v", err)
+	}
 	expectedTarget := "../../.agents/skills/symlink-test"
 	if target != expectedTarget {
 		t.Errorf("symlink target = %q, want %q", target, expectedTarget)
@@ -137,12 +152,16 @@ func TestInstaller_SkillFilter(t *testing.T) {
 	// Create two skills
 	for _, name := range []string{"skill-a", "skill-b"} {
 		dir := filepath.Join(srcDir, "skills", name)
-		os.MkdirAll(dir, 0o755)
-		os.WriteFile(filepath.Join(dir, "SKILL.md"), []byte(`---
+		if err := os.MkdirAll(dir, 0o755); err != nil {
+			t.Fatalf("MkdirAll(%s) error: %v", name, err)
+		}
+		if err := os.WriteFile(filepath.Join(dir, "SKILL.md"), []byte(`---
 name: `+name+`
 description: Test skill
 ---
-`), 0o644)
+`), 0o644); err != nil {
+			t.Fatalf("WriteFile(%s/SKILL.md) error: %v", name, err)
+		}
 	}
 
 	targetDir := t.TempDir()
@@ -173,12 +192,16 @@ description: Test skill
 func TestInstaller_SkillFilterNotFound(t *testing.T) {
 	srcDir := t.TempDir()
 	dir := filepath.Join(srcDir, "skills", "real-skill")
-	os.MkdirAll(dir, 0o755)
-	os.WriteFile(filepath.Join(dir, "SKILL.md"), []byte(`---
+	if err := os.MkdirAll(dir, 0o755); err != nil {
+		t.Fatalf("MkdirAll() error: %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(dir, "SKILL.md"), []byte(`---
 name: real-skill
 description: Test skill
 ---
-`), 0o644)
+`), 0o644); err != nil {
+		t.Fatalf("WriteFile() error: %v", err)
+	}
 
 	targetDir := t.TempDir()
 	agents, _ := LoadAgents()
@@ -222,16 +245,28 @@ func TestInstaller_CopyExclusions(t *testing.T) {
 	srcDir := t.TempDir()
 
 	// Create a skill with files that should be excluded
-	os.WriteFile(filepath.Join(srcDir, "SKILL.md"), []byte(`---
+	if err := os.WriteFile(filepath.Join(srcDir, "SKILL.md"), []byte(`---
 name: exclusion-test
 description: Test copy exclusions
 ---
-`), 0o644)
-	os.WriteFile(filepath.Join(srcDir, "rules.md"), []byte("# Keep"), 0o644)
-	os.WriteFile(filepath.Join(srcDir, "README.md"), []byte("# Exclude"), 0o644)
-	os.WriteFile(filepath.Join(srcDir, "_internal.md"), []byte("# Exclude"), 0o644)
-	os.MkdirAll(filepath.Join(srcDir, ".git"), 0o755)
-	os.WriteFile(filepath.Join(srcDir, ".git", "config"), []byte("[core]"), 0o644)
+`), 0o644); err != nil {
+		t.Fatalf("WriteFile(SKILL.md) error: %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(srcDir, "rules.md"), []byte("# Keep"), 0o644); err != nil {
+		t.Fatalf("WriteFile(rules.md) error: %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(srcDir, "README.md"), []byte("# Exclude"), 0o644); err != nil {
+		t.Fatalf("WriteFile(README.md) error: %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(srcDir, "_internal.md"), []byte("# Exclude"), 0o644); err != nil {
+		t.Fatalf("WriteFile(_internal.md) error: %v", err)
+	}
+	if err := os.MkdirAll(filepath.Join(srcDir, ".git"), 0o755); err != nil {
+		t.Fatalf("MkdirAll(.git) error: %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(srcDir, ".git", "config"), []byte("[core]"), 0o644); err != nil {
+		t.Fatalf("WriteFile(.git/config) error: %v", err)
+	}
 
 	targetDir := t.TempDir()
 	agents, _ := LoadAgents()

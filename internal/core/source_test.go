@@ -148,12 +148,16 @@ func TestParseSource_LocalRelativePath(t *testing.T) {
 	// Resolve symlinks (macOS /tmp -> /private/var)
 	dir, _ = filepath.EvalSymlinks(dir)
 	subDir := filepath.Join(dir, "skills")
-	os.MkdirAll(subDir, 0o755)
+	if err := os.MkdirAll(subDir, 0o755); err != nil {
+		t.Fatalf("MkdirAll() error: %v", err)
+	}
 
 	// Change to parent dir
 	oldWd, _ := os.Getwd()
-	os.Chdir(dir)
-	defer os.Chdir(oldWd)
+	if err := os.Chdir(dir); err != nil {
+		t.Fatalf("Chdir() error: %v", err)
+	}
+	defer func() { _ = os.Chdir(oldWd) }()
 
 	src, err := ParseSource("./skills")
 	if err != nil {

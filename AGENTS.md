@@ -126,7 +126,7 @@ WIP
 
 ## Before Committing
 
-Always run the full test suite before pushing:
+**MANDATORY**: Always run the full test suite before committing and pushing. Never commit code that hasn't been verified locally.
 
 ```bash
 # Must pass — this is what CI runs
@@ -135,7 +135,20 @@ go test ./... -count=1
 # Also check formatting and lint
 gofmt -l .
 go vet ./...
+golangci-lint run ./...
 ```
+
+If any of these fail, fix the issues before committing. Do not push broken code and rely on CI to catch it.
+
+### Pre-commit Hook
+
+A pre-commit hook is provided in `.githooks/`. To enable it:
+
+```bash
+git config core.hooksPath .githooks
+```
+
+The hook runs formatting checks, `go vet`, `golangci-lint`, and short tests before each commit. If any check fails, the commit is blocked.
 
 If you add a new CLI command or change behavior, add or update the corresponding `.txtar` integration test in `cmd/duckrow/testdata/script/`.
 

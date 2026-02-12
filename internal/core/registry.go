@@ -38,7 +38,7 @@ func (rm *RegistryManager) Add(repoURL string) (*RegistryManifest, error) {
 	if err != nil {
 		return nil, fmt.Errorf("creating temp dir: %w", err)
 	}
-	defer os.RemoveAll(tmpDir)
+	defer func() { _ = os.RemoveAll(tmpDir) }()
 
 	if err := gitClone(repoURL, "", tmpDir, registryCloneTimeout); err != nil {
 		return nil, fmt.Errorf("cloning registry: %w", err)

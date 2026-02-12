@@ -87,7 +87,7 @@ func (cm *ConfigManager) Save(cfg *Config) error {
 		return fmt.Errorf("writing config: %w", err)
 	}
 	if err := os.Rename(tmpPath, cm.ConfigPath()); err != nil {
-		os.Remove(tmpPath) // clean up on failure
+		_ = os.Remove(tmpPath) // clean up on failure
 		return fmt.Errorf("saving config: %w", err)
 	}
 

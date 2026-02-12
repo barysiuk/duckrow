@@ -167,7 +167,9 @@ metadata:
 # Web Interface Guidelines
 `
 
-	os.WriteFile(mdPath, []byte(content), 0o644)
+	if err := os.WriteFile(mdPath, []byte(content), 0o644); err != nil {
+		t.Fatalf("WriteFile() error: %v", err)
+	}
 
 	metadata, err := ParseSkillMd(mdPath)
 	if err != nil {
@@ -190,7 +192,9 @@ metadata:
 func TestParseSkillMd_NoFrontmatter(t *testing.T) {
 	dir := t.TempDir()
 	mdPath := filepath.Join(dir, "SKILL.md")
-	os.WriteFile(mdPath, []byte("# Just markdown"), 0o644)
+	if err := os.WriteFile(mdPath, []byte("# Just markdown"), 0o644); err != nil {
+		t.Fatalf("WriteFile() error: %v", err)
+	}
 
 	_, err := ParseSkillMd(mdPath)
 	if err == nil {
@@ -206,7 +210,9 @@ func TestParseSkillMd_MissingName(t *testing.T) {
 description: No name field
 ---
 `
-	os.WriteFile(mdPath, []byte(content), 0o644)
+	if err := os.WriteFile(mdPath, []byte(content), 0o644); err != nil {
+		t.Fatalf("WriteFile() error: %v", err)
+	}
 
 	_, err := ParseSkillMd(mdPath)
 	if err == nil {
@@ -219,12 +225,16 @@ func TestDiscoverSkills(t *testing.T) {
 
 	// Create skills in a skills/ subdirectory (like a real repo)
 	skillDir := filepath.Join(dir, "skills", "my-skill")
-	os.MkdirAll(skillDir, 0o755)
-	os.WriteFile(filepath.Join(skillDir, "SKILL.md"), []byte(`---
+	if err := os.MkdirAll(skillDir, 0o755); err != nil {
+		t.Fatalf("MkdirAll() error: %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(skillDir, "SKILL.md"), []byte(`---
 name: my-skill
 description: A test skill
 ---
-`), 0o644)
+`), 0o644); err != nil {
+		t.Fatalf("WriteFile() error: %v", err)
+	}
 
 	skills, err := DiscoverSkills(dir, "", false)
 	if err != nil {
@@ -242,14 +252,18 @@ func TestDiscoverSkills_Internal(t *testing.T) {
 	dir := t.TempDir()
 
 	skillDir := filepath.Join(dir, "skills", "internal-skill")
-	os.MkdirAll(skillDir, 0o755)
-	os.WriteFile(filepath.Join(skillDir, "SKILL.md"), []byte(`---
+	if err := os.MkdirAll(skillDir, 0o755); err != nil {
+		t.Fatalf("MkdirAll() error: %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(skillDir, "SKILL.md"), []byte(`---
 name: internal-skill
 description: An internal skill
 metadata:
   internal: true
 ---
-`), 0o644)
+`), 0o644); err != nil {
+		t.Fatalf("WriteFile() error: %v", err)
+	}
 
 	// Without includeInternal
 	skills, _ := DiscoverSkills(dir, "", false)
@@ -269,12 +283,16 @@ func TestDiscoverSkills_WithSubpath(t *testing.T) {
 
 	// Create a skill at a specific subpath
 	skillDir := filepath.Join(dir, "specific", "path")
-	os.MkdirAll(skillDir, 0o755)
-	os.WriteFile(filepath.Join(skillDir, "SKILL.md"), []byte(`---
+	if err := os.MkdirAll(skillDir, 0o755); err != nil {
+		t.Fatalf("MkdirAll() error: %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(skillDir, "SKILL.md"), []byte(`---
 name: specific-skill
 description: A skill at a specific path
 ---
-`), 0o644)
+`), 0o644); err != nil {
+		t.Fatalf("WriteFile() error: %v", err)
+	}
 
 	skills, err := DiscoverSkills(dir, "specific/path", false)
 	if err != nil {
@@ -289,8 +307,12 @@ func TestScanner_DetectAgents(t *testing.T) {
 	dir := t.TempDir()
 
 	// Create agent skill directories
-	os.MkdirAll(filepath.Join(dir, ".cursor", "skills"), 0o755)
-	os.MkdirAll(filepath.Join(dir, ".agents", "skills"), 0o755)
+	if err := os.MkdirAll(filepath.Join(dir, ".cursor", "skills"), 0o755); err != nil {
+		t.Fatalf("MkdirAll(.cursor) error: %v", err)
+	}
+	if err := os.MkdirAll(filepath.Join(dir, ".agents", "skills"), 0o755); err != nil {
+		t.Fatalf("MkdirAll(.agents) error: %v", err)
+	}
 
 	agents, _ := LoadAgents()
 	scanner := NewScanner(agents)

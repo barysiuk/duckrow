@@ -1,0 +1,28 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+echo "Running pre-commit checks..."
+
+# Format check
+echo "  Checking formatting..."
+UNFORMATTED=$(gofmt -l .)
+if [ -n "$UNFORMATTED" ]; then
+  echo "  FAIL: Files not formatted:"
+  echo "$UNFORMATTED" | sed 's/^/    /'
+  echo "  Run: gofmt -w ."
+  exit 1
+fi
+
+# Vet
+echo "  Running go vet..."
+go vet ./...
+
+# Lint
+echo "  Running golangci-lint..."
+golangci-lint run ./...
+
+# Tests (short mode for speed)
+echo "  Running tests (short)..."
+go test ./... -short -count=1
+
+echo "All pre-commit checks passed."

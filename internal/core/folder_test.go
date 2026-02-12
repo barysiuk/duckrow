@@ -84,8 +84,12 @@ func TestFolderManager_Remove(t *testing.T) {
 	folder1 := t.TempDir()
 	folder2 := t.TempDir()
 
-	fm.Add(folder1)
-	fm.Add(folder2)
+	if err := fm.Add(folder1); err != nil {
+		t.Fatalf("Add(folder1) error: %v", err)
+	}
+	if err := fm.Add(folder2); err != nil {
+		t.Fatalf("Add(folder2) error: %v", err)
+	}
 
 	if err := fm.Remove(folder1); err != nil {
 		t.Fatalf("Remove() error: %v", err)

@@ -142,6 +142,6 @@ func cleanupEmptyDir(dir string) {
 		return
 	}
 	if len(entries) == 0 {
-		os.Remove(dir)
+		_ = os.Remove(dir)
 	}
 }

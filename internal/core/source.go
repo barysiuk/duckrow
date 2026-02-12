@@ -47,7 +47,7 @@ func ParseSource(input string) (*ParsedSource, error) {
 	}
 
 	// owner/repo@skill-name
-	if atIdx := strings.LastIndex(input, "@"); atIdx > 0 && !strings.Contains(input[:atIdx], "/") == false {
+	if atIdx := strings.LastIndex(input, "@"); atIdx > 0 && strings.Contains(input[:atIdx], "/") {
 		// Check if this is owner/repo@skill format (not an email-like pattern)
 		parts := strings.SplitN(input, "@", 2)
 		if len(parts) == 2 && ownerRepoPattern.MatchString(parts[0]) {

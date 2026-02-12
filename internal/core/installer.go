@@ -72,7 +72,7 @@ func (inst *Installer) InstallFromSource(source *ParsedSource, opts InstallOptio
 		if err != nil {
 			return nil, fmt.Errorf("cloning repository: %w", err)
 		}
-		cleanupFn = func() { os.RemoveAll(tmpDir) }
+		cleanupFn = func() { _ = os.RemoveAll(tmpDir) }
 		skillSourceDir = tmpDir
 	default:
 		return nil, fmt.Errorf("unsupported source type: %s", source.Type)
@@ -174,7 +174,7 @@ func (inst *Installer) installSkill(skill DiscoveredSkill, agents []AgentDef, op
 		linkPath := filepath.Join(agentSkillDir, sanitizedName)
 
 		// Remove existing link/dir if present
-		os.RemoveAll(linkPath)
+		_ = os.RemoveAll(linkPath)
 
 		// Create relative symlink
 		rel, err := filepath.Rel(agentSkillDir, canonicalDir)
@@ -217,7 +217,7 @@ func cloneRepo(url string, ref string) (string, error) {
 
 	output, err := runWithTimeout(cmd, cloneTimeout)
 	if err != nil {
-		os.RemoveAll(tmpDir)
+		_ = os.RemoveAll(tmpDir)
 		return "", fmt.Errorf("git clone failed: %w\nOutput: %s", err, output)
 	}
 
@@ -241,7 +241,7 @@ func runWithTimeout(cmd *exec.Cmd, timeout time.Duration) (string, error) {
 		return string(output), cmdErr
 	case <-time.After(timeout):
 		if cmd.Process != nil {
-			cmd.Process.Kill()
+			_ = cmd.Process.Kill()
 		}
 		return "", fmt.Errorf("command timed out after %s", timeout)
 	}
@@ -292,7 +292,7 @@ func copyFile(src, dst string) error {
 	if err != nil {
 		return err
 	}
-	defer srcFile.Close()
+	defer func() { _ = srcFile.Close() }()
 
 	info, err := srcFile.Stat()
 	if err != nil {
@@ -303,7 +303,7 @@ func copyFile(src, dst string) error {
 	if err != nil {
 		return err
 	}
-	defer dstFile.Close()
+	defer func() { _ = dstFile.Close() }()
 
 	_, err = io.Copy(dstFile, srcFile)
 	return err
