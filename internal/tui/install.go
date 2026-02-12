@@ -68,6 +68,20 @@ func (m installModel) isInstalling() bool {
 	return m.installing
 }
 
+// selectedSkillInfo returns the currently selected registry skill info,
+// used when a clone error occurs and we need to pass context to the error overlay.
+func (m installModel) selectedSkillInfo() core.RegistrySkillInfo {
+	item := m.list.SelectedItem()
+	if item == nil {
+		return core.RegistrySkillInfo{}
+	}
+	rsi, ok := item.(registrySkillItem)
+	if !ok {
+		return core.RegistrySkillInfo{}
+	}
+	return rsi.info
+}
+
 // activate is called when the install picker opens. It filters registry skills
 // to show only those NOT already installed in the active folder.
 func (m installModel) activate(activeFolder string, regSkills []core.RegistrySkillInfo, folderStatus *core.FolderStatus) installModel {
@@ -203,6 +217,12 @@ func (m installModel) startInstall(app *App) (installModel, tea.Cmd) {
 				folder:    folder,
 				err:       fmt.Errorf("parsing source %q: %w", skill.Skill.Source, err),
 			}
+		}
+
+		// Apply clone URL override if one exists for this repo.
+		cfg, cfgErr := app.config.Load()
+		if cfgErr == nil {
+			source.ApplyCloneURLOverride(cfg.Settings.CloneURLOverrides)
 		}
 
 		installer := core.NewInstaller(app.agents)

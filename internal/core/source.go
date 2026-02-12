@@ -147,6 +147,33 @@ func parseSSHSource(input string) (*ParsedSource, error) {
 	return result, nil
 }
 
+// RepoKey returns a normalized "owner/repo" key for this source.
+// This key is used to look up clone URL overrides in the config.
+// Returns empty string if Owner or Repo are not set (e.g. local sources).
+func (ps *ParsedSource) RepoKey() string {
+	if ps.Owner == "" || ps.Repo == "" {
+		return ""
+	}
+	return strings.ToLower(ps.Owner) + "/" + strings.ToLower(ps.Repo)
+}
+
+// ApplyCloneURLOverride replaces CloneURL with the override value if one
+// exists for this source's RepoKey. Returns true if an override was applied.
+func (ps *ParsedSource) ApplyCloneURLOverride(overrides map[string]string) bool {
+	if len(overrides) == 0 {
+		return false
+	}
+	key := ps.RepoKey()
+	if key == "" {
+		return false
+	}
+	if override, ok := overrides[key]; ok && override != "" {
+		ps.CloneURL = override
+		return true
+	}
+	return false
+}
+
 func parseHTTPSource(input string) (*ParsedSource, error) {
 	u, err := url.Parse(input)
 	if err != nil {

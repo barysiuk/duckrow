@@ -19,8 +19,9 @@ type TrackedFolder struct {
 
 // Settings holds user preferences.
 type Settings struct {
-	AutoAddCurrentDir   bool `json:"autoAddCurrentDir"`
-	DisableAllTelemetry bool `json:"disableAllTelemetry"`
+	AutoAddCurrentDir   bool              `json:"autoAddCurrentDir"`
+	DisableAllTelemetry bool              `json:"disableAllTelemetry"`
+	CloneURLOverrides   map[string]string `json:"cloneURLOverrides,omitempty"`
 }
 
 // Registry is a private skill catalog backed by a git repository.

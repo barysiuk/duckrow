@@ -26,6 +26,7 @@ const (
 	viewInstallPicker                // Install skill picker overlay
 	viewSettings                     // Settings overlay
 	viewSkillPreview                 // SKILL.md preview overlay
+	viewCloneError                   // Clone error overlay
 )
 
 // App is the root Bubbletea model for DuckRow.
@@ -49,10 +50,14 @@ type App struct {
 	isTracked    bool   // Whether activeFolder is in the tracked list
 
 	// Sub-models.
-	folder   folderModel
-	picker   pickerModel
-	install  installModel
-	settings settingsModel
+	folder     folderModel
+	picker     pickerModel
+	install    installModel
+	settings   settingsModel
+	cloneError cloneErrorModel
+
+	// View the user was on before clone error overlay opened (for going back).
+	previousView appView
 
 	// Skill preview.
 	previewViewport viewport.Model
@@ -107,6 +112,7 @@ func NewApp(config *core.ConfigManager, agents []core.AgentDef) App {
 		picker:         newPickerModel(),
 		install:        newInstallModel(),
 		settings:       newSettingsModel(),
+		cloneError:     newCloneErrorModel(),
 		help:           h,
 		previewSpinner: s,
 	}
@@ -183,10 +189,59 @@ func (a App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case installDoneMsg:
 		a.install.setInstalling(false)
 		if msg.err != nil {
+			// Check if this is a clone error — if so, show the clone error overlay.
+			if ce, ok := core.IsCloneError(msg.err); ok {
+				a.previousView = a.activeView
+				a.activeView = viewCloneError
+				a.cloneError = a.cloneError.activateForInstall(
+					ce,
+					a.install.selectedSkillInfo(),
+					a.install.activeFolder,
+				)
+				return a, nil
+			}
 			a.statusText = fmt.Sprintf("Error: %v", msg.err)
 		} else {
 			a.statusText = fmt.Sprintf("Installed %s", msg.skillName)
 			a.activeView = viewFolder
+		}
+		return a, a.loadDataCmd
+
+	case registryAddDoneMsg:
+		if msg.err != nil {
+			// Check if this is a clone error.
+			if ce, ok := core.IsCloneError(msg.err); ok {
+				a.previousView = a.activeView
+				a.activeView = viewCloneError
+				a.cloneError = a.cloneError.activateForRegistryAdd(ce, msg.url)
+				return a, nil
+			}
+			a.err = fmt.Errorf("adding registry: %v", msg.err)
+		} else {
+			a.statusText = fmt.Sprintf("Added registry %s", msg.name)
+		}
+		return a, a.loadDataCmd
+
+	case cloneRetryResultMsg:
+		// Result from a retry initiated from the clone error overlay.
+		if msg.cloneErr != nil {
+			// Clone failed again — update the overlay with the new error.
+			a.cloneError = a.cloneError.handleRetryResult(msg)
+			return a, nil
+		}
+		if msg.postCloneErr != nil {
+			// Clone succeeded but post-clone step failed — keep overlay visible.
+			a.cloneError = a.cloneError.handleRetryResult(msg)
+			return a, nil
+		}
+		// Full success — dismiss the overlay and reload data.
+		a.cloneError = a.cloneError.handleRetryResult(msg)
+		a.activeView = a.previousView
+		switch msg.origin {
+		case retryOriginInstall:
+			a.statusText = fmt.Sprintf("Installed %s", msg.skillName)
+		case retryOriginRegistryAdd:
+			a.statusText = fmt.Sprintf("Added registry %s", msg.registryName)
 		}
 		return a, a.loadDataCmd
 
@@ -235,12 +290,18 @@ func (a App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return a, nil
 
 	case spinner.TickMsg:
+		// Route spinner ticks to the appropriate consumer.
 		if a.previewLoading {
 			var cmd tea.Cmd
 			a.previewSpinner, cmd = a.previewSpinner.Update(msg)
 			return a, cmd
 		}
-		return a, nil
+		if a.activeView == viewCloneError && a.cloneError.isRetrying() {
+			var cmd tea.Cmd
+			a.cloneError, cmd = a.cloneError.update(msg, &a)
+			return a, cmd
+		}
+		// Fall through to delegate section for install spinner, etc.
 
 	case statusMsg:
 		a.statusText = msg.text
@@ -265,6 +326,22 @@ func (a App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			return a, cmd
 		}
 
+		// Handle clone error keys — the overlay manages its own input.
+		if a.activeView == viewCloneError {
+			// While retrying, ignore all key input.
+			if a.cloneError.isRetrying() {
+				return a, nil
+			}
+			// Editing mode: don't intercept esc/q globally.
+			if a.cloneError.editing {
+				break
+			}
+			if key.Matches(msg, keys.Back) || key.Matches(msg, keys.Quit) {
+				a.activeView = a.previousView
+				return a, nil
+			}
+		}
+
 		// Global quit (unless input is focused).
 		if key.Matches(msg, keys.Quit) {
 			if a.activeView == viewSettings && a.settings.inputFocused() {
@@ -272,6 +349,9 @@ func (a App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			}
 			if a.activeView == viewInstallPicker && a.install.isInstalling() {
 				break // Don't quit during install
+			}
+			if a.activeView == viewCloneError {
+				break // Handled above
 			}
 			// Don't quit while filtering in any list view.
 			if a.isListFiltering() {
@@ -284,6 +364,9 @@ func (a App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		if key.Matches(msg, keys.Back) {
 			if a.activeView == viewSettings && a.settings.inputFocused() {
 				break // Let settings handle esc for input
+			}
+			if a.activeView == viewCloneError {
+				break // Handled above
 			}
 			// Don't intercept esc while filtering — let the list handle it.
 			if a.isListFiltering() {
@@ -331,6 +414,8 @@ func (a App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		a.install, cmd = a.install.update(msg, &a)
 	case viewSettings:
 		a.settings, cmd = a.settings.update(msg, &a)
+	case viewCloneError:
+		a.cloneError, cmd = a.cloneError.update(msg, &a)
 	}
 
 	return a, cmd
@@ -405,6 +490,8 @@ func (a App) View() string {
 		content = a.settings.view()
 	case viewSkillPreview:
 		content = a.renderPreview()
+	case viewCloneError:
+		content = a.cloneError.view()
 	}
 
 	// Clamp content to the text area so it can't inflate the box.
@@ -443,6 +530,14 @@ func (a App) renderHeader() string {
 		hints = headerHintStyle.Render("Settings")
 	case viewSkillPreview:
 		hints = headerHintStyle.Render(a.previewTitle)
+	case viewCloneError:
+		if a.cloneError.isRetrying() {
+			hints = headerHintStyle.Render("Cloning...")
+		} else if a.cloneError.postCloneErr != nil {
+			hints = headerHintStyle.Render("Clone Result")
+		} else {
+			hints = headerHintStyle.Render("Clone Error")
+		}
 	}
 
 	// Indent 1 char to align with content box's left border.
@@ -469,6 +564,8 @@ func (a App) renderHelpBar() string {
 		km = settingsHelpKeyMap{}
 	case viewSkillPreview:
 		km = previewHelpKeyMap{}
+	case viewCloneError:
+		km = cloneErrorHelpKeyMap{editing: a.cloneError.editing, retrying: a.cloneError.isRetrying()}
 	}
 
 	// Indent 1 char to align with content box's left border.
@@ -571,6 +668,7 @@ func (a *App) propagateSize() {
 	a.picker = a.picker.setSize(w, h)
 	a.install = a.install.setSize(w, h)
 	a.settings = a.settings.setSize(w, h)
+	a.cloneError = a.cloneError.setSize(w, h)
 
 	// Update preview viewport if active.
 	if a.activeView == viewSkillPreview {

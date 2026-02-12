@@ -31,6 +31,12 @@ Sources can be:
 			return fmt.Errorf("invalid source: %w", err)
 		}
 
+		// Apply clone URL override if one exists for this repo.
+		cfg, cfgErr := d.config.Load()
+		if cfgErr == nil {
+			source.ApplyCloneURLOverride(cfg.Settings.CloneURLOverrides)
+		}
+
 		targetDir, _ := cmd.Flags().GetString("dir")
 		if targetDir == "" {
 			targetDir, err = os.Getwd()

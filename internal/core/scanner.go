@@ -3,6 +3,7 @@ package core
 import (
 	"bufio"
 	"fmt"
+	"io/fs"
 	"os"
 	"path/filepath"
 	"sort"
@@ -220,6 +221,8 @@ func ParseSkillMd(path string) (*SkillMetadata, error) {
 
 // DiscoverSkills finds all SKILL.md files in a directory tree.
 // Used during installation to discover skills in a cloned repository.
+// Walks the tree recursively, skipping hidden directories (except .agents)
+// so that skills at any nesting depth are found.
 func DiscoverSkills(basePath string, subPath string, includeInternal bool) ([]DiscoveredSkill, error) {
 	searchPath := basePath
 	if subPath != "" {
@@ -227,64 +230,53 @@ func DiscoverSkills(basePath string, subPath string, includeInternal bool) ([]Di
 	}
 
 	var skills []DiscoveredSkill
-
-	// First check if searchPath itself contains a SKILL.md
-	skillMdPath := filepath.Join(searchPath, skillFileName)
-	if fileExists(skillMdPath) {
-		metadata, err := ParseSkillMd(skillMdPath)
-		if err == nil && (includeInternal || !metadata.Metadata.Internal) {
-			skills = append(skills, DiscoveredSkill{
-				Metadata: *metadata,
-				Path:     searchPath,
-			})
-			return skills, nil
-		}
-	}
-
-	// Scan subdirectories for SKILL.md files
-	dirs := []string{searchPath}
-
-	// Also check common skill subdirectories
-	commonSubdirs := []string{"skills", ".agents/skills"}
-	for _, sub := range commonSubdirs {
-		candidate := filepath.Join(searchPath, sub)
-		if dirExists(candidate) {
-			dirs = append(dirs, candidate)
-		}
-	}
-
 	seen := make(map[string]bool)
-	for _, dir := range dirs {
-		entries, err := os.ReadDir(dir)
-		if err != nil {
-			continue
-		}
-		for _, entry := range entries {
-			if !entry.IsDir() {
-				continue
-			}
-			skillDir := filepath.Join(dir, entry.Name())
-			mdPath := filepath.Join(skillDir, skillFileName)
-			if !fileExists(mdPath) {
-				continue
-			}
-			if seen[skillDir] {
-				continue
-			}
-			seen[skillDir] = true
 
-			metadata, err := ParseSkillMd(mdPath)
-			if err != nil {
-				continue
-			}
-			if !includeInternal && metadata.Metadata.Internal {
-				continue
-			}
-			skills = append(skills, DiscoveredSkill{
-				Metadata: *metadata,
-				Path:     skillDir,
-			})
+	err := filepath.WalkDir(searchPath, func(path string, d fs.DirEntry, err error) error {
+		if err != nil {
+			return nil // skip unreadable entries
 		}
+
+		// Skip hidden directories (except .agents which is a known skills location).
+		if d.IsDir() && path != searchPath {
+			name := d.Name()
+			if strings.HasPrefix(name, ".") && name != ".agents" {
+				return filepath.SkipDir
+			}
+			// Skip common non-skill directories for performance.
+			switch name {
+			case "node_modules", "vendor", "__pycache__":
+				return filepath.SkipDir
+			}
+		}
+
+		// We only care about SKILL.md files.
+		if d.IsDir() || d.Name() != skillFileName {
+			return nil
+		}
+
+		skillDir := filepath.Dir(path)
+		if seen[skillDir] {
+			return nil
+		}
+		seen[skillDir] = true
+
+		metadata, err := ParseSkillMd(path)
+		if err != nil {
+			return nil // skip unparseable skills
+		}
+		if !includeInternal && metadata.Metadata.Internal {
+			return nil
+		}
+
+		skills = append(skills, DiscoveredSkill{
+			Metadata: *metadata,
+			Path:     skillDir,
+		})
+		return nil
+	})
+	if err != nil {
+		return nil, fmt.Errorf("walking %s: %w", searchPath, err)
 	}
 
 	return skills, nil

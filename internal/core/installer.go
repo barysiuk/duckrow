@@ -200,6 +200,7 @@ func (inst *Installer) installSkill(skill DiscoveredSkill, agents []AgentDef, op
 }
 
 // cloneRepo clones a git repository to a temporary directory.
+// On failure it returns a *CloneError with classified diagnostics.
 func cloneRepo(url string, ref string) (string, error) {
 	tmpDir, err := os.MkdirTemp("", "duckrow-clone-*")
 	if err != nil {
@@ -218,7 +219,7 @@ func cloneRepo(url string, ref string) (string, error) {
 	output, err := runWithTimeout(cmd, cloneTimeout)
 	if err != nil {
 		_ = os.RemoveAll(tmpDir)
-		return "", fmt.Errorf("git clone failed: %w\nOutput: %s", err, output)
+		return "", ClassifyCloneError(url, FormatCommand(url, ref), output)
 	}
 
 	return tmpDir, nil

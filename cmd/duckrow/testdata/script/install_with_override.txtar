@@ -1,0 +1,40 @@
+# Test that clone URL overrides in config redirect install to a different URL.
+# This simulates a user who edited a URL (HTTPS -> SSH) in the clone error overlay
+# and the override was persisted, so subsequent installs use the corrected URL.
+
+# Create a project directory
+mkdir myproject
+
+# Create a local git repo with actual skill files.
+# This will serve as the "override" target — as if the user switched to
+# a working SSH URL that points to this repo.
+mkdir skill-repo/skills/redirected-skill
+cp skill-md skill-repo/skills/redirected-skill/SKILL.md
+
+# Turn it into a git repo (setup-git-repo also adds a duckrow.json manifest)
+setup-git-repo skill-repo test-skills redirected-skill
+
+# Set up config with a clone URL override:
+# "fake-owner/fake-repo" (a nonexistent GitHub repo) -> local git repo path
+setup-config-override fake-owner/fake-repo skill-repo
+
+# Install using the GitHub shorthand that would normally fail.
+# The override in config.json redirects the clone to our local repo.
+exec duckrow install fake-owner/fake-repo -d myproject
+stdout 'Installed: redirected-skill'
+! stderr .
+
+# Verify the skill was installed correctly
+exists myproject/.agents/skills/redirected-skill/SKILL.md
+file-contains myproject/.agents/skills/redirected-skill/SKILL.md 'redirected-skill'
+
+-- skill-md --
+---
+name: redirected-skill
+description: A skill installed via clone URL override
+metadata:
+  version: "1.0.0"
+---
+# Redirected Skill
+
+This skill proves the clone URL override works end-to-end.

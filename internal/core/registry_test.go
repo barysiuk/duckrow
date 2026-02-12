@@ -370,6 +370,54 @@ func TestRegistryManager_Refresh_Integration(t *testing.T) {
 	})
 }
 
+func TestRegistryManager_Add_CloneError(t *testing.T) {
+	if testing.Short() {
+		t.Skip("skipping integration test in -short mode")
+	}
+
+	t.Run("returns CloneError for unreachable URL", func(t *testing.T) {
+		registriesDir := t.TempDir()
+		rm := NewRegistryManager(registriesDir)
+
+		_, err := rm.Add("https://github.com/nonexistent-owner-xyz/nonexistent-repo-xyz.git")
+		if err == nil {
+			t.Fatal("expected error for unreachable URL")
+		}
+
+		ce, ok := IsCloneError(err)
+		if !ok {
+			t.Fatalf("expected *CloneError, got %T: %v", err, err)
+		}
+
+		if ce.URL != "https://github.com/nonexistent-owner-xyz/nonexistent-repo-xyz.git" {
+			t.Errorf("CloneError.URL = %q", ce.URL)
+		}
+		if ce.Protocol != "https" {
+			t.Errorf("CloneError.Protocol = %q, want %q", ce.Protocol, "https")
+		}
+	})
+
+	t.Run("remote URL matches after Add", func(t *testing.T) {
+		registriesDir := t.TempDir()
+		rm := NewRegistryManager(registriesDir)
+
+		bareRepo := t.TempDir()
+		setupTestGitRepo(t, bareRepo)
+
+		_, err := rm.Add(bareRepo)
+		if err != nil {
+			t.Fatalf("Add() error = %v", err)
+		}
+
+		// Verify the remote URL of the clone matches the source
+		cloneDir := filepath.Join(registriesDir, "test-org")
+		remoteURL := gitRemoteURL(cloneDir)
+		if remoteURL != bareRepo {
+			t.Errorf("remote URL = %q, want %q", remoteURL, bareRepo)
+		}
+	})
+}
+
 // setupTestGitRepo creates a local git repo with a duckrow.json manifest.
 func setupTestGitRepo(t *testing.T, dir string) {
 	t.Helper()

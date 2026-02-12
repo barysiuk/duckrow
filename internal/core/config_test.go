@@ -125,3 +125,144 @@ func TestConfigManager_CorruptFile(t *testing.T) {
 		t.Error("Load() should return error for corrupt config")
 	}
 }
+
+func TestConfigManager_SaveCloneURLOverride(t *testing.T) {
+	dir := t.TempDir()
+	cm := NewConfigManagerWithDir(dir)
+
+	// Save initial config.
+	cfg := defaultConfig()
+	if err := cm.Save(cfg); err != nil {
+		t.Fatalf("Save() error: %v", err)
+	}
+
+	// Save an override.
+	if err := cm.SaveCloneURLOverride("pandadoc-studio/skills", "git@github.com-work:pandadoc-studio/skills.git"); err != nil {
+		t.Fatalf("SaveCloneURLOverride() error: %v", err)
+	}
+
+	// Load and verify.
+	loaded, err := cm.Load()
+	if err != nil {
+		t.Fatalf("Load() error: %v", err)
+	}
+
+	if loaded.Settings.CloneURLOverrides == nil {
+		t.Fatal("CloneURLOverrides is nil after save")
+	}
+	got := loaded.Settings.CloneURLOverrides["pandadoc-studio/skills"]
+	want := "git@github.com-work:pandadoc-studio/skills.git"
+	if got != want {
+		t.Errorf("override = %q, want %q", got, want)
+	}
+}
+
+func TestConfigManager_SaveCloneURLOverride_MultipleSaves(t *testing.T) {
+	dir := t.TempDir()
+	cm := NewConfigManagerWithDir(dir)
+
+	// Save initial config.
+	if err := cm.Save(defaultConfig()); err != nil {
+		t.Fatalf("Save() error: %v", err)
+	}
+
+	// Save two different overrides.
+	if err := cm.SaveCloneURLOverride("org/repo-a", "git@github.com:org/repo-a.git"); err != nil {
+		t.Fatalf("first SaveCloneURLOverride() error: %v", err)
+	}
+	if err := cm.SaveCloneURLOverride("org/repo-b", "git@github.com:org/repo-b.git"); err != nil {
+		t.Fatalf("second SaveCloneURLOverride() error: %v", err)
+	}
+
+	loaded, err := cm.Load()
+	if err != nil {
+		t.Fatalf("Load() error: %v", err)
+	}
+
+	if len(loaded.Settings.CloneURLOverrides) != 2 {
+		t.Errorf("expected 2 overrides, got %d", len(loaded.Settings.CloneURLOverrides))
+	}
+}
+
+func TestConfigManager_SaveCloneURLOverride_UpdateExisting(t *testing.T) {
+	dir := t.TempDir()
+	cm := NewConfigManagerWithDir(dir)
+
+	if err := cm.Save(defaultConfig()); err != nil {
+		t.Fatalf("Save() error: %v", err)
+	}
+
+	// Save then update the same key.
+	_ = cm.SaveCloneURLOverride("org/repo", "git@github.com:org/repo.git")
+	_ = cm.SaveCloneURLOverride("org/repo", "git@github.com-work:org/repo.git")
+
+	loaded, err := cm.Load()
+	if err != nil {
+		t.Fatalf("Load() error: %v", err)
+	}
+
+	got := loaded.Settings.CloneURLOverrides["org/repo"]
+	want := "git@github.com-work:org/repo.git"
+	if got != want {
+		t.Errorf("override = %q, want %q", got, want)
+	}
+}
+
+func TestConfigManager_SaveCloneURLOverride_EmptyInputs(t *testing.T) {
+	dir := t.TempDir()
+	cm := NewConfigManagerWithDir(dir)
+
+	if err := cm.Save(defaultConfig()); err != nil {
+		t.Fatalf("Save() error: %v", err)
+	}
+
+	// Empty key or URL should be no-ops.
+	if err := cm.SaveCloneURLOverride("", "git@github.com:o/r.git"); err != nil {
+		t.Errorf("empty key should not error, got: %v", err)
+	}
+	if err := cm.SaveCloneURLOverride("org/repo", ""); err != nil {
+		t.Errorf("empty URL should not error, got: %v", err)
+	}
+
+	loaded, err := cm.Load()
+	if err != nil {
+		t.Fatalf("Load() error: %v", err)
+	}
+
+	if len(loaded.Settings.CloneURLOverrides) > 0 {
+		t.Errorf("expected no overrides, got %v", loaded.Settings.CloneURLOverrides)
+	}
+}
+
+func TestConfigManager_SaveAndLoad_WithOverrides(t *testing.T) {
+	dir := t.TempDir()
+	cm := NewConfigManagerWithDir(dir)
+
+	cfg := &Config{
+		Folders: []TrackedFolder{
+			{Path: "/project"},
+		},
+		Settings: Settings{
+			AutoAddCurrentDir: true,
+			CloneURLOverrides: map[string]string{
+				"org/repo": "git@github.com:org/repo.git",
+			},
+		},
+	}
+
+	if err := cm.Save(cfg); err != nil {
+		t.Fatalf("Save() error: %v", err)
+	}
+
+	loaded, err := cm.Load()
+	if err != nil {
+		t.Fatalf("Load() error: %v", err)
+	}
+
+	if len(loaded.Settings.CloneURLOverrides) != 1 {
+		t.Fatalf("expected 1 override, got %d", len(loaded.Settings.CloneURLOverrides))
+	}
+	if loaded.Settings.CloneURLOverrides["org/repo"] != "git@github.com:org/repo.git" {
+		t.Errorf("override value mismatch")
+	}
+}

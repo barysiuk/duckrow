@@ -1,0 +1,63 @@
+# Test that clone URL overrides persist and work for multiple installs.
+# This verifies that the config-based override is read correctly across
+# separate install invocations — simulating the flow after a user edits
+# a URL in the clone error overlay and the override gets saved.
+
+# Create project directories
+mkdir project-a
+mkdir project-b
+
+# Create a local git repo with multiple skills
+mkdir skill-repo/skills/skill-alpha
+cp skill-alpha-md skill-repo/skills/skill-alpha/SKILL.md
+mkdir skill-repo/skills/skill-beta
+cp skill-beta-md skill-repo/skills/skill-beta/SKILL.md
+
+# Initialize as git repo
+setup-git-repo skill-repo acme-corp skill-alpha skill-beta
+
+# Set up config override: acme/tools -> local repo
+setup-config-override acme/tools skill-repo
+
+# First install: specific skill into project-a
+exec duckrow install acme/tools -d project-a -s skill-alpha
+stdout 'Installed: skill-alpha'
+! stderr .
+
+# Verify first install
+exists project-a/.agents/skills/skill-alpha/SKILL.md
+file-contains project-a/.agents/skills/skill-alpha/SKILL.md 'Alpha skill'
+
+# Second install: different skill into project-b (override still works)
+exec duckrow install acme/tools -d project-b -s skill-beta
+stdout 'Installed: skill-beta'
+! stderr .
+
+# Verify second install
+exists project-b/.agents/skills/skill-beta/SKILL.md
+file-contains project-b/.agents/skills/skill-beta/SKILL.md 'Beta skill'
+
+# Verify the config file still has the override (not corrupted by installs)
+file-contains .duckrow/config.json 'cloneURLOverrides'
+file-contains .duckrow/config.json 'acme/tools'
+
+-- skill-alpha-md --
+---
+name: skill-alpha
+description: Alpha skill for testing
+metadata:
+  version: "1.0.0"
+---
+# Alpha skill
+
+First skill in the repo.
+-- skill-beta-md --
+---
+name: skill-beta
+description: Beta skill for testing
+metadata:
+  version: "1.0.0"
+---
+# Beta skill
+
+Second skill in the repo.

@@ -183,22 +183,24 @@ func (m settingsModel) handleInputSubmit(value string, app *App) tea.Cmd {
 			regMgr := core.NewRegistryManager(app.config.RegistriesDir())
 			manifest, err := regMgr.Add(value)
 			if err != nil {
-				return errMsg{err: fmt.Errorf("adding registry: %w", err)}
+				// Return registryAddDoneMsg so app.go can detect clone errors
+				// and show the clone error overlay instead of a generic banner.
+				return registryAddDoneMsg{url: value, err: fmt.Errorf("adding registry: %w", err)}
 			}
 
 			// Save registry to config.
 			cfg, err := app.config.Load()
 			if err != nil {
-				return errMsg{err: err}
+				return registryAddDoneMsg{url: value, err: err}
 			}
 			cfg.Registries = append(cfg.Registries, core.Registry{
 				Name: manifest.Name,
 				Repo: value,
 			})
 			if err := app.config.Save(cfg); err != nil {
-				return errMsg{err: err}
+				return registryAddDoneMsg{url: value, err: err}
 			}
-			return app.reloadConfig()()
+			return registryAddDoneMsg{url: value, name: manifest.Name}
 		}
 	}
 	return nil
@@ -249,14 +251,16 @@ func (m settingsModel) refreshSelectedRegistry(app *App) tea.Cmd {
 	if m.cursor >= len(m.cfg.Registries) {
 		return nil
 	}
-	name := m.cfg.Registries[m.cursor].Name
+	reg := m.cfg.Registries[m.cursor]
 	return func() tea.Msg {
 		regMgr := core.NewRegistryManager(app.config.RegistriesDir())
-		_, err := regMgr.Refresh(name)
+		_, err := regMgr.Refresh(reg.Name)
 		if err != nil {
-			return errMsg{err: fmt.Errorf("refreshing %s: %w", name, err)}
+			// Use registryAddDoneMsg so app.go can detect clone errors
+			// from gitPull and show the clone error overlay.
+			return registryAddDoneMsg{url: reg.Repo, err: fmt.Errorf("refreshing %s: %w", reg.Name, err)}
 		}
-		return app.reloadConfig()()
+		return registryAddDoneMsg{url: reg.Repo, name: reg.Name}
 	}
 }
 
