@@ -18,8 +18,6 @@ const (
 	settingsRegistries settingsSection = iota
 	settingsAddRegistry
 	settingsFolders
-	settingsAddFolderSetting
-	settingsPreferences
 )
 
 // settingsModel is the settings/configuration screen.
@@ -31,7 +29,7 @@ type settingsModel struct {
 	section settingsSection
 	cursor  int // Cursor within the current section.
 
-	// Input mode for adding registry/folder.
+	// Input mode for adding registry.
 	inputMode    bool
 	inputSection settingsSection // Which section triggered the input.
 	textInput    textinput.Model
@@ -42,7 +40,7 @@ type settingsModel struct {
 
 func newSettingsModel() settingsModel {
 	ti := textinput.New()
-	ti.Placeholder = "Enter URL or path..."
+	ti.Placeholder = "Enter URL..."
 	ti.CharLimit = 256
 
 	return settingsModel{
@@ -140,21 +138,6 @@ func (m settingsModel) moveCursorUp() settingsModel {
 			m.section = settingsAddRegistry
 			m.cursor = 0
 		}
-	case settingsAddFolderSetting:
-		if len(m.cfg.Folders) > 0 {
-			m.section = settingsFolders
-			m.cursor = len(m.cfg.Folders) - 1
-		} else {
-			m.section = settingsAddRegistry
-			m.cursor = 0
-		}
-	case settingsPreferences:
-		if m.cursor > 0 {
-			m.cursor--
-		} else {
-			m.section = settingsAddFolderSetting
-			m.cursor = 0
-		}
 	}
 	return m
 }
@@ -172,22 +155,9 @@ func (m settingsModel) moveCursorDown() settingsModel {
 		if len(m.cfg.Folders) > 0 {
 			m.section = settingsFolders
 			m.cursor = 0
-		} else {
-			m.section = settingsAddFolderSetting
-			m.cursor = 0
 		}
 	case settingsFolders:
 		if m.cursor < len(m.cfg.Folders)-1 {
-			m.cursor++
-		} else {
-			m.section = settingsAddFolderSetting
-			m.cursor = 0
-		}
-	case settingsAddFolderSetting:
-		m.section = settingsPreferences
-		m.cursor = 0
-	case settingsPreferences:
-		if m.cursor < 1 { // 2 preferences: AutoAdd, DisableTelemetry
 			m.cursor++
 		}
 	}
@@ -202,16 +172,6 @@ func (m settingsModel) handleEnter(app *App) (settingsModel, tea.Cmd) {
 		m.textInput.Placeholder = "Git repository URL..."
 		m.textInput.Focus()
 		return m, m.textInput.Cursor.BlinkCmd()
-
-	case settingsAddFolderSetting:
-		m.inputMode = true
-		m.inputSection = settingsAddFolderSetting
-		m.textInput.Placeholder = "Folder path (or . for current)..."
-		m.textInput.Focus()
-		return m, m.textInput.Cursor.BlinkCmd()
-
-	case settingsPreferences:
-		return m, m.togglePreference(app)
 	}
 	return m, nil
 }
@@ -237,14 +197,6 @@ func (m settingsModel) handleInputSubmit(value string, app *App) tea.Cmd {
 			})
 			if err := app.config.Save(cfg); err != nil {
 				return errMsg{err: err}
-			}
-			return app.reloadConfig()()
-		}
-
-	case settingsAddFolderSetting:
-		return func() tea.Msg {
-			if err := app.folders.Add(value); err != nil {
-				return errMsg{err: fmt.Errorf("adding folder: %w", err)}
 			}
 			return app.reloadConfig()()
 		}
@@ -303,27 +255,6 @@ func (m settingsModel) refreshSelectedRegistry(app *App) tea.Cmd {
 		_, err := regMgr.Refresh(name)
 		if err != nil {
 			return errMsg{err: fmt.Errorf("refreshing %s: %w", name, err)}
-		}
-		return app.reloadConfig()()
-	}
-}
-
-func (m settingsModel) togglePreference(app *App) tea.Cmd {
-	return func() tea.Msg {
-		cfg, err := app.config.Load()
-		if err != nil {
-			return errMsg{err: err}
-		}
-
-		switch m.cursor {
-		case 0:
-			cfg.Settings.AutoAddCurrentDir = !cfg.Settings.AutoAddCurrentDir
-		case 1:
-			cfg.Settings.DisableAllTelemetry = !cfg.Settings.DisableAllTelemetry
-		}
-
-		if err := app.config.Save(cfg); err != nil {
-			return errMsg{err: err}
 		}
 		return app.reloadConfig()()
 	}
@@ -388,51 +319,9 @@ func (m settingsModel) view() string {
 		b.WriteString("\n")
 	}
 
-	// Add Folder action (or inline input).
 	b.WriteString("\n")
-	if m.inputMode && m.inputSection == settingsAddFolderSetting {
-		b.WriteString("  " + m.textInput.View())
-	} else {
-		isAddFolder := !m.inputMode && m.section == settingsAddFolderSetting
-		if isAddFolder {
-			b.WriteString(selectedItemStyle.Render("  + Add Folder"))
-		} else {
-			b.WriteString(mutedStyle.Render("  + Add Folder"))
-		}
-	}
-	b.WriteString("\n\n")
-
-	// Preferences section.
-	b.WriteString(renderSectionHeader("PREFERENCES", m.width))
+	b.WriteString(mutedStyle.Render("    To add a directory, launch ") + normalItemStyle.Render("duckrow") + mutedStyle.Render(" in that folder and press [a]"))
 	b.WriteString("\n")
-
-	prefs := []struct {
-		label   string
-		enabled bool
-	}{
-		{"Auto-add current directory on launch", m.cfg.Settings.AutoAddCurrentDir},
-		{"Disable all telemetry", m.cfg.Settings.DisableAllTelemetry},
-	}
-
-	for i, pref := range prefs {
-		isSelected := !m.inputMode && m.section == settingsPreferences && i == m.cursor
-		indicator := "    "
-		if isSelected {
-			indicator = "  > "
-		}
-
-		checkbox := "[ ]"
-		if pref.enabled {
-			checkbox = "[x]"
-		}
-
-		if isSelected {
-			b.WriteString(indicator + selectedItemStyle.Render(checkbox+" "+pref.label))
-		} else {
-			b.WriteString(indicator + normalItemStyle.Render(checkbox+" "+pref.label))
-		}
-		b.WriteString("\n")
-	}
 
 	return b.String()
 }
