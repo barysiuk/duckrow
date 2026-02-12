@@ -336,12 +336,6 @@ func (m settingsModel) view() string {
 
 	var b strings.Builder
 
-	// Input overlay.
-	if m.inputMode {
-		b.WriteString("  " + m.textInput.View())
-		b.WriteString("\n\n")
-	}
-
 	// Registries section.
 	b.WriteString(renderSectionHeader("REGISTRIES", m.width))
 	b.WriteString("\n")
@@ -356,13 +350,17 @@ func (m settingsModel) view() string {
 		b.WriteString(m.renderRegistryRow(reg, isSelected))
 	}
 
-	// Add Registry action.
-	isAddReg := !m.inputMode && m.section == settingsAddRegistry
+	// Add Registry action (or inline input).
 	b.WriteString("\n")
-	if isAddReg {
-		b.WriteString(selectedItemStyle.Render("  + Add Registry"))
+	if m.inputMode && m.inputSection == settingsAddRegistry {
+		b.WriteString("  " + m.textInput.View())
 	} else {
-		b.WriteString(mutedStyle.Render("  + Add Registry"))
+		isAddReg := !m.inputMode && m.section == settingsAddRegistry
+		if isAddReg {
+			b.WriteString(selectedItemStyle.Render("  + Add Registry"))
+		} else {
+			b.WriteString(mutedStyle.Render("  + Add Registry"))
+		}
 	}
 	b.WriteString("\n\n")
 
@@ -390,13 +388,17 @@ func (m settingsModel) view() string {
 		b.WriteString("\n")
 	}
 
-	// Add Folder action.
-	isAddFolder := !m.inputMode && m.section == settingsAddFolderSetting
+	// Add Folder action (or inline input).
 	b.WriteString("\n")
-	if isAddFolder {
-		b.WriteString(selectedItemStyle.Render("  + Add Folder"))
+	if m.inputMode && m.inputSection == settingsAddFolderSetting {
+		b.WriteString("  " + m.textInput.View())
 	} else {
-		b.WriteString(mutedStyle.Render("  + Add Folder"))
+		isAddFolder := !m.inputMode && m.section == settingsAddFolderSetting
+		if isAddFolder {
+			b.WriteString(selectedItemStyle.Render("  + Add Folder"))
+		} else {
+			b.WriteString(mutedStyle.Render("  + Add Folder"))
+		}
 	}
 	b.WriteString("\n\n")
 
