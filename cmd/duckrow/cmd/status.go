@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"strings"
 
 	"github.com/barysiuk/duckrow/internal/core"
 	"github.com/spf13/cobra"
@@ -11,8 +12,8 @@ import (
 
 var statusCmd = &cobra.Command{
 	Use:   "status [path]",
-	Short: "Show skills and agents for the current folder",
-	Long: `Show installed skills, detected agents, and tracking status for a folder.
+	Short: "Show installed skills for the current folder",
+	Long: `Show installed skills and tracking status for a folder.
 If a path is given, shows status for that folder. Otherwise shows status for the current directory.`,
 	Args: cobra.MaximumNArgs(1),
 	RunE: func(cmd *cobra.Command, args []string) error {
@@ -72,13 +73,6 @@ func showFolderStatus(scanner *core.Scanner, path string, tracked bool) error {
 	}
 	fmt.Fprintf(os.Stdout, "Folder: %s %s\n", path, trackLabel)
 
-	agents := scanner.DetectAgents(path)
-	if len(agents) > 0 {
-		fmt.Fprintf(os.Stdout, "  Agents: %s\n", joinStrings(agents))
-	} else {
-		fmt.Fprintln(os.Stdout, "  Agents: none detected")
-	}
-
 	skills, err := scanner.ScanFolder(path)
 	if err != nil {
 		return fmt.Errorf("scanning folder: %w", err)
@@ -95,11 +89,9 @@ func showFolderStatus(scanner *core.Scanner, path string, tracked bool) error {
 		if s.Version != "" {
 			version = " v" + s.Version
 		}
-		agentInfo := ""
-		if len(s.Agents) > 0 {
-			agentInfo = fmt.Sprintf(" [%s]", joinStrings(s.Agents))
-		}
-		fmt.Fprintf(os.Stdout, "    - %s%s%s\n", s.Name, version, agentInfo)
+		// Show relative path from the folder root
+		relPath := skillRelPath(path, s.Path)
+		fmt.Fprintf(os.Stdout, "    - %s%s [%s]\n", s.Name, version, relPath)
 		if s.Description != "" {
 			fmt.Fprintf(os.Stdout, "      %s\n", s.Description)
 		}
@@ -107,15 +99,15 @@ func showFolderStatus(scanner *core.Scanner, path string, tracked bool) error {
 	return nil
 }
 
-func joinStrings(ss []string) string {
-	if len(ss) == 0 {
-		return ""
+// skillRelPath returns the skill path relative to the folder root,
+// using forward slashes for consistent display.
+// Falls back to the absolute path if the relative conversion fails.
+func skillRelPath(folderPath, skillPath string) string {
+	rel, err := filepath.Rel(folderPath, skillPath)
+	if err != nil {
+		return skillPath
 	}
-	result := ss[0]
-	for _, s := range ss[1:] {
-		result += ", " + s
-	}
-	return result
+	return strings.ReplaceAll(rel, string(filepath.Separator), "/")
 }
 
 func init() {

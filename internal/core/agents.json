@@ -3,6 +3,7 @@
     "name": "opencode",
     "displayName": "OpenCode",
     "skillsDir": ".agents/skills",
+    "altSkillsDirs": [".opencode/skills"],
     "globalSkillsDir": "$XDG_CONFIG/opencode/skills",
     "detectPaths": ["$XDG_CONFIG/opencode"],
     "universal": true
@@ -43,6 +44,7 @@
     "name": "github-copilot",
     "displayName": "GitHub Copilot",
     "skillsDir": ".agents/skills",
+    "altSkillsDirs": [".github/skills"],
     "globalSkillsDir": "~/.copilot/skills",
     "detectPaths": ["~/.copilot"],
     "universal": true
@@ -67,6 +69,7 @@
     "name": "cline",
     "displayName": "Cline",
     "skillsDir": ".cline/skills",
+    "altSkillsDirs": [".clinerules/skills"],
     "globalSkillsDir": "~/.cline/skills",
     "detectPaths": ["~/.cline"],
     "universal": false
