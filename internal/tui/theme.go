@@ -1,6 +1,9 @@
 package tui
 
-import "github.com/charmbracelet/lipgloss"
+import (
+	"github.com/charmbracelet/bubbles/list"
+	"github.com/charmbracelet/lipgloss"
+)
 
 // Color palette.
 var (
@@ -75,12 +78,7 @@ var (
 	helpStyle = lipgloss.NewStyle().
 			Foreground(colorMuted)
 
-	// Skill name in content.
-	skillNameStyle = lipgloss.NewStyle().
-			Bold(true).
-			Foreground(lipgloss.Color("#F3F4F6"))
-
-	// Skill version.
+	// Skill version (used in registry skill items).
 	skillVersionStyle = lipgloss.NewStyle().
 				Foreground(colorMuted)
 
@@ -106,4 +104,46 @@ func renderSectionHeader(label string, _ int) string {
 	rule := sectionRuleStyle.Render("──")
 	text := sectionHeaderStyle.Render(" " + label + " ")
 	return "  " + rule + text + rule
+}
+
+// newSkillDelegate creates a DefaultDelegate styled to match the DuckRow theme.
+// Uses the fancy list pattern: vertical bar for selection, title + description
+// on two lines, filter match highlighting.
+func newSkillDelegate() list.DefaultDelegate {
+	d := list.NewDefaultDelegate()
+
+	d.Styles.NormalTitle = lipgloss.NewStyle().
+		Bold(true).
+		Foreground(lipgloss.Color("#F3F4F6")).
+		Padding(0, 0, 0, 2)
+
+	d.Styles.NormalDesc = lipgloss.NewStyle().
+		Foreground(colorMuted).
+		Padding(0, 0, 0, 2)
+
+	d.Styles.SelectedTitle = lipgloss.NewStyle().
+		Border(lipgloss.NormalBorder(), false, false, false, true).
+		BorderForeground(colorPrimary).
+		Foreground(colorSecondary).
+		Bold(true).
+		Padding(0, 0, 0, 1)
+
+	d.Styles.SelectedDesc = lipgloss.NewStyle().
+		Border(lipgloss.NormalBorder(), false, false, false, true).
+		BorderForeground(colorPrimary).
+		Foreground(colorMuted).
+		Padding(0, 0, 0, 1)
+
+	d.Styles.DimmedTitle = lipgloss.NewStyle().
+		Bold(true).
+		Foreground(colorMuted).
+		Padding(0, 0, 0, 2)
+
+	d.Styles.DimmedDesc = lipgloss.NewStyle().
+		Foreground(lipgloss.Color("#4D4D4D")).
+		Padding(0, 0, 0, 2)
+
+	d.SetSpacing(1)
+
+	return d
 }

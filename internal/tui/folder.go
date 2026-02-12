@@ -32,7 +32,8 @@ type folderModel struct {
 }
 
 func newFolderModel() folderModel {
-	l := list.New(nil, skillDelegate{}, 0, 0)
+	d := newSkillDelegate()
+	l := list.New(nil, d, 0, 0)
 	l.SetShowTitle(false)
 	l.SetShowStatusBar(false)
 	l.SetShowHelp(false)
@@ -173,13 +174,20 @@ func (m folderModel) view() string {
 	chromeH := lipgloss.Height(banner) + lipgloss.Height(sectionHeader) + lipgloss.Height(footerBlock)
 
 	// 3. Size the list to fit its content, capped by available space.
-	//    Each item is 1 line (delegate Height=1, Spacing=0).
+	//    DefaultDelegate: Height()=2 (title+desc), Spacing()=1.
+	//    The list calculates PerPage = availHeight / (Height+Spacing) using
+	//    integer division. It also internally subtracts chrome from the height
+	//    we give it (e.g. title/filter bar = 1 even when empty). We add that
+	//    back so the items-per-page calculation comes out right.
 	if skillCount > 0 {
 		maxH := m.height - chromeH
 		if maxH < 1 {
 			maxH = 1
 		}
-		listH := skillCount
+		itemSlot := 3 // Height(2) + Spacing(1)
+		// +1 compensates for the list's internal title/filter bar line
+		// (lipgloss.Height("") == 1, so it always steals 1 line).
+		listH := skillCount*itemSlot + 1
 		if listH > maxH {
 			listH = maxH
 		}

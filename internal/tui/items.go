@@ -16,51 +16,27 @@ import (
 // ---------------------------------------------------------------------------
 
 // skillItem wraps an InstalledSkill for the bubbles list.
+// Implements list.DefaultItem (Title + Description + FilterValue).
 type skillItem struct {
 	skill core.InstalledSkill
 }
 
-func (i skillItem) FilterValue() string { return i.skill.Name }
-
-// skillDelegate renders installed skills as: ✓ name v1.0  description
-type skillDelegate struct{}
-
-func (d skillDelegate) Height() int                             { return 1 }
-func (d skillDelegate) Spacing() int                            { return 0 }
-func (d skillDelegate) Update(_ tea.Msg, _ *list.Model) tea.Cmd { return nil }
-
-func (d skillDelegate) Render(w io.Writer, m list.Model, index int, item list.Item) {
-	si, ok := item.(skillItem)
-	if !ok {
-		return
+func (i skillItem) Title() string {
+	t := i.skill.Name
+	if i.skill.Version != "" {
+		t += " v" + i.skill.Version
 	}
-
-	isSelected := index == m.Index()
-
-	indicator := "    "
-	if isSelected {
-		indicator = "  > "
-	}
-
-	check := installedStyle.Render("✓")
-
-	var nameStr string
-	if isSelected {
-		nameStr = selectedItemStyle.Render(si.skill.Name)
-	} else {
-		nameStr = skillNameStyle.Render(si.skill.Name)
-	}
-
-	if si.skill.Version != "" {
-		nameStr += " " + skillVersionStyle.Render("v"+si.skill.Version)
-	}
-
-	if si.skill.Description != "" {
-		nameStr += "  " + mutedStyle.Render(si.skill.Description)
-	}
-
-	_, _ = fmt.Fprint(w, indicator+check+" "+nameStr)
+	return t
 }
+
+func (i skillItem) Description() string {
+	if i.skill.Description != "" {
+		return i.skill.Description
+	}
+	return "No description"
+}
+
+func (i skillItem) FilterValue() string { return i.skill.Name }
 
 // skillsToItems converts a slice of InstalledSkill to list items.
 func skillsToItems(skills []core.InstalledSkill) []list.Item {
