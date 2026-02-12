@@ -79,9 +79,11 @@ type App struct {
 	// Active folder's computed data.
 	activeFolderStatus *core.FolderStatus
 
-	// Error / status display.
-	err        error
-	statusText string
+	// Toast notifications (replaces old statusText/err banner).
+	toast toastModel
+
+	// Confirmation dialog (replaces help bar when active).
+	confirm confirmModel
 }
 
 // NewApp creates a new App model with the given core dependencies.
@@ -115,6 +117,8 @@ func NewApp(config *core.ConfigManager, agents []core.AgentDef) App {
 		cloneError:     newCloneErrorModel(),
 		help:           h,
 		previewSpinner: s,
+		toast:          newToastModel(),
+		confirm:        newConfirmModel(),
 	}
 }
 
@@ -171,13 +175,13 @@ func (a App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 	case loadedDataMsg:
 		if msg.err != nil {
-			a.err = msg.err
-			return a, nil
+			var cmd tea.Cmd
+			a.toast, cmd = a.toast.show(fmt.Sprintf("Error: %v", msg.err), toastError)
+			return a, cmd
 		}
 		a.cfg = msg.cfg
 		a.folderStatus = msg.folderStatus
 		a.registrySkills = msg.registrySkills
-		a.err = nil
 		a.refreshActiveFolder()
 		a.pushDataToSubModels()
 		// Re-propagate sizes — isTracked may have changed, affecting height budgets.
@@ -201,12 +205,14 @@ func (a App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				)
 				return a, nil
 			}
-			a.statusText = fmt.Sprintf("Error: %v", msg.err)
-		} else {
-			a.statusText = fmt.Sprintf("Installed %s", msg.skillName)
-			a.activeView = viewFolder
+			var cmd tea.Cmd
+			a.toast, cmd = a.toast.show(fmt.Sprintf("Error: %v", msg.err), toastError)
+			return a, tea.Batch(cmd, a.loadDataCmd)
 		}
-		return a, a.loadDataCmd
+		var cmd tea.Cmd
+		a.toast, cmd = a.toast.show(fmt.Sprintf("Installed %s", msg.skillName), toastSuccess)
+		a.activeView = viewFolder
+		return a, tea.Batch(cmd, a.loadDataCmd)
 
 	case registryAddDoneMsg:
 		if msg.err != nil {
@@ -217,11 +223,13 @@ func (a App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				a.cloneError = a.cloneError.activateForRegistryAdd(ce, msg.url)
 				return a, nil
 			}
-			a.err = fmt.Errorf("adding registry: %v", msg.err)
-		} else {
-			a.statusText = fmt.Sprintf("Added registry %s", msg.name)
+			var cmd tea.Cmd
+			a.toast, cmd = a.toast.show(fmt.Sprintf("Error: %v", msg.err), toastError)
+			return a, tea.Batch(cmd, a.loadDataCmd)
 		}
-		return a, a.loadDataCmd
+		var cmd tea.Cmd
+		a.toast, cmd = a.toast.show(fmt.Sprintf("Added registry %s", msg.name), toastSuccess)
+		return a, tea.Batch(cmd, a.loadDataCmd)
 
 	case cloneRetryResultMsg:
 		// Result from a retry initiated from the clone error overlay.
@@ -238,13 +246,16 @@ func (a App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		// Full success — dismiss the overlay and reload data.
 		a.cloneError = a.cloneError.handleRetryResult(msg)
 		a.activeView = a.previousView
+		var toastMsg string
 		switch msg.origin {
 		case retryOriginInstall:
-			a.statusText = fmt.Sprintf("Installed %s", msg.skillName)
+			toastMsg = fmt.Sprintf("Installed %s", msg.skillName)
 		case retryOriginRegistryAdd:
-			a.statusText = fmt.Sprintf("Added registry %s", msg.registryName)
+			toastMsg = fmt.Sprintf("Added registry %s", msg.registryName)
 		}
-		return a, a.loadDataCmd
+		var cmd tea.Cmd
+		a.toast, cmd = a.toast.show(toastMsg, toastSuccess)
+		return a, tea.Batch(cmd, a.loadDataCmd)
 
 	case openPreviewMsg:
 		a.activeView = viewSkillPreview
@@ -292,6 +303,11 @@ func (a App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 	case spinner.TickMsg:
 		// Route spinner ticks to the appropriate consumer.
+		if a.toast.active && a.toast.kind == toastLoading {
+			var cmd tea.Cmd
+			a.toast, cmd = a.toast.update(msg)
+			return a, cmd
+		}
 		if a.previewLoading {
 			var cmd tea.Cmd
 			a.previewSpinner, cmd = a.previewSpinner.Update(msg)
@@ -304,17 +320,36 @@ func (a App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 		// Fall through to delegate section for install spinner, etc.
 
+	case toastDismissMsg:
+		var cmd tea.Cmd
+		a.toast, cmd = a.toast.update(msg)
+		return a, cmd
+
 	case statusMsg:
-		a.statusText = msg.text
-		return a, nil
+		var cmd tea.Cmd
+		a.toast, cmd = a.toast.show(msg.text, toastSuccess)
+		return a, cmd
 
 	case errMsg:
-		a.err = msg.err
+		var cmd tea.Cmd
+		a.toast, cmd = a.toast.show(fmt.Sprintf("Error: %v", msg.err), toastError)
+		return a, cmd
+
+	case confirmResultMsg:
+		// Confirmation result — currently a no-op at the app level.
+		// Individual callers react via the onConfirm command they provided.
 		return a, nil
 
 	case tea.KeyMsg:
-		// Clear status on any keypress.
-		a.statusText = ""
+		// Confirmation dialog intercepts all keys when active.
+		if a.confirm.active {
+			var cmd tea.Cmd
+			var consumed bool
+			a.confirm, cmd, consumed = a.confirm.update(msg)
+			if consumed {
+				return a, cmd
+			}
+		}
 
 		// Handle skill preview keys separately — viewport needs arrow/pgup/pgdn.
 		if a.activeView == viewSkillPreview {
@@ -437,32 +472,20 @@ func (a App) View() string {
 	// Frame sizes are read from contentStyle via GetVerticalFrameSize() etc.
 	// so the layout adapts automatically if contentStyle changes.
 
-	// 1. Render fixed chrome (header, status banners, help bar).
+	// 1. Render fixed chrome (header, help bar / toast).
 	header := a.renderHeader()
 	helpBar := a.renderHelpBar()
 
-	var statusBanner string
-	if a.err != nil {
-		statusBanner = errorStyle.Render(fmt.Sprintf(" Error: %v ", a.err))
-	}
-	if a.statusText != "" {
-		if strings.HasPrefix(a.statusText, "Error:") {
-			statusBanner = errorStyle.Render(" " + a.statusText + " ")
-		} else {
-			statusBanner = installedStyle.Render(" " + a.statusText + " ")
-		}
+	// If a toast is active, it replaces the help bar.
+	if a.toast.active {
+		helpBar = a.toast.view()
 	}
 
 	// 2. Measure fixed chrome height.
-	//    JoinVertical adds \n between each block. We always have at least
-	//    3 blocks (header, styled, helpBar) → 2 separators. A status banner
-	//    adds 1 more block → 1 more separator.
+	//    JoinVertical adds \n between each block. We always have
+	//    3 blocks (header, styled, helpBar) → 2 separators.
 	separators := 2 // between header/styled and styled/helpBar
 	chromeH := lipgloss.Height(header)
-	if statusBanner != "" {
-		chromeH += lipgloss.Height(statusBanner)
-		separators++
-	}
 	chromeH += lipgloss.Height(helpBar)
 	chromeH += separators // \n separators added by JoinVertical
 
@@ -499,6 +522,11 @@ func (a App) View() string {
 		content = a.cloneError.view()
 	}
 
+	// If a confirmation dialog is active, overlay it on the content area.
+	if a.confirm.active {
+		content = a.confirm.view()
+	}
+
 	// Clamp content to the text area so it can't inflate the box.
 	// clampWidth prevents wrapping; clampHeight prevents overflow.
 	content = clampWidth(content, textW)
@@ -510,11 +538,7 @@ func (a App) View() string {
 		Render(content)
 
 	// 5. Assemble with lipgloss.JoinVertical for clean stacking.
-	parts := []string{header}
-	if statusBanner != "" {
-		parts = append(parts, statusBanner)
-	}
-	parts = append(parts, styled, helpBar)
+	parts := []string{header, styled, helpBar}
 
 	return lipgloss.JoinVertical(lipgloss.Left, parts...)
 }
@@ -682,6 +706,7 @@ func (a *App) propagateSize() {
 	a.install = a.install.setSize(w, h)
 	a.settings = a.settings.setSize(w, h)
 	a.cloneError = a.cloneError.setSize(w, h)
+	a.confirm = a.confirm.setSize(w, h)
 
 	// Update preview viewport if active.
 	if a.activeView == viewSkillPreview {
@@ -699,16 +724,11 @@ func (a App) innerContentSize() (width, height int) {
 	header := a.renderHeader()
 	helpBar := a.renderHelpBar()
 
-	// JoinVertical adds \n between blocks. Always 3 blocks minimum
-	// (header, styled, helpBar) → 2 separators. A status banner (err or
-	// statusText, never both displayed) adds 1 more block → 1 more separator.
+	// JoinVertical adds \n between blocks. Always 3 blocks
+	// (header, styled, helpBar) → 2 separators.
+	// Toast replaces the help bar in-place, so no extra block is needed.
 	separators := 2
 	chromeH := lipgloss.Height(header)
-	hasStatus := a.err != nil || a.statusText != ""
-	if hasStatus {
-		chromeH++ // single status banner line
-		separators++
-	}
 	chromeH += lipgloss.Height(helpBar)
 	chromeH += separators
 

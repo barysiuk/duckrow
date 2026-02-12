@@ -1,6 +1,8 @@
 package core
 
 import (
+	"crypto/sha256"
+	"encoding/hex"
 	"encoding/json"
 	"fmt"
 	"os"
@@ -26,9 +28,48 @@ func NewRegistryManager(registriesDir string) *RegistryManager {
 	return &RegistryManager{registriesDir: registriesDir}
 }
 
+// RegistryDirKey derives a unique, filesystem-safe directory name from a repo URL.
+// This ensures that two registries with different repos but the same manifest name
+// are stored separately on disk.
+func RegistryDirKey(repoURL string) string {
+	// Normalize: trim trailing .git, trailing slashes, lowercase
+	normalized := strings.ToLower(strings.TrimSuffix(strings.TrimSuffix(repoURL, "/"), ".git"))
+
+	// Extract a human-readable suffix from the URL
+	// e.g. "git@github.com:org/repo.git" → "org-repo"
+	// e.g. "https://github.com/org/repo" → "org-repo"
+	readable := normalized
+	// Strip SSH prefix (git@host:path)
+	if idx := strings.LastIndex(readable, ":"); idx >= 0 && !strings.Contains(readable, "://") {
+		readable = readable[idx+1:]
+	}
+	// Strip HTTPS prefix
+	if idx := strings.LastIndex(readable, "://"); idx >= 0 {
+		readable = readable[idx+3:]
+		// Remove host part
+		if slashIdx := strings.Index(readable, "/"); slashIdx >= 0 {
+			readable = readable[slashIdx+1:]
+		}
+	}
+	// Replace path separators with dashes
+	readable = strings.ReplaceAll(readable, "/", "-")
+	readable = strings.ReplaceAll(readable, string(filepath.Separator), "-")
+
+	// Add a short hash for uniqueness
+	h := sha256.Sum256([]byte(repoURL))
+	shortHash := hex.EncodeToString(h[:4]) // 8 hex chars
+
+	if readable == "" {
+		return shortHash
+	}
+	return readable + "-" + shortHash
+}
+
 // Add clones a registry repo and returns the parsed manifest.
-// The registry name is derived from the manifest's "name" field.
+// The clone is stored in a directory derived from the repo URL to avoid
+// collisions when different repos share the same manifest name.
 func (rm *RegistryManager) Add(repoURL string) (*RegistryManifest, error) {
+	repoURL = strings.TrimSpace(repoURL)
 	if repoURL == "" {
 		return nil, fmt.Errorf("repository URL is required")
 	}
@@ -54,8 +95,9 @@ func (rm *RegistryManager) Add(repoURL string) (*RegistryManifest, error) {
 		return nil, fmt.Errorf("registry manifest missing required 'name' field")
 	}
 
-	// Move to permanent location
-	destDir := filepath.Join(rm.registriesDir, manifest.Name)
+	// Move to permanent location keyed by repo URL
+	dirKey := RegistryDirKey(repoURL)
+	destDir := filepath.Join(rm.registriesDir, dirKey)
 	if dirExists(destDir) {
 		// Remove existing clone to update
 		if err := os.RemoveAll(destDir); err != nil {
@@ -75,37 +117,41 @@ func (rm *RegistryManager) Add(repoURL string) (*RegistryManifest, error) {
 	return manifest, nil
 }
 
-// Remove deletes a registry clone from disk.
-func (rm *RegistryManager) Remove(name string) error {
-	if name == "" {
-		return fmt.Errorf("registry name is required")
+// Remove deletes a registry clone from disk using the repo URL to locate it.
+func (rm *RegistryManager) Remove(repoURL string) error {
+	repoURL = strings.TrimSpace(repoURL)
+	if repoURL == "" {
+		return fmt.Errorf("registry repo URL is required")
 	}
 
-	dir := filepath.Join(rm.registriesDir, name)
+	dirKey := RegistryDirKey(repoURL)
+	dir := filepath.Join(rm.registriesDir, dirKey)
 	if !dirExists(dir) {
-		return fmt.Errorf("registry %q not found", name)
+		return fmt.Errorf("registry clone for %q not found", repoURL)
 	}
 
 	if err := os.RemoveAll(dir); err != nil {
-		return fmt.Errorf("removing registry %q: %w", name, err)
+		return fmt.Errorf("removing registry %q: %w", repoURL, err)
 	}
 
 	return nil
 }
 
 // Refresh runs git pull on a registry clone to update it.
-func (rm *RegistryManager) Refresh(name string) (*RegistryManifest, error) {
-	if name == "" {
-		return nil, fmt.Errorf("registry name is required")
+func (rm *RegistryManager) Refresh(repoURL string) (*RegistryManifest, error) {
+	repoURL = strings.TrimSpace(repoURL)
+	if repoURL == "" {
+		return nil, fmt.Errorf("registry repo URL is required")
 	}
 
-	dir := filepath.Join(rm.registriesDir, name)
+	dirKey := RegistryDirKey(repoURL)
+	dir := filepath.Join(rm.registriesDir, dirKey)
 	if !dirExists(dir) {
-		return nil, fmt.Errorf("registry %q not found", name)
+		return nil, fmt.Errorf("registry clone for %q not found", repoURL)
 	}
 
 	if err := gitPull(dir, registryPullTimeout); err != nil {
-		return nil, fmt.Errorf("refreshing registry %q: %w", name, err)
+		return nil, fmt.Errorf("refreshing registry %q: %w", repoURL, err)
 	}
 
 	manifest, err := readManifest(dir)
@@ -117,26 +163,28 @@ func (rm *RegistryManager) Refresh(name string) (*RegistryManifest, error) {
 }
 
 // RefreshAll refreshes all registered registries.
+// The returned map is keyed by repo URL.
 func (rm *RegistryManager) RefreshAll(registries []Registry) (map[string]*RegistryManifest, error) {
 	results := make(map[string]*RegistryManifest)
 
 	for _, reg := range registries {
-		manifest, err := rm.Refresh(reg.Name)
+		manifest, err := rm.Refresh(reg.Repo)
 		if err != nil {
 			// Continue with other registries but record the error
 			continue
 		}
-		results[reg.Name] = manifest
+		results[reg.Repo] = manifest
 	}
 
 	return results, nil
 }
 
-// LoadManifest reads and parses the manifest for a named registry.
-func (rm *RegistryManager) LoadManifest(name string) (*RegistryManifest, error) {
-	dir := filepath.Join(rm.registriesDir, name)
+// LoadManifest reads and parses the manifest for a registry identified by repo URL.
+func (rm *RegistryManager) LoadManifest(repoURL string) (*RegistryManifest, error) {
+	dirKey := RegistryDirKey(repoURL)
+	dir := filepath.Join(rm.registriesDir, dirKey)
 	if !dirExists(dir) {
-		return nil, fmt.Errorf("registry %q not found", name)
+		return nil, fmt.Errorf("registry clone for %q not found", repoURL)
 	}
 
 	return readManifest(dir)
@@ -144,15 +192,16 @@ func (rm *RegistryManager) LoadManifest(name string) (*RegistryManifest, error) 
 
 // LoadAllManifests loads manifests for all given registries.
 // Registries that fail to load are silently skipped.
+// The returned map is keyed by repo URL.
 func (rm *RegistryManager) LoadAllManifests(registries []Registry) map[string]*RegistryManifest {
 	results := make(map[string]*RegistryManifest)
 
 	for _, reg := range registries {
-		manifest, err := rm.LoadManifest(reg.Name)
+		manifest, err := rm.LoadManifest(reg.Repo)
 		if err != nil {
 			continue
 		}
-		results[reg.Name] = manifest
+		results[reg.Repo] = manifest
 	}
 
 	return results
@@ -163,7 +212,7 @@ func (rm *RegistryManager) ListSkills(registries []Registry) []RegistrySkillInfo
 	var skills []RegistrySkillInfo
 
 	for _, reg := range registries {
-		manifest, err := rm.LoadManifest(reg.Name)
+		manifest, err := rm.LoadManifest(reg.Repo)
 		if err != nil {
 			continue
 		}
@@ -171,6 +220,7 @@ func (rm *RegistryManager) ListSkills(registries []Registry) []RegistrySkillInfo
 		for _, skill := range manifest.Skills {
 			skills = append(skills, RegistrySkillInfo{
 				RegistryName: manifest.Name,
+				RegistryRepo: reg.Repo,
 				Skill:        skill,
 			})
 		}
@@ -179,9 +229,10 @@ func (rm *RegistryManager) ListSkills(registries []Registry) []RegistrySkillInfo
 	return skills
 }
 
-// RegistrySkillInfo associates a skill entry with its registry name.
+// RegistrySkillInfo associates a skill entry with its registry.
 type RegistrySkillInfo struct {
-	RegistryName string
+	RegistryName string // Display name from the manifest
+	RegistryRepo string // Repo URL (unique identifier)
 	Skill        SkillEntry
 }
 

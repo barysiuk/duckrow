@@ -108,8 +108,9 @@ func (d registrySkillDelegate) Render(w io.Writer, m list.Model, index int, item
 
 // registrySkillsToItems converts registry skills to list items, inserting
 // separator items between different registries.
+// Groups by RegistryRepo (unique) but displays RegistryName.
 func registrySkillsToItems(available []core.RegistrySkillInfo) []list.Item {
-	// Group by registry name, preserving order.
+	// Group by registry repo URL, preserving order.
 	type group struct {
 		name   string
 		skills []core.RegistrySkillInfo
@@ -117,18 +118,18 @@ func registrySkillsToItems(available []core.RegistrySkillInfo) []list.Item {
 	groupMap := make(map[string]*group)
 	var order []string
 	for _, s := range available {
-		g, ok := groupMap[s.RegistryName]
+		g, ok := groupMap[s.RegistryRepo]
 		if !ok {
 			g = &group{name: s.RegistryName}
-			groupMap[s.RegistryName] = g
-			order = append(order, s.RegistryName)
+			groupMap[s.RegistryRepo] = g
+			order = append(order, s.RegistryRepo)
 		}
 		g.skills = append(g.skills, s)
 	}
 
 	var items []list.Item
-	for _, regName := range order {
-		g := groupMap[regName]
+	for _, repoURL := range order {
+		g := groupMap[repoURL]
 		items = append(items, registrySeparatorItem{registryName: g.name})
 		for _, skill := range g.skills {
 			items = append(items, registrySkillItem{info: skill})
