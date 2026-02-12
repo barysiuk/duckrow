@@ -19,6 +19,8 @@ type keyMap struct {
 	Filter       key.Binding
 	Edit         key.Binding
 	Retry        key.Binding
+	Toggle       key.Binding
+	ToggleAll    key.Binding
 }
 
 var keys = keyMap{
@@ -82,6 +84,14 @@ var keys = keyMap{
 		key.WithKeys("r"),
 		key.WithHelp("r", "retry"),
 	),
+	Toggle: key.NewBinding(
+		key.WithKeys(" ", "x"),
+		key.WithHelp("space/x", "toggle"),
+	),
+	ToggleAll: key.NewBinding(
+		key.WithKeys("a"),
+		key.WithHelp("a", "all/none"),
+	),
 }
 
 // ---------------------------------------------------------------------------
@@ -134,6 +144,20 @@ func (k installHelpKeyMap) ShortHelp() []key.Binding {
 }
 
 func (k installHelpKeyMap) FullHelp() [][]key.Binding {
+	return [][]key.Binding{k.ShortHelp()}
+}
+
+// agentSelectHelpKeyMap is shown in the agent selection phase.
+type agentSelectHelpKeyMap struct{}
+
+func (k agentSelectHelpKeyMap) ShortHelp() []key.Binding {
+	return []key.Binding{
+		keys.Up, keys.Down, keys.Toggle, keys.ToggleAll,
+		keys.Enter, keys.Back,
+	}
+}
+
+func (k agentSelectHelpKeyMap) FullHelp() [][]key.Binding {
 	return [][]key.Binding{k.ShortHelp()}
 }
 

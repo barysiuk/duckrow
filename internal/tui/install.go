@@ -2,6 +2,7 @@ package tui
 
 import (
 	"fmt"
+	"strings"
 
 	"github.com/charmbracelet/bubbles/key"
 	"github.com/charmbracelet/bubbles/list"
@@ -11,6 +12,21 @@ import (
 
 	"github.com/barysiuk/duckrow/internal/core"
 )
+
+// installPhase tracks which step of the install flow we're in.
+type installPhase int
+
+const (
+	installPhasePicking      installPhase = iota // Browsing available skills
+	installPhaseSelectAgents                     // Selecting agents for symlinks
+	installPhaseInstalling                       // Install in progress
+)
+
+// agentCheckbox represents one non-universal agent in the selection list.
+type agentCheckbox struct {
+	agent   core.AgentDef
+	checked bool
+}
 
 // installModel is the install picker overlay that shows registry skills
 // not yet installed in the active folder.
@@ -25,7 +41,13 @@ type installModel struct {
 	spinner spinner.Model
 
 	// State.
-	installing bool
+	phase installPhase
+
+	// Agent selection state.
+	universalAgents []core.AgentDef        // Universal agents (always selected, not toggleable)
+	agentBoxes      []agentCheckbox        // Non-universal agents to choose from
+	agentCursor     int                    // Currently highlighted agent
+	selectedSkill   core.RegistrySkillInfo // Skill selected in picking phase
 
 	// Data (set on activate).
 	activeFolder string
@@ -49,6 +71,7 @@ func newInstallModel() installModel {
 	return installModel{
 		list:    l,
 		spinner: s,
+		phase:   installPhasePicking,
 	}
 }
 
@@ -61,16 +84,27 @@ func (m installModel) setSize(width, height int) installModel {
 }
 
 func (m *installModel) setInstalling(v bool) {
-	m.installing = v
+	if v {
+		m.phase = installPhaseInstalling
+	} else {
+		m.phase = installPhasePicking
+	}
 }
 
 func (m installModel) isInstalling() bool {
-	return m.installing
+	return m.phase == installPhaseInstalling
+}
+
+func (m installModel) isSelectingAgents() bool {
+	return m.phase == installPhaseSelectAgents
 }
 
 // selectedSkillInfo returns the currently selected registry skill info,
 // used when a clone error occurs and we need to pass context to the error overlay.
 func (m installModel) selectedSkillInfo() core.RegistrySkillInfo {
+	if m.phase == installPhaseSelectAgents || m.phase == installPhaseInstalling {
+		return m.selectedSkill
+	}
 	item := m.list.SelectedItem()
 	if item == nil {
 		return core.RegistrySkillInfo{}
@@ -82,11 +116,23 @@ func (m installModel) selectedSkillInfo() core.RegistrySkillInfo {
 	return rsi.info
 }
 
+// selectedTargetAgents returns the agents the user checked during agent selection.
+// Used to pass context to the clone error overlay for retries.
+func (m installModel) selectedTargetAgents() []core.AgentDef {
+	var agents []core.AgentDef
+	for _, ab := range m.agentBoxes {
+		if ab.checked {
+			agents = append(agents, ab.agent)
+		}
+	}
+	return agents
+}
+
 // activate is called when the install picker opens. It filters registry skills
 // to show only those NOT already installed in the active folder.
-func (m installModel) activate(activeFolder string, regSkills []core.RegistrySkillInfo, folderStatus *core.FolderStatus) installModel {
+func (m installModel) activate(activeFolder string, regSkills []core.RegistrySkillInfo, folderStatus *core.FolderStatus, agents []core.AgentDef) installModel {
 	m.activeFolder = activeFolder
-	m.installing = false
+	m.phase = installPhasePicking
 
 	// Build set of installed skill names.
 	installed := make(map[string]bool)
@@ -118,17 +164,32 @@ func (m installModel) activate(activeFolder string, regSkills []core.RegistrySki
 		}
 	}
 
+	// Prepare agent lists for the selection screen.
+	m.universalAgents = core.GetUniversalAgents(agents)
+	nonUniversal := core.GetNonUniversalAgents(agents)
+	m.agentBoxes = make([]agentCheckbox, len(nonUniversal))
+	for i, a := range nonUniversal {
+		m.agentBoxes[i] = agentCheckbox{agent: a, checked: false}
+	}
+	m.agentCursor = 0
+
 	return m
 }
 
 func (m installModel) update(msg tea.Msg, app *App) (installModel, tea.Cmd) {
 	// During install, only handle spinner ticks.
-	if m.installing {
+	if m.phase == installPhaseInstalling {
 		var cmd tea.Cmd
 		m.spinner, cmd = m.spinner.Update(msg)
 		return m, cmd
 	}
 
+	// Agent selection phase.
+	if m.phase == installPhaseSelectAgents {
+		return m.updateAgentSelect(msg, app)
+	}
+
+	// Picking phase.
 	switch msg := msg.(type) {
 	case tea.KeyMsg:
 		// Don't intercept keys while filtering.
@@ -138,7 +199,7 @@ func (m installModel) update(msg tea.Msg, app *App) (installModel, tea.Cmd) {
 
 		switch {
 		case key.Matches(msg, keys.Enter):
-			return m.startInstall(app)
+			return m.handleSkillSelected(app)
 		}
 	}
 
@@ -146,10 +207,82 @@ func (m installModel) update(msg tea.Msg, app *App) (installModel, tea.Cmd) {
 	var cmd tea.Cmd
 	m.list, cmd = m.list.Update(msg)
 
-	// Skip separator items — if cursor landed on one, move past it.
+	// Skip separator items -- if cursor landed on one, move past it.
 	m.skipSeparators()
 
 	return m, cmd
+}
+
+func (m installModel) updateAgentSelect(msg tea.Msg, app *App) (installModel, tea.Cmd) {
+	switch msg := msg.(type) {
+	case tea.KeyMsg:
+		switch {
+		case key.Matches(msg, keys.Up):
+			if m.agentCursor > 0 {
+				m.agentCursor--
+			}
+		case key.Matches(msg, keys.Down):
+			if m.agentCursor < len(m.agentBoxes)-1 {
+				m.agentCursor++
+			}
+		case key.Matches(msg, keys.Toggle):
+			if len(m.agentBoxes) > 0 {
+				m.agentBoxes[m.agentCursor].checked = !m.agentBoxes[m.agentCursor].checked
+			}
+		case key.Matches(msg, keys.ToggleAll):
+			m.toggleAllAgents()
+		case key.Matches(msg, keys.Enter):
+			return m.startInstall(app)
+		case key.Matches(msg, keys.Back):
+			m.phase = installPhasePicking
+			return m, nil
+		}
+	}
+	return m, nil
+}
+
+// toggleAllAgents toggles all agents: if any are checked, uncheck all; otherwise check all.
+func (m *installModel) toggleAllAgents() {
+	anyChecked := false
+	for _, ab := range m.agentBoxes {
+		if ab.checked {
+			anyChecked = true
+			break
+		}
+	}
+	for i := range m.agentBoxes {
+		m.agentBoxes[i].checked = !anyChecked
+	}
+}
+
+// handleSkillSelected is called when the user presses Enter on a skill.
+// If there are non-universal agents to choose from, show the agent selection.
+// Otherwise, go straight to install (universal-only).
+func (m installModel) handleSkillSelected(app *App) (installModel, tea.Cmd) {
+	item := m.list.SelectedItem()
+	if item == nil {
+		return m, nil
+	}
+	rsi, ok := item.(registrySkillItem)
+	if !ok {
+		return m, nil
+	}
+
+	m.selectedSkill = rsi.info
+
+	if len(m.agentBoxes) > 0 {
+		// Show agent selection phase.
+		m.phase = installPhaseSelectAgents
+		m.agentCursor = 0
+		// Reset checkboxes.
+		for i := range m.agentBoxes {
+			m.agentBoxes[i].checked = false
+		}
+		return m, nil
+	}
+
+	// No non-universal agents detected -- install with universal-only.
+	return m.startInstall(app)
 }
 
 // skipSeparators moves the cursor off separator items.
@@ -169,14 +302,22 @@ func (m *installModel) skipSeparators() {
 }
 
 func (m installModel) view() string {
+	switch m.phase {
+	case installPhaseSelectAgents:
+		return m.viewAgentSelect()
+	case installPhaseInstalling:
+		sectionHeader := renderSectionHeader("INSTALL SKILL", m.width) + "\n"
+		return sectionHeader + "  " + m.spinner.View() + " Installing... please wait"
+	default:
+		return m.viewPicking()
+	}
+}
+
+func (m installModel) viewPicking() string {
 	// --- Render-then-measure ---
 
 	// 1. Render fixed chrome.
 	sectionHeader := renderSectionHeader("INSTALL SKILL", m.width) + "\n"
-
-	if m.installing {
-		return sectionHeader + "  " + m.spinner.View() + " Installing... please wait"
-	}
 
 	if len(m.available) == 0 {
 		return sectionHeader + mutedStyle.Render("  All registry skills are already installed.")
@@ -194,20 +335,85 @@ func (m installModel) view() string {
 	return sectionHeader + m.list.View()
 }
 
+func (m installModel) viewAgentSelect() string {
+	var b strings.Builder
+
+	header := renderSectionHeader("SELECT AGENTS", m.width)
+	b.WriteString(header)
+	b.WriteString("\n")
+
+	desc := mutedStyle.Render("   Select which agents should have access to this skill.")
+	b.WriteString(desc)
+	b.WriteString("\n\n")
+
+	// Universal agents — always selected, not toggleable.
+	universalLabel := mutedStyle.Render("   .agents/skills/ (always installed)")
+	b.WriteString(universalLabel)
+	b.WriteString("\n")
+	for _, a := range m.universalAgents {
+		line := "  [x] " + a.DisplayName
+		b.WriteString(mutedStyle.Render(line))
+		b.WriteString("\n")
+	}
+
+	b.WriteString("\n")
+
+	// Non-universal agents — toggleable checkboxes.
+	symlinkLabel := mutedStyle.Render("   Agent-specific (optional)")
+	b.WriteString(symlinkLabel)
+	b.WriteString("\n")
+	for i, ab := range m.agentBoxes {
+		check := "[ ]"
+		if ab.checked {
+			check = "[x]"
+		}
+
+		prefix := "  "
+		if i == m.agentCursor {
+			prefix = "> "
+		}
+
+		line := prefix + check + " " + ab.agent.DisplayName
+		dirHint := " (" + ab.agent.SkillsDir + ")"
+		if i == m.agentCursor {
+			b.WriteString(selectedItemStyle.Render(line))
+			b.WriteString(mutedStyle.Render(dirHint))
+		} else {
+			b.WriteString(normalItemStyle.Render(line))
+			b.WriteString(mutedStyle.Render(dirHint))
+		}
+		b.WriteString("\n")
+	}
+
+	return b.String()
+}
+
 func (m installModel) startInstall(app *App) (installModel, tea.Cmd) {
-	item := m.list.SelectedItem()
-	if item == nil {
-		return m, nil
+	skill := m.selectedSkill
+	// If selectedSkill wasn't set (direct install without agent select), get from list.
+	if skill.Skill.Name == "" {
+		item := m.list.SelectedItem()
+		if item == nil {
+			return m, nil
+		}
+		rsi, ok := item.(registrySkillItem)
+		if !ok {
+			return m, nil
+		}
+		skill = rsi.info
+		m.selectedSkill = skill
 	}
 
-	rsi, ok := item.(registrySkillItem)
-	if !ok {
-		return m, nil // Selected a separator somehow
+	// Build target agents from checked boxes.
+	var targetAgents []core.AgentDef
+	for _, ab := range m.agentBoxes {
+		if ab.checked {
+			targetAgents = append(targetAgents, ab.agent)
+		}
 	}
 
-	skill := rsi.info
 	folder := m.activeFolder
-	m.installing = true
+	m.phase = installPhaseInstalling
 
 	installCmd := func() tea.Msg {
 		source, err := core.ParseSource(skill.Skill.Source)
@@ -227,8 +433,9 @@ func (m installModel) startInstall(app *App) (installModel, tea.Cmd) {
 
 		installer := core.NewInstaller(app.agents)
 		_, err = installer.InstallFromSource(source, core.InstallOptions{
-			TargetDir:  folder,
-			IsInternal: true, // Registry skills always disable telemetry
+			TargetDir:    folder,
+			IsInternal:   true, // Registry skills always disable telemetry
+			TargetAgents: targetAgents,
 		})
 
 		return installDoneMsg{

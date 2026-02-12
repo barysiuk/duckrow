@@ -197,6 +197,7 @@ func (a App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 					ce,
 					a.install.selectedSkillInfo(),
 					a.install.activeFolder,
+					a.install.selectedTargetAgents(),
 				)
 				return a, nil
 			}
@@ -372,6 +373,10 @@ func (a App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			if a.isListFiltering() {
 				break
 			}
+			// Don't intercept esc during agent selection — let install model handle it.
+			if a.activeView == viewInstallPicker && a.install.isSelectingAgents() {
+				break
+			}
 			if a.activeView != viewFolder {
 				a.activeView = viewFolder
 				return a, nil
@@ -388,7 +393,7 @@ func (a App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			case key.Matches(msg, keys.Install):
 				if len(a.registrySkills) > 0 {
 					a.activeView = viewInstallPicker
-					a.install = a.install.activate(a.activeFolder, a.registrySkills, a.activeFolderStatus)
+					a.install = a.install.activate(a.activeFolder, a.registrySkills, a.activeFolderStatus, a.agents)
 				}
 				return a, nil
 			case key.Matches(msg, keys.Settings):
@@ -525,7 +530,11 @@ func (a App) renderHeader() string {
 	case viewFolderPicker:
 		hints = headerHintStyle.Render("Select Folder")
 	case viewInstallPicker:
-		hints = headerHintStyle.Render("Install Skill")
+		if a.install.isSelectingAgents() {
+			hints = headerHintStyle.Render("Select Agents")
+		} else {
+			hints = headerHintStyle.Render("Install Skill")
+		}
 	case viewSettings:
 		hints = headerHintStyle.Render("Settings")
 	case viewSkillPreview:
@@ -559,7 +568,11 @@ func (a App) renderHelpBar() string {
 	case viewFolderPicker:
 		km = pickerHelpKeyMap{}
 	case viewInstallPicker:
-		km = installHelpKeyMap{}
+		if a.install.isSelectingAgents() {
+			km = agentSelectHelpKeyMap{}
+		} else {
+			km = installHelpKeyMap{}
+		}
 	case viewSettings:
 		km = settingsHelpKeyMap{}
 	case viewSkillPreview:
