@@ -227,7 +227,7 @@ func (m folderModel) removeSelectedSkill(app *App) tea.Cmd {
 	// Use the directory name (sanitized) for removal, not the display name.
 	skillDirName := filepath.Base(skill.Path)
 
-	return func() tea.Msg {
+	deleteCmd := func() tea.Msg {
 		remover := core.NewRemover(app.agents)
 		_, err := remover.Remove(skillDirName, core.RemoveOptions{TargetDir: folderPath})
 		if err != nil {
@@ -236,6 +236,12 @@ func (m folderModel) removeSelectedSkill(app *App) tea.Cmd {
 		// Reload data to refresh the view after removal.
 		return app.loadDataCmd()
 	}
+
+	app.confirm = app.confirm.show(
+		fmt.Sprintf("Remove skill %s?", skill.Name),
+		deleteCmd,
+	)
+	return nil
 }
 
 // countAvailable counts registry skills NOT already installed in the active folder.
