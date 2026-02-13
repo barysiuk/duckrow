@@ -1,6 +1,6 @@
 # Agent Guide
 
-DuckRow is a Go CLI tool that manages AI agent skills across multiple project folders.
+duckrow is a Go CLI tool that manages AI agent skills across multiple project folders.
 
 ## Project Structure
 
@@ -11,7 +11,7 @@ cmd/duckrow/              CLI entrypoint and integration tests
   main.go                 Entrypoint
   main_test.go            TestMain + testscript runner + custom commands
 internal/core/            Core library (zero UI dependencies)
-  agents.json             Agent definitions (10 agents)
+  agents.json             Agent definitions (9 agents)
   types.go                Domain types
   config.go               Config management (~/.duckrow/)
   folder.go               Folder tracking
@@ -58,7 +58,7 @@ Custom testscript commands available:
 ## Key Concepts
 
 - **Universal agents** (OpenCode, Codex, Gemini CLI, GitHub Copilot) share `.agents/skills/`
-- **Non-universal agents** (Cursor, Claude Code, Goose, Windsurf, Cline, Continue) get symlinks from their own skills dir to `.agents/skills/`
+- **Non-universal agents** (Cursor, Claude Code, Goose, Windsurf, Cline) get symlinks from their own skills dir to `.agents/skills/`
 - **Skills** are directories containing a `SKILL.md` file with YAML frontmatter
 - **Registries** are git repos with a `duckrow.json` manifest listing available skills
 
@@ -154,7 +154,7 @@ If you add a new CLI command or change behavior, add or update the corresponding
 
 ## Versioning and Releases
 
-DuckRow uses [Semantic Versioning](https://semver.org/): `vMAJOR.MINOR.PATCH`
+duckrow uses [Semantic Versioning](https://semver.org/): `vMAJOR.MINOR.PATCH`
 
 - **PATCH** (`v0.1.0` -> `v0.1.1`): Bug fixes, no behavior changes
 - **MINOR** (`v0.1.1` -> `v0.2.0`): New features, backward compatible
