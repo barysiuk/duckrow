@@ -245,13 +245,14 @@ func (a App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 		// Full success — dismiss the overlay and reload data.
 		a.cloneError = a.cloneError.handleRetryResult(msg)
-		a.activeView = a.previousView
 		var toastMsg string
 		switch msg.origin {
 		case retryOriginInstall:
 			toastMsg = fmt.Sprintf("Installed %s", msg.skillName)
+			a.activeView = viewFolder
 		case retryOriginRegistryAdd:
 			toastMsg = fmt.Sprintf("Added registry %s", msg.registryName)
+			a.activeView = a.previousView
 		}
 		var cmd tea.Cmd
 		a.toast, cmd = a.toast.show(toastMsg, toastSuccess)

@@ -467,6 +467,10 @@ func (m cloneErrorModel) view() string {
 		b.WriteString(normalItemStyle.Render("Skills must be at the repo root or in immediate subdirectories"))
 		b.WriteString("\n")
 
+		// Inline actions.
+		b.WriteString("\n")
+		b.WriteString(renderCloneErrorActions())
+
 		return m.applyScroll(b.String())
 	}
 
@@ -522,6 +526,10 @@ func (m cloneErrorModel) view() string {
 		b.WriteString("  ")
 		b.WriteString(m.textInput.View())
 		b.WriteString("\n")
+	} else {
+		// Inline actions — visible call-to-action when not editing.
+		b.WriteString("\n")
+		b.WriteString(renderCloneErrorActions())
 	}
 
 	return m.applyScroll(b.String())
@@ -572,3 +580,27 @@ type registryAddDoneMsg struct {
 // hintBulletStyle styles the bullet point for hint items.
 var hintBulletStyle = lipgloss.NewStyle().
 	Foreground(colorWarning)
+
+// hintKeyStyle styles inline key hints (e.g. "[e]") in the clone error view.
+var hintKeyStyle = lipgloss.NewStyle().
+	Foreground(colorSecondary).
+	Bold(true)
+
+// renderCloneErrorActions renders the inline call-to-action block.
+func renderCloneErrorActions() string {
+	var b strings.Builder
+	b.WriteString("  ")
+	b.WriteString(hintKeyStyle.Render("[e]"))
+	b.WriteString(" ")
+	b.WriteString(normalItemStyle.Render("Edit URL"))
+	b.WriteString("   ")
+	b.WriteString(hintKeyStyle.Render("[r]"))
+	b.WriteString(" ")
+	b.WriteString(normalItemStyle.Render("Retry"))
+	b.WriteString("   ")
+	b.WriteString(hintKeyStyle.Render("[esc]"))
+	b.WriteString(" ")
+	b.WriteString(normalItemStyle.Render("Back"))
+	b.WriteString("\n")
+	return b.String()
+}
