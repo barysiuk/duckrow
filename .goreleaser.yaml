@@ -24,11 +24,11 @@ builds:
       - -X github.com/barysiuk/duckrow/cmd/duckrow/cmd.Date={{.Date}}
 
 archives:
-  - format: tar.gz
+  - formats: [tar.gz]
     name_template: "{{ .ProjectName }}_{{ .Version }}_{{ .Os }}_{{ .Arch }}"
     format_overrides:
       - goos: windows
-        format: zip
+        formats: [zip]
 
 checksum:
   name_template: "checksums.txt"
@@ -46,6 +46,7 @@ brews:
   - repository:
       owner: barysiuk
       name: homebrew-tap
+      token: "{{ .Env.HOMEBREW_TAP_TOKEN }}"
     homepage: "https://github.com/barysiuk/duckrow"
     description: "Get your ducks in a row - manage AI agent skills across projects"
     license: "MIT"
