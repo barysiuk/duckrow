@@ -1,14 +1,16 @@
-# DuckRow
+# duckrow
 
-*"Get your ducks in a row" — manage AI agent skills across all your projects.*
+*"Get your ducks in a row" — manage AI agent skills across your team.*
 
-Heavily inspired by [Vercel's Skill CLI](https://github.com/vercel-labs/skills), DuckRow goes further — it manages skills across multiple projects at once and supports private registries for distributing skills within your organization securely.
+<p align="center">
+  <img src="docs/images/duckrow_tui.gif" alt="duckrow TUI" width="800" />
+</p>
 
-AI coding agents like Cursor, Claude Code, OpenCode, and others use **skills** — markdown files that shape how they behave in your project. Think code review guidelines, test generation rules, or deployment checklists.
+duckrow helps engineering teams curate, distribute, and manage approved AI agent skills across every project and every developer. Set up a private registry once, and your entire team gets the same vetted skills — code review guidelines, test generation rules, deployment checklists — installed consistently wherever they work.
 
-The problem: skills get scattered across projects, every agent has its own directory convention, and there's no way to see what's installed where. If you work across multiple repos, you're on your own.
+AI coding agents like Cursor, Claude Code, OpenCode, and others use **skills** — markdown files that shape how they behave in a project. Without coordination, skills drift between repos, conventions diverge, and there's no visibility into what's running where.
 
-DuckRow fixes this. It tracks your project folders, installs and removes skills with automatic agent detection, manages private skill registries for your team, and gives you a single command to see everything. One binary, no dependencies.
+duckrow solves this at the team level. Maintain a private skill registry in a git repo your organization controls, then let developers browse, install, and update from that catalog. The interactive TUI gives everyone a single view of installed skills, available registry skills, and which agents are active — right in the terminal. One binary, no dependencies.
 
 ## Quick Start
 
@@ -17,9 +19,6 @@ DuckRow fixes this. It tracks your project folders, installs and removes skills 
 ```bash
 # Homebrew
 brew install barysiuk/tap/duckrow
-
-# Go
-go install github.com/barysiuk/duckrow/cmd/duckrow@latest
 
 # Or grab a binary from GitHub Releases
 # https://github.com/barysiuk/duckrow/releases
@@ -39,6 +38,22 @@ duckrow status
 ```
 
 ## Demo
+
+### TUI
+
+Run `duckrow` in any project folder to launch the interactive terminal UI. Browse installed skills, install from your team's registry, remove what you don't need — all without memorizing commands.
+
+```bash
+duckrow
+```
+
+<p align="center">
+  <img src="docs/images/duckrow_tui.png" alt="duckrow TUI screenshot" width="800" />
+</p>
+
+### CLI
+
+Every action available in the TUI also works as a direct command — useful for scripting, CI, or when you already know what you need.
 
 ```
 $ duckrow add .
@@ -76,7 +91,7 @@ Removed: code-review
 
 ## Supported Agents
 
-DuckRow detects which agents you use and installs skills to the right directories automatically.
+duckrow detects which agents you use and installs skills to the right directories automatically.
 
 | Agent | Skills Directory | Type |
 |-------|-----------------|------|
@@ -89,13 +104,14 @@ DuckRow detects which agents you use and installs skills to the right directorie
 | Goose | `.goose/skills/` | Symlinked |
 | Windsurf | `.windsurf/skills/` | Symlinked |
 | Cline | `.cline/skills/` | Symlinked |
-| Continue | `.continue/skills/` | Symlinked |
 
 **Universal** agents share `.agents/skills/` — the skill is written there once.
 
-**Symlinked** agents have their own directory. DuckRow creates symlinks from their directory back to `.agents/skills/`, so each skill exists in one place but works everywhere.
+**Symlinked** agents have their own directory. duckrow creates symlinks from their directory back to `.agents/skills/`, so each skill exists in one place but works everywhere.
 
 ## Commands
+
+For the full command reference with all flags and examples, see [docs/cli_reference.md](docs/cli_reference.md).
 
 ### Folder Management
 
@@ -108,7 +124,7 @@ duckrow folders                 List all tracked folders
 ### Skills
 
 ```
-duckrow install <source>        Install skill(s) from a source
+duckrow install [source]        Install skill(s) from a source or registry
 duckrow uninstall <skill-name>  Remove an installed skill
 duckrow uninstall-all           Remove all installed skills
 duckrow status [path]           Show skills and agents for tracked folders
@@ -133,6 +149,7 @@ duckrow install owner/repo@skill-name         # Specific skill from a repo
 duckrow install ./local/path                  # Local directory
 duckrow install https://github.com/owner/repo # Full URL
 duckrow install git@host:owner/repo.git       # SSH clone URL
+duckrow install --skill go-review             # Install from configured registries
 ```
 
 **Flags:**
@@ -141,7 +158,21 @@ duckrow install git@host:owner/repo.git       # SSH clone URL
 |------|-------|-------------|
 | `--dir` | `-d` | Target directory (default: current directory) |
 | `--skill` | `-s` | Install only a specific skill by name |
+| `--registry` | `-r` | Registry to search (with `--skill`, no source) |
 | `--internal` | | Include internal (hidden) skills |
+| `--agents` | | Comma-separated agent names for symlinks |
+
+## Folders
+
+Folders are bookmarks for your projects. Add any directory on your system and duckrow will track which skills and agents are active there. This gives you a single view across your entire file system — no matter how many repos you work in.
+
+```bash
+duckrow add ~/code/frontend
+duckrow add ~/code/backend
+duckrow add ~/code/infra
+```
+
+Once tracked, you can check the state of every project at a glance with `duckrow status`, or switch between them in the TUI with a single keystroke. When your team approves a new skill, you can install it across multiple projects from one place instead of repeating the work in each repo.
 
 ## Private Registries
 
@@ -189,11 +220,11 @@ duckrow registry refresh
 duckrow registry remove my-org
 ```
 
-Authentication is handled by git — if you can `git clone` the URL, DuckRow can use it.
+Authentication is handled by git — if you can `git clone` the URL, duckrow can use it.
 
 ## How Skills Work
 
-A skill is a directory containing a `SKILL.md` file (and optionally other markdown files). The `SKILL.md` has YAML frontmatter with metadata:
+A skill is a directory containing a `SKILL.md` file with YAML frontmatter and markdown instructions for the AI agent:
 
 ```markdown
 ---
@@ -207,17 +238,20 @@ metadata:
 Your skill instructions go here...
 ```
 
-When you run `duckrow install`, DuckRow:
+When you run `duckrow install`, duckrow:
 
-1. Copies the skill to `.agents/skills/<name>/` (the canonical location)
-2. Detects which agents are present on your system
-3. Creates symlinks in each detected agent's skills directory (e.g., `.cursor/skills/<name>/` -> `.agents/skills/<name>/`)
+1. Clones the source repo (or uses a local path directly)
+2. Walks the directory tree to discover all `SKILL.md` files
+3. Copies each skill to `.agents/skills/<name>/` (the canonical location)
+4. Creates symlinks in each requested agent's skills directory (e.g., `.cursor/skills/<name>/` -> `.agents/skills/<name>/`)
 
 This means each skill exists once on disk but is available to every agent.
 
+Skills can also be installed directly from a configured registry by name, without knowing the source repo — see [docs/skill_install.md](docs/skill_install.md) for the full details on discovery, installation, and the registry workflow.
+
 ## Configuration
 
-DuckRow stores its configuration at `~/.duckrow/config.json`:
+duckrow stores its configuration at `~/.duckrow/config.json`:
 
 ```json
 {

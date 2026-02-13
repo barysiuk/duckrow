@@ -1,6 +1,6 @@
 # CLI Command Reference
 
-Complete reference for all DuckRow CLI commands.
+Complete reference for all duckrow CLI commands.
 
 ## Root
 

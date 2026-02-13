@@ -73,13 +73,5 @@
     "globalSkillsDir": "~/.cline/skills",
     "detectPaths": ["~/.cline"],
     "universal": false
-  },
-  {
-    "name": "continue",
-    "displayName": "Continue",
-    "skillsDir": ".continue/skills",
-    "globalSkillsDir": "~/.continue/skills",
-    "detectPaths": ["~/.continue"],
-    "universal": false
   }
 ]
