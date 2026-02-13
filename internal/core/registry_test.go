@@ -5,6 +5,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"strings"
 	"testing"
 )
 
@@ -314,6 +315,131 @@ func TestRegistryManager_ListSkills_SameNameDifferentRepos(t *testing.T) {
 	if skills[1].RegistryRepo != repoB {
 		t.Errorf("skills[1].RegistryRepo = %q, want %q", skills[1].RegistryRepo, repoB)
 	}
+}
+
+func TestRegistryManager_FindSkill(t *testing.T) {
+	registriesDir := t.TempDir()
+	rm := NewRegistryManager(registriesDir)
+
+	repoA := "git@example.com:org-a/skills.git"
+	repoB := "git@example.com:org-b/skills.git"
+
+	createTestRegistryClone(t, registriesDir, repoA, RegistryManifest{
+		Name: "org-a",
+		Skills: []SkillEntry{
+			{Name: "go-review", Description: "Go review", Source: "org-a/go-review"},
+			{Name: "shared-lint", Description: "Shared lint", Source: "org-a/shared-lint"},
+		},
+	})
+	createTestRegistryClone(t, registriesDir, repoB, RegistryManifest{
+		Name: "org-b",
+		Skills: []SkillEntry{
+			{Name: "py-review", Description: "Python review", Source: "org-b/py-review"},
+			{Name: "shared-lint", Description: "Shared lint B", Source: "org-b/shared-lint"},
+		},
+	})
+
+	registries := []Registry{
+		{Name: "org-a", Repo: repoA},
+		{Name: "org-b", Repo: repoB},
+	}
+
+	t.Run("finds unique skill", func(t *testing.T) {
+		info, err := rm.FindSkill(registries, "go-review", "")
+		if err != nil {
+			t.Fatalf("FindSkill() error = %v", err)
+		}
+		if info.Skill.Name != "go-review" {
+			t.Errorf("Skill.Name = %q, want %q", info.Skill.Name, "go-review")
+		}
+		if info.RegistryName != "org-a" {
+			t.Errorf("RegistryName = %q, want %q", info.RegistryName, "org-a")
+		}
+		if info.Skill.Source != "org-a/go-review" {
+			t.Errorf("Skill.Source = %q, want %q", info.Skill.Source, "org-a/go-review")
+		}
+	})
+
+	t.Run("errors on ambiguous skill", func(t *testing.T) {
+		_, err := rm.FindSkill(registries, "shared-lint", "")
+		if err == nil {
+			t.Fatal("expected error for ambiguous skill")
+		}
+		if !containsStr(err.Error(), "multiple registries") {
+			t.Errorf("error = %q, want to contain 'multiple registries'", err.Error())
+		}
+		if !containsStr(err.Error(), "--registry") {
+			t.Errorf("error = %q, want to contain '--registry'", err.Error())
+		}
+	})
+
+	t.Run("disambiguates with registry filter by name", func(t *testing.T) {
+		info, err := rm.FindSkill(registries, "shared-lint", "org-b")
+		if err != nil {
+			t.Fatalf("FindSkill() error = %v", err)
+		}
+		if info.RegistryName != "org-b" {
+			t.Errorf("RegistryName = %q, want %q", info.RegistryName, "org-b")
+		}
+		if info.Skill.Source != "org-b/shared-lint" {
+			t.Errorf("Skill.Source = %q, want %q", info.Skill.Source, "org-b/shared-lint")
+		}
+	})
+
+	t.Run("disambiguates with registry filter by repo URL", func(t *testing.T) {
+		info, err := rm.FindSkill(registries, "shared-lint", repoA)
+		if err != nil {
+			t.Fatalf("FindSkill() error = %v", err)
+		}
+		if info.RegistryName != "org-a" {
+			t.Errorf("RegistryName = %q, want %q", info.RegistryName, "org-a")
+		}
+	})
+
+	t.Run("errors on unknown skill", func(t *testing.T) {
+		_, err := rm.FindSkill(registries, "nonexistent", "")
+		if err == nil {
+			t.Fatal("expected error for nonexistent skill")
+		}
+		if !containsStr(err.Error(), "not found") {
+			t.Errorf("error = %q, want to contain 'not found'", err.Error())
+		}
+		if !containsStr(err.Error(), "Available") {
+			t.Errorf("error = %q, want to contain 'Available'", err.Error())
+		}
+	})
+
+	t.Run("errors on unknown registry filter", func(t *testing.T) {
+		_, err := rm.FindSkill(registries, "go-review", "nonexistent")
+		if err == nil {
+			t.Fatal("expected error for nonexistent registry")
+		}
+		if !containsStr(err.Error(), "not found") {
+			t.Errorf("error = %q, want to contain 'not found'", err.Error())
+		}
+	})
+
+	t.Run("errors on empty skill name", func(t *testing.T) {
+		_, err := rm.FindSkill(registries, "", "")
+		if err == nil {
+			t.Fatal("expected error for empty skill name")
+		}
+	})
+
+	t.Run("errors with no registries configured", func(t *testing.T) {
+		_, err := rm.FindSkill(nil, "go-review", "")
+		if err == nil {
+			t.Fatal("expected error when no registries")
+		}
+		if !containsStr(err.Error(), "no skills available") {
+			t.Errorf("error = %q, want to contain 'no skills available'", err.Error())
+		}
+	})
+}
+
+// containsStr is a simple substring check for test assertions.
+func containsStr(s, substr string) bool {
+	return strings.Contains(s, substr)
 }
 
 func TestRegistryManager_Remove(t *testing.T) {
