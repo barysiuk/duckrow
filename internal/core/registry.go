@@ -236,6 +236,70 @@ type RegistrySkillInfo struct {
 	Skill        SkillEntry
 }
 
+// FindSkill searches all registries for a skill by name.
+// If registryFilter is non-empty, only that registry (matched by name or repo URL) is searched.
+// Returns an error if the skill is not found or if the name is ambiguous across registries.
+func (rm *RegistryManager) FindSkill(registries []Registry, skillName, registryFilter string) (*RegistrySkillInfo, error) {
+	if skillName == "" {
+		return nil, fmt.Errorf("skill name is required")
+	}
+
+	var searchRegistries []Registry
+	if registryFilter != "" {
+		// Filter to the specified registry (by name or repo URL)
+		for _, r := range registries {
+			if r.Name == registryFilter || r.Repo == registryFilter {
+				searchRegistries = append(searchRegistries, r)
+			}
+		}
+		if len(searchRegistries) == 0 {
+			return nil, fmt.Errorf("registry %q not found", registryFilter)
+		}
+	} else {
+		searchRegistries = registries
+	}
+
+	var matches []RegistrySkillInfo
+	for _, reg := range searchRegistries {
+		manifest, err := rm.LoadManifest(reg.Repo)
+		if err != nil {
+			continue
+		}
+		for _, skill := range manifest.Skills {
+			if skill.Name == skillName {
+				matches = append(matches, RegistrySkillInfo{
+					RegistryName: manifest.Name,
+					RegistryRepo: reg.Repo,
+					Skill:        skill,
+				})
+			}
+		}
+	}
+
+	switch len(matches) {
+	case 0:
+		// List available skills to help the user
+		allSkills := rm.ListSkills(searchRegistries)
+		if len(allSkills) == 0 {
+			return nil, fmt.Errorf("skill %q not found (no skills available in configured registries)", skillName)
+		}
+		var names []string
+		for _, s := range allSkills {
+			names = append(names, s.Skill.Name)
+		}
+		return nil, fmt.Errorf("skill %q not found in registries. Available: %s", skillName, strings.Join(names, ", "))
+	case 1:
+		return &matches[0], nil
+	default:
+		var registryNames []string
+		for _, m := range matches {
+			registryNames = append(registryNames, fmt.Sprintf("%s (%s)", m.RegistryName, m.RegistryRepo))
+		}
+		return nil, fmt.Errorf("skill %q found in multiple registries; use --registry to disambiguate:\n  %s",
+			skillName, strings.Join(registryNames, "\n  "))
+	}
+}
+
 // readManifest reads and parses the duckrow.json manifest from a directory.
 func readManifest(dir string) (*RegistryManifest, error) {
 	path := filepath.Join(dir, registryManifestFile)

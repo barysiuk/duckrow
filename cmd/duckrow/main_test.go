@@ -55,6 +55,11 @@ func TestScript(t *testing.T) {
 			// Creates ~/.duckrow/config.json with the override mapping.
 			// <repo-key> is "owner/repo" and <clone-url> is the target URL.
 			"setup-config-override": cmdSetupConfigOverride,
+
+			// setup-registry-config adds a clone URL override to the existing config
+			// (preserving any registries from prior 'duckrow registry add' calls).
+			// Usage: setup-registry-config <override-key> <override-url>
+			"setup-registry-config": cmdSetupRegistryConfig,
 		},
 	})
 }
@@ -261,6 +266,59 @@ func cmdSetupConfigOverride(ts *testscript.TestScript, neg bool, args []string) 
 		ts.Fatalf("marshaling config: %v", err)
 	}
 	if err := os.WriteFile(filepath.Join(configDir, "config.json"), data, 0o644); err != nil {
+		ts.Fatalf("writing config: %v", err)
+	}
+}
+
+// cmdSetupRegistryConfig adds a clone URL override to the existing config,
+// preserving any registries that were previously added via `duckrow registry add`.
+// Usage: setup-registry-config <override-key> <override-url>
+func cmdSetupRegistryConfig(ts *testscript.TestScript, neg bool, args []string) {
+	if neg {
+		ts.Fatalf("setup-registry-config does not support negation")
+	}
+	if len(args) != 2 {
+		ts.Fatalf("usage: setup-registry-config <override-key> <override-url>")
+	}
+
+	overrideKey := args[0]
+	overrideURL := ts.MkAbs(args[1])
+
+	home := ts.Getenv("HOME")
+	configDir := filepath.Join(home, ".duckrow")
+	configPath := filepath.Join(configDir, "config.json")
+
+	// Read existing config (must exist from prior registry add)
+	data, err := os.ReadFile(configPath)
+	if err != nil {
+		ts.Fatalf("reading existing config: %v (run 'duckrow registry add' first)", err)
+	}
+
+	var cfg map[string]interface{}
+	if err := json.Unmarshal(data, &cfg); err != nil {
+		ts.Fatalf("parsing config: %v", err)
+	}
+
+	// Get or create settings
+	settings, ok := cfg["settings"].(map[string]interface{})
+	if !ok {
+		settings = map[string]interface{}{}
+	}
+
+	// Get or create overrides map
+	overrides, ok := settings["cloneURLOverrides"].(map[string]interface{})
+	if !ok {
+		overrides = map[string]interface{}{}
+	}
+	overrides[overrideKey] = overrideURL
+	settings["cloneURLOverrides"] = overrides
+	cfg["settings"] = settings
+
+	data, err = json.MarshalIndent(cfg, "", "  ")
+	if err != nil {
+		ts.Fatalf("marshaling config: %v", err)
+	}
+	if err := os.WriteFile(configPath, data, 0o644); err != nil {
 		ts.Fatalf("writing config: %v", err)
 	}
 }
