@@ -12,6 +12,8 @@ cmd/duckrow/              CLI entrypoint and integration tests
   main_test.go            TestMain + testscript runner + custom commands
 internal/core/            Core library (zero UI dependencies)
   agents.json             Agent definitions (9 agents)
+  agents.go               Agent loading, detection, path resolution
+  auth.go                 Clone error classification, SSH/HTTPS hints
   types.go                Domain types
   config.go               Config management (~/.duckrow/)
   folder.go               Folder tracking
@@ -20,14 +22,27 @@ internal/core/            Core library (zero UI dependencies)
   installer.go            Skill installation
   remover.go              Skill removal
   registry.go             Private registry management
+internal/tui/             Interactive terminal UI (Bubble Tea)
+  app.go                  Main TUI model, view routing, data loading
+  folder.go               Folder view — skill list, preview, removal
+  install.go              Install view — skill installation workflow
+  picker.go               Folder picker view
+  settings.go             Settings view — registry management
+  confirm.go              Confirmation dialog
+  toast.go                Toast notifications (success/error/warning)
+  clone_error.go          Clone error handling with retry flow
+  items.go                List item delegates for bubbles components
+  keys.go                 Keybinding definitions
+  theme.go                Shared lipgloss styles and colors
 ```
 
 ## Design Rules
 
 1. **Core has zero UI dependencies** — no TUI/CLI imports in `internal/core/`
 2. **Core exposes clean interfaces** — functions, structs, errors
-3. **CLI commands are thin wrappers** — all logic lives in core
-4. **Core is independently testable** — unit tests without CLI
+3. **TUI consumes core** — `internal/tui/` builds the interactive UI on top of core
+4. **CLI commands are thin wrappers** — subcommands in `cmd/` delegate to core; the root command launches the TUI
+5. **Core is independently testable** — unit tests without CLI or TUI
 
 ## Running Tests
 
@@ -54,6 +69,7 @@ Custom testscript commands available:
 - `file-contains <path> <substring>` — assert file contains text
 - `dir-not-exists <path>` — assert directory does not exist
 - `setup-git-repo <dir> <name> [skills...]` — create a local git repo with a duckrow.json manifest
+- `setup-config-override <repo-key> <clone-url>` — create a config with a clone URL override mapping
 
 ## Key Concepts
 
