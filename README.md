@@ -111,6 +111,8 @@ duckrow detects which agents you use and installs skills to the right directorie
 
 ## Commands
 
+For the full command reference with all flags and examples, see [docs/cli_reference.md](docs/cli_reference.md).
+
 ### Folder Management
 
 ```
@@ -122,7 +124,7 @@ duckrow folders                 List all tracked folders
 ### Skills
 
 ```
-duckrow install <source>        Install skill(s) from a source
+duckrow install [source]        Install skill(s) from a source or registry
 duckrow uninstall <skill-name>  Remove an installed skill
 duckrow uninstall-all           Remove all installed skills
 duckrow status [path]           Show skills and agents for tracked folders
@@ -147,6 +149,7 @@ duckrow install owner/repo@skill-name         # Specific skill from a repo
 duckrow install ./local/path                  # Local directory
 duckrow install https://github.com/owner/repo # Full URL
 duckrow install git@host:owner/repo.git       # SSH clone URL
+duckrow install --skill go-review             # Install from configured registries
 ```
 
 **Flags:**
@@ -155,7 +158,9 @@ duckrow install git@host:owner/repo.git       # SSH clone URL
 |------|-------|-------------|
 | `--dir` | `-d` | Target directory (default: current directory) |
 | `--skill` | `-s` | Install only a specific skill by name |
+| `--registry` | `-r` | Registry to search (with `--skill`, no source) |
 | `--internal` | | Include internal (hidden) skills |
+| `--agents` | | Comma-separated agent names for symlinks |
 
 ## Folders
 
@@ -219,7 +224,7 @@ Authentication is handled by git — if you can `git clone` the URL, duckrow can
 
 ## How Skills Work
 
-A skill is a directory containing a `SKILL.md` file (and optionally other markdown files). The `SKILL.md` has YAML frontmatter with metadata:
+A skill is a directory containing a `SKILL.md` file with YAML frontmatter and markdown instructions for the AI agent:
 
 ```markdown
 ---
@@ -235,11 +240,14 @@ Your skill instructions go here...
 
 When you run `duckrow install`, duckrow:
 
-1. Copies the skill to `.agents/skills/<name>/` (the canonical location)
-2. Detects which agents are present on your system
-3. Creates symlinks in each detected agent's skills directory (e.g., `.cursor/skills/<name>/` -> `.agents/skills/<name>/`)
+1. Clones the source repo (or uses a local path directly)
+2. Walks the directory tree to discover all `SKILL.md` files
+3. Copies each skill to `.agents/skills/<name>/` (the canonical location)
+4. Creates symlinks in each requested agent's skills directory (e.g., `.cursor/skills/<name>/` -> `.agents/skills/<name>/`)
 
 This means each skill exists once on disk but is available to every agent.
+
+Skills can also be installed directly from a configured registry by name, without knowing the source repo — see [docs/skill_install.md](docs/skill_install.md) for the full details on discovery, installation, and the registry workflow.
 
 ## Configuration
 

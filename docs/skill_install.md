@@ -1,6 +1,6 @@
 # Skill Installation
 
-How DuckRow discovers, installs, and manages skills.
+How duckrow discovers, installs, and manages skills.
 
 ## What Is a Skill
 
@@ -29,7 +29,7 @@ Only `name` is mandatory. Skills without a valid `name` field are silently skipp
 
 ## Source Formats
 
-DuckRow accepts several source formats for `duckrow install`:
+duckrow accepts several source formats for `duckrow install`:
 
 | Format | Example | What Happens |
 |--------|---------|-------------|
@@ -55,7 +55,7 @@ This sets `Ref=develop` and `SubPath=backend/go-review`, cloning the `develop` b
 
 ## How Skill Discovery Works
 
-After obtaining the source directory (either via git clone or a local path), DuckRow walks the directory tree recursively looking for `SKILL.md` files.
+After obtaining the source directory (either via git clone or a local path), duckrow walks the directory tree recursively looking for `SKILL.md` files.
 
 ### Directory Traversal Rules
 
@@ -76,7 +76,7 @@ The walker scans every directory with these exceptions:
 
 ### Source Repo Structure
 
-Skills can live at any depth in the source repo. DuckRow finds them all.
+Skills can live at any depth in the source repo. duckrow finds them all.
 
 **Single-skill repo:**
 ```
@@ -154,7 +154,7 @@ If symlink creation fails (e.g., on Windows), falls back to a full directory cop
 
 ## Agents
 
-DuckRow knows about 10 AI coding agents, split into two categories.
+duckrow knows about 9 AI coding agents, split into two categories.
 
 ### Universal Agents
 
@@ -178,9 +178,8 @@ These have their own skill directories. They only receive skills when explicitly
 | Goose | `.goose/skills` |
 | Windsurf | `.windsurf/skills` |
 | Cline | `.cline/skills` |
-| Continue | `.continue/skills` |
 
-When `--agents cursor,claude-code` is passed, DuckRow:
+When `--agents cursor,claude-code` is passed, duckrow:
 1. Copies files to `.agents/skills/<skill>/` (canonical)
 2. Creates symlinks from `.cursor/skills/<skill>` and `.claude/skills/<skill>` to the canonical location
 
@@ -243,7 +242,7 @@ Registries are git repos containing a `duckrow.json` manifest that catalogs avai
 }
 ```
 
-The `source` field is any valid source string (GitHub shorthand, URL, etc.) that DuckRow can parse and clone.
+The `source` field is any valid source string (GitHub shorthand, URL, etc.) that duckrow can parse and clone.
 
 ### Workflow
 
@@ -262,7 +261,7 @@ duckrow install --skill go-review --registry my-org
 ```
 
 When `--skill` is used without a source argument:
-1. DuckRow searches all configured registries for the skill name
+1. duckrow searches all configured registries for the skill name
 2. If found in exactly one registry, it reads the `Source` field
 3. Parses the source and clones/installs normally
 4. If found in multiple registries, it errors and asks you to use `--registry`
@@ -281,7 +280,7 @@ If a source repo requires SSH auth but the manifest uses HTTPS, you can configur
 }
 ```
 
-The key is `owner/repo` (lowercase). When DuckRow resolves a source matching that key, it uses the override URL instead.
+The key is `owner/repo` (lowercase). When duckrow resolves a source matching that key, it uses the override URL instead.
 
 ## Uninstalling
 
