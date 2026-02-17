@@ -60,6 +60,7 @@ The repository must contain a duckrow.json manifest at its root.`,
 		if manifest.Description != "" {
 			fmt.Fprintf(os.Stdout, "  %s\n", manifest.Description)
 		}
+		printManifestWarnings(manifest)
 		return nil
 	},
 }
@@ -137,6 +138,7 @@ var registryRefreshCmd = &cobra.Command{
 				return err
 			}
 			fmt.Fprintf(os.Stdout, "Refreshed: %s (%d skills)\n", manifest.Name, len(manifest.Skills))
+			printManifestWarnings(manifest)
 			return nil
 		}
 
@@ -153,6 +155,7 @@ var registryRefreshCmd = &cobra.Command{
 				continue
 			}
 			fmt.Fprintf(os.Stdout, "Refreshed: %s (%d skills)\n", manifest.Name, len(manifest.Skills))
+			printManifestWarnings(manifest)
 		}
 		return nil
 	},
@@ -238,6 +241,13 @@ func findRegistry(registries []core.Registry, arg string) (*core.Registry, error
 		}
 		return nil, fmt.Errorf("multiple registries named %q; specify the repo URL instead:\n  %s",
 			arg, strings.Join(repos, "\n  "))
+	}
+}
+
+// printManifestWarnings prints any validation warnings from a registry manifest to stderr.
+func printManifestWarnings(manifest *core.RegistryManifest) {
+	for _, w := range manifest.Warnings {
+		fmt.Fprintf(os.Stderr, "Warning: %s\n", w)
 	}
 }
 

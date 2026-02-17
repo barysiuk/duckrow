@@ -35,6 +35,7 @@ type RegistryManifest struct {
 	Name        string       `json:"name"`
 	Description string       `json:"description,omitempty"`
 	Skills      []SkillEntry `json:"skills"`
+	Warnings    []string     `json:"-"` // validation warnings, not serialized
 }
 
 // SkillEntry is a skill listed in a registry manifest.
