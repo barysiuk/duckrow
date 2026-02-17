@@ -1,59 +1,54 @@
-# duckrow
+<h1 align="center">🐥 duckrow</h1>
 
-*"Get your ducks in a row" — manage AI agent skills across your team.*
+<p align="center"><i>Get your ducks in a row — manage AI agent skills across your team.</i></p>
 
 <p align="center">
   <img src="docs/images/duckrow_tui.gif" alt="duckrow TUI" width="800" />
 </p>
 
-duckrow helps engineering teams curate, distribute, and manage approved AI agent skills across every project and every developer. Set up a private registry once, and your entire team gets the same vetted skills — code review guidelines, test generation rules, deployment checklists — installed consistently wherever they work.
+AI coding agents like Cursor, Claude Code, OpenCode, and GitHub Copilot use **skills** — markdown files that tell them how to behave in your project. Things like code review guidelines, test generation rules, or deployment checklists.
 
-AI coding agents like Cursor, Claude Code, OpenCode, and others use **skills** — markdown files that shape how they behave in a project. Without coordination, skills drift between repos, conventions diverge, and there's no visibility into what's running where.
+The problem is keeping those skills consistent. When every developer manages skills by hand, they drift between repos, conventions diverge, and nobody knows what's running where.
 
-duckrow solves this at the team level. Maintain a private skill registry in a git repo your organization controls, then let developers browse, install, and update from that catalog. The interactive TUI gives everyone a single view of installed skills, available registry skills, and which agents are active — right in the terminal. One binary, no dependencies.
+duckrow fixes this. It gives your team a single way to distribute, install, and pin AI agent skills — across every project and every developer.
+
+**How it works:**
+
+- **Set up a private registry** — a git repo with a manifest listing your team's approved skills
+- **Install skills by name** — `duckrow install --skill code-review` pulls the right version from the registry
+- **Pin with a lock file** — every install records the exact git commit in `duckrow.lock.json`, just like `package-lock.json` or `uv.lock`
+- **Sync across the team** — teammates run `duckrow sync` and get identical skills, no manual setup
+- **Update when ready** — `duckrow outdated` shows what changed, `duckrow update` moves forward
+
+One binary, no dependencies. Works with any git host.
 
 ## Quick Start
 
-### Install
-
 ```bash
-# Homebrew
+# Install
 brew install barysiuk/tap/duckrow
 
-# Or grab a binary from GitHub Releases
-# https://github.com/barysiuk/duckrow/releases
-```
-
-### First steps
-
-```bash
-# Start tracking a project
+# Add a project
 duckrow add ~/code/my-app
 
-# Install a skill from GitHub
-duckrow install owner/repo -d ~/code/my-app
+# Install a skill
+duckrow install acme/skills -d ~/code/my-app
 
-# See what's installed across all your projects
-duckrow status
+# Teammates sync from the lock file
+duckrow sync
 ```
 
-## Demo
+## Interactive TUI
 
-### TUI
-
-Run `duckrow` in any project folder to launch the interactive terminal UI. Browse installed skills, install from your team's registry, remove what you don't need — all without memorizing commands.
-
-```bash
-duckrow
-```
+Run `duckrow` to launch the terminal UI. Browse installed skills, install from your registry, check for updates — all without memorizing commands.
 
 <p align="center">
   <img src="docs/images/duckrow_tui.png" alt="duckrow TUI screenshot" width="800" />
 </p>
 
-### CLI
+## CLI
 
-Every action available in the TUI also works as a direct command — useful for scripting, CI, or when you already know what you need.
+Every action in the TUI also works as a direct command — useful for scripting, CI, or when you already know what you need.
 
 ```
 $ duckrow add .
