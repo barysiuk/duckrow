@@ -65,25 +65,10 @@ Installed: code-review
   Agents: OpenCode, Codex, Gemini CLI, GitHub Copilot
 
 $ duckrow status .
-Folder: /Users/me/code/my-app
-  Agents: OpenCode, Codex, Gemini CLI, GitHub Copilot
+Folder: /Users/me/code/my-app [tracked]
   Skills (1):
-    - code-review v1.0.0 [OpenCode, Codex, Gemini CLI, GitHub Copilot]
+    - code-review [.agents/skills/code-review]
       Review code changes
-
-$ duckrow install ./my-local-skills -d .
-Installed: test-gen
-  Path: .agents/skills/test-gen
-  Agents: OpenCode, Codex, Gemini CLI, GitHub Copilot
-
-$ duckrow status
-Folder: /Users/me/code/my-app
-  Agents: OpenCode, Codex, Gemini CLI, GitHub Copilot
-  Skills (2):
-    - code-review v1.0.0 [OpenCode, Codex, Gemini CLI, GitHub Copilot]
-      Review code changes
-    - test-gen v1.0.0 [OpenCode, Codex, Gemini CLI, GitHub Copilot]
-      Generate test cases
 
 $ duckrow uninstall code-review -d .
 Removed: code-review
@@ -128,6 +113,9 @@ duckrow install [source]        Install skill(s) from a source or registry
 duckrow uninstall <skill-name>  Remove an installed skill
 duckrow uninstall-all           Remove all installed skills
 duckrow status [path]           Show skills and agents for tracked folders
+duckrow sync                    Install skills from lock file at pinned commits
+duckrow outdated                Show skills with available updates
+duckrow update [skill-name]     Update skill(s) to the available commit
 ```
 
 ### Registries
@@ -146,7 +134,6 @@ The `install` command accepts multiple source formats:
 ```bash
 duckrow install owner/repo                    # GitHub shorthand
 duckrow install owner/repo@skill-name         # Specific skill from a repo
-duckrow install ./local/path                  # Local directory
 duckrow install https://github.com/owner/repo # Full URL
 duckrow install git@host:owner/repo.git       # SSH clone URL
 duckrow install --skill go-review             # Install from configured registries
@@ -161,6 +148,7 @@ duckrow install --skill go-review             # Install from configured registri
 | `--registry` | `-r` | Registry to search (with `--skill`, no source) |
 | `--internal` | | Include internal (hidden) skills |
 | `--agents` | | Comma-separated agent names for symlinks |
+| `--no-lock` | | Skip writing to the lock file |
 
 ## Folders
 
@@ -191,13 +179,12 @@ Create a git repository with a `duckrow.json` file:
       "name": "code-review",
       "description": "Review code with our style guidelines",
       "source": "github.com/my-org/skills/code-review",
-      "version": "1.2.0"
+      "commit": "a1b2c3d4e5f6789012345678901234567890abcd"
     },
     {
       "name": "pr-guidelines",
       "description": "PR description and review standards",
-      "source": "github.com/my-org/engineering-skills",
-      "version": "2.0.0"
+      "source": "github.com/my-org/engineering-skills"
     }
   ]
 }
@@ -240,14 +227,33 @@ Your skill instructions go here...
 
 When you run `duckrow install`, duckrow:
 
-1. Clones the source repo (or uses a local path directly)
+1. Clones the source repo
 2. Walks the directory tree to discover all `SKILL.md` files
 3. Copies each skill to `.agents/skills/<name>/` (the canonical location)
 4. Creates symlinks in each requested agent's skills directory (e.g., `.cursor/skills/<name>/` -> `.agents/skills/<name>/`)
+5. Records the exact git commit in `duckrow.lock.json`
 
 This means each skill exists once on disk but is available to every agent.
 
 Skills can also be installed directly from a configured registry by name, without knowing the source repo — see [docs/skill_install.md](docs/skill_install.md) for the full details on discovery, installation, and the registry workflow.
+
+## Lock File
+
+Every `duckrow install` records the exact git commit in `duckrow.lock.json`. Commit this file to version control so your team gets reproducible skill installations.
+
+```bash
+# Teammates clone the repo and run sync to get identical skills
+duckrow sync
+
+# Check which skills have newer commits available
+duckrow outdated
+
+# Update a specific skill (or all at once)
+duckrow update go-review
+duckrow update --all
+```
+
+See [docs/lock-file.md](docs/lock-file.md) for the full lock file reference.
 
 ## Configuration
 
