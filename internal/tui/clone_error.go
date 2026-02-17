@@ -585,9 +585,10 @@ type cloneRetryResultMsg struct {
 
 // registryAddDoneMsg is sent when a registry add completes (from settings, not retry).
 type registryAddDoneMsg struct {
-	url  string
-	name string
-	err  error
+	url      string
+	name     string
+	warnings []string
+	err      error
 }
 
 // hintBulletStyle styles the bullet point for hint items.

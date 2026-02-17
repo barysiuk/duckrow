@@ -228,7 +228,13 @@ func (a App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			return a, tea.Batch(cmd, a.loadDataCmd)
 		}
 		var cmd tea.Cmd
-		a.toast, cmd = a.toast.show(fmt.Sprintf("Added registry %s", msg.name), toastSuccess)
+		if len(msg.warnings) > 0 {
+			a.toast, cmd = a.toast.show(
+				fmt.Sprintf("Registry %s: %d warning(s)", msg.name, len(msg.warnings)),
+				toastWarning)
+		} else {
+			a.toast, cmd = a.toast.show(fmt.Sprintf("Added registry %s", msg.name), toastSuccess)
+		}
 		return a, tea.Batch(cmd, a.loadDataCmd)
 
 	case cloneRetryResultMsg:
