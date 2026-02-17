@@ -20,7 +20,7 @@ duckrow fixes this. It gives your team a single way to distribute, install, and 
 - **Sync across the team** — teammates run `duckrow sync` and get identical skills, no manual setup
 - **Update when ready** — `duckrow outdated` shows what changed, `duckrow update` moves forward
 
-One binary, no dependencies. Works with any git host.
+One binary, no dependencies. Works with any git host. Has a nice intuitive TUI.
 
 ## Quick Start
 
