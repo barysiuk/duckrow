@@ -218,6 +218,118 @@ func TestParseSource_LocalPathRejected(t *testing.T) {
 	}
 }
 
+func TestParseSource_CanonicalGitHub(t *testing.T) {
+	src, err := ParseSource("github.com/pandadoc-studio/skills/skills/communication/slack-digest")
+	if err != nil {
+		t.Fatalf("ParseSource() error: %v", err)
+	}
+	if src.Type != SourceTypeGit {
+		t.Errorf("Type = %q, want %q", src.Type, SourceTypeGit)
+	}
+	if src.Host != "github.com" {
+		t.Errorf("Host = %q, want %q", src.Host, "github.com")
+	}
+	if src.Owner != "pandadoc-studio" {
+		t.Errorf("Owner = %q, want %q", src.Owner, "pandadoc-studio")
+	}
+	if src.Repo != "skills" {
+		t.Errorf("Repo = %q, want %q", src.Repo, "skills")
+	}
+	if src.SubPath != "skills/communication/slack-digest" {
+		t.Errorf("SubPath = %q, want %q", src.SubPath, "skills/communication/slack-digest")
+	}
+	if src.CloneURL != "https://github.com/pandadoc-studio/skills.git" {
+		t.Errorf("CloneURL = %q, want %q", src.CloneURL, "https://github.com/pandadoc-studio/skills.git")
+	}
+}
+
+func TestParseSource_CanonicalGitLab(t *testing.T) {
+	src, err := ParseSource("gitlab.com/org/repo/path/to/skill")
+	if err != nil {
+		t.Fatalf("ParseSource() error: %v", err)
+	}
+	if src.Host != "gitlab.com" {
+		t.Errorf("Host = %q, want %q", src.Host, "gitlab.com")
+	}
+	if src.Owner != "org" {
+		t.Errorf("Owner = %q, want %q", src.Owner, "org")
+	}
+	if src.Repo != "repo" {
+		t.Errorf("Repo = %q, want %q", src.Repo, "repo")
+	}
+	if src.SubPath != "path/to/skill" {
+		t.Errorf("SubPath = %q, want %q", src.SubPath, "path/to/skill")
+	}
+	if src.CloneURL != "https://gitlab.com/org/repo.git" {
+		t.Errorf("CloneURL = %q, want %q", src.CloneURL, "https://gitlab.com/org/repo.git")
+	}
+}
+
+func TestParseSource_CanonicalSelfHosted(t *testing.T) {
+	src, err := ParseSource("git.internal.co/team/repo/my-skill")
+	if err != nil {
+		t.Fatalf("ParseSource() error: %v", err)
+	}
+	if src.Host != "git.internal.co" {
+		t.Errorf("Host = %q, want %q", src.Host, "git.internal.co")
+	}
+	if src.Owner != "team" {
+		t.Errorf("Owner = %q, want %q", src.Owner, "team")
+	}
+	if src.Repo != "repo" {
+		t.Errorf("Repo = %q, want %q", src.Repo, "repo")
+	}
+	if src.SubPath != "my-skill" {
+		t.Errorf("SubPath = %q, want %q", src.SubPath, "my-skill")
+	}
+	if src.CloneURL != "https://git.internal.co/team/repo.git" {
+		t.Errorf("CloneURL = %q, want %q", src.CloneURL, "https://git.internal.co/team/repo.git")
+	}
+}
+
+func TestParseSource_CanonicalNoSubPath(t *testing.T) {
+	src, err := ParseSource("github.com/owner/repo/skill")
+	if err != nil {
+		t.Fatalf("ParseSource() error: %v", err)
+	}
+	if src.Host != "github.com" {
+		t.Errorf("Host = %q, want %q", src.Host, "github.com")
+	}
+	if src.Owner != "owner" {
+		t.Errorf("Owner = %q, want %q", src.Owner, "owner")
+	}
+	if src.Repo != "repo" {
+		t.Errorf("Repo = %q, want %q", src.Repo, "repo")
+	}
+	if src.SubPath != "skill" {
+		t.Errorf("SubPath = %q, want %q", src.SubPath, "skill")
+	}
+}
+
+func TestParseSource_CanonicalRepoKey(t *testing.T) {
+	// Verify that canonical sources produce correct RepoKey (owner/repo, not host/owner).
+	tests := []struct {
+		input   string
+		wantKey string
+	}{
+		{"github.com/pandadoc-studio/skills/skills/communication/slack-digest", "pandadoc-studio/skills"},
+		{"gitlab.com/Org/Repo/path/to/skill", "org/repo"},
+		{"git.internal.co/team/repo/my-skill", "team/repo"},
+	}
+	for _, tt := range tests {
+		t.Run(tt.input, func(t *testing.T) {
+			src, err := ParseSource(tt.input)
+			if err != nil {
+				t.Fatalf("ParseSource(%q) error: %v", tt.input, err)
+			}
+			got := src.RepoKey()
+			if got != tt.wantKey {
+				t.Errorf("RepoKey() = %q, want %q", got, tt.wantKey)
+			}
+		})
+	}
+}
+
 func TestParseSource_Empty(t *testing.T) {
 	_, err := ParseSource("")
 	if err == nil {
@@ -286,6 +398,8 @@ func TestRepoKey_FromParsedSource(t *testing.T) {
 		{"git@github.com:pandadoc-studio/skills.git", "pandadoc-studio/skills"},
 		{"git@github.com-work:pandadoc-studio/skills.git", "pandadoc-studio/skills"},
 		{"https://github.com/PandaDoc/Skills", "pandadoc/skills"},
+		{"github.com/pandadoc-studio/skills/skills/communication/slack-digest", "pandadoc-studio/skills"},
+		{"gitlab.com/org/repo/path/to/skill", "org/repo"},
 	}
 
 	for _, tt := range tests {

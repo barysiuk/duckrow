@@ -16,12 +16,13 @@ var ownerRepoPathPattern = regexp.MustCompile(`^([a-zA-Z0-9_.-]+)/([a-zA-Z0-9_.-
 // ParseSource parses a skill source string into a structured ParsedSource.
 //
 // Supported formats:
-//   - "owner/repo"                       → GitHub repo (shorthand)
-//   - "owner/repo@skill-name"            → GitHub repo, specific skill
-//   - "owner/repo/path/to/skill"         → GitHub repo with subpath
-//   - "git@host:owner/repo.git"          → SSH git URL
-//   - "https://github.com/owner/repo"    → HTTPS git URL
-//   - "https://gitlab.com/owner/repo"    → GitLab HTTPS URL
+//   - "host/owner/repo/path/to/skill"     → Canonical source (host contains a dot)
+//   - "owner/repo"                        → GitHub repo (shorthand)
+//   - "owner/repo@skill-name"             → GitHub repo, specific skill
+//   - "owner/repo/path/to/skill"          → GitHub repo with subpath
+//   - "git@host:owner/repo.git"           → SSH git URL
+//   - "https://github.com/owner/repo"     → HTTPS git URL
+//   - "https://gitlab.com/owner/repo"     → GitLab HTTPS URL
 //   - "https://git.example.com/owner/repo" → Any git host HTTPS URL
 //
 // Local paths (./foo, ../foo, /foo, ~/foo) are explicitly rejected.
@@ -64,7 +65,33 @@ func ParseSource(input string) (*ParsedSource, error) {
 		}
 	}
 
-	// owner/repo/path/to/skill (3+ path segments)
+	// Canonical source: host/owner/repo[/path/to/skill]
+	// Detected when the first segment contains a dot (hostname indicator).
+	if m := ownerRepoPathPattern.FindStringSubmatch(input); m != nil && strings.Contains(m[1], ".") {
+		host := m[1]
+		// Remaining is owner/repo[/subpath] — split further.
+		rest := m[2] + "/" + m[3] // rejoin segments after host
+		restParts := strings.SplitN(rest, "/", 3)
+		if len(restParts) < 2 {
+			return nil, fmt.Errorf("canonical source %q must have at least host/owner/repo", input)
+		}
+		owner := restParts[0]
+		repo := restParts[1]
+		var subPath string
+		if len(restParts) == 3 {
+			subPath = restParts[2]
+		}
+		return &ParsedSource{
+			Type:     SourceTypeGit,
+			Host:     host,
+			Owner:    owner,
+			Repo:     repo,
+			CloneURL: fmt.Sprintf("https://%s/%s/%s.git", host, owner, repo),
+			SubPath:  subPath,
+		}, nil
+	}
+
+	// owner/repo/path/to/skill (3+ path segments, no host)
 	if m := ownerRepoPathPattern.FindStringSubmatch(input); m != nil {
 		return &ParsedSource{
 			Type:     SourceTypeGit,
