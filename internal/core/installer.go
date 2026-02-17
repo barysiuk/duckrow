@@ -42,6 +42,7 @@ type InstallOptions struct {
 	IncludeInternal bool       // Include skills with metadata.internal: true
 	IsInternal      bool       // If true, this is from an internal registry (disable telemetry)
 	TargetAgents    []AgentDef // Explicit list of agents to install for; if nil, defaults to universal-only
+	Commit          string     // Specific commit to checkout (for sync); uses cloneRepoAtCommit when set
 }
 
 // InstallResult represents the result of a skill installation.
@@ -54,6 +55,10 @@ type InstalledSkillResult struct {
 	Name   string
 	Path   string   // Canonical path where files were copied
 	Agents []string // Agent names that received the skill
+	// Lock file metadata (populated during install)
+	Commit string // Git commit SHA of the installed skill
+	Source string // Canonical source (e.g. "github.com/owner/repo/path/to/skill")
+	Ref    string // Branch/tag hint used during install
 }
 
 // InstallFromSource installs skill(s) from the given source into the target directory.
@@ -63,24 +68,23 @@ func (inst *Installer) InstallFromSource(source *ParsedSource, opts InstallOptio
 	}
 
 	var skillSourceDir string
-	var cleanupFn func()
 
 	switch source.Type {
-	case SourceTypeLocal:
-		skillSourceDir = source.LocalPath
-	case SourceTypeGitHub, SourceTypeGitLab, SourceTypeGit:
-		tmpDir, err := cloneRepo(source.CloneURL, source.Ref)
+	case SourceTypeGit:
+		var tmpDir string
+		var err error
+		if opts.Commit != "" {
+			tmpDir, err = cloneRepoAtCommit(source.CloneURL, opts.Commit)
+		} else {
+			tmpDir, err = cloneRepo(source.CloneURL, source.Ref)
+		}
 		if err != nil {
 			return nil, fmt.Errorf("cloning repository: %w", err)
 		}
-		cleanupFn = func() { _ = os.RemoveAll(tmpDir) }
+		defer func() { _ = os.RemoveAll(tmpDir) }()
 		skillSourceDir = tmpDir
 	default:
 		return nil, fmt.Errorf("unsupported source type: %s", source.Type)
-	}
-
-	if cleanupFn != nil {
-		defer cleanupFn()
 	}
 
 	// Apply skill filter from source (@skill syntax)
@@ -137,6 +141,22 @@ func (inst *Installer) InstallFromSource(source *ParsedSource, opts InstallOptio
 		if err != nil {
 			return nil, fmt.Errorf("installing skill %q: %w", skill.Metadata.Name, err)
 		}
+
+		// Compute lock metadata from the clone directory (before cleanup).
+		skillRelPath, _ := filepath.Rel(skillSourceDir, skill.Path)
+		installed.Source = NormalizeSource(source.Host, source.Owner, source.Repo, skillRelPath)
+		installed.Ref = source.Ref
+
+		if opts.Commit != "" {
+			installed.Commit = opts.Commit
+		} else {
+			commit, commitErr := GetSkillCommit(skillSourceDir, skillRelPath)
+			if commitErr == nil {
+				installed.Commit = commit
+			}
+			// If commit cannot be resolved, leave empty — caller can warn.
+		}
+
 		result.InstalledSkills = append(result.InstalledSkills, *installed)
 	}
 
@@ -224,6 +244,51 @@ func cloneRepo(url string, ref string) (string, error) {
 	if err != nil {
 		_ = os.RemoveAll(tmpDir)
 		return "", ClassifyCloneError(url, FormatCommand(url, ref), output)
+	}
+
+	return tmpDir, nil
+}
+
+// cloneRepoAtCommit fetches a specific commit without full clone history.
+// Uses git init + fetch --depth 1 + checkout FETCH_HEAD.
+func cloneRepoAtCommit(url string, commit string) (string, error) {
+	tmpDir, err := os.MkdirTemp("", "duckrow-clone-*")
+	if err != nil {
+		return "", fmt.Errorf("creating temp dir: %w", err)
+	}
+
+	env := append(os.Environ(), "GIT_TERMINAL_PROMPT=0")
+
+	// git init
+	initCmd := exec.Command("git", "init", tmpDir)
+	initCmd.Env = env
+	if output, err := runWithTimeout(initCmd, cloneTimeout); err != nil {
+		_ = os.RemoveAll(tmpDir)
+		return "", fmt.Errorf("git init failed: %s", output)
+	}
+
+	// git remote add origin <url>
+	remoteCmd := exec.Command("git", "-C", tmpDir, "remote", "add", "origin", url)
+	remoteCmd.Env = env
+	if output, err := runWithTimeout(remoteCmd, cloneTimeout); err != nil {
+		_ = os.RemoveAll(tmpDir)
+		return "", fmt.Errorf("git remote add failed: %s", output)
+	}
+
+	// git fetch --depth 1 origin <commit>
+	fetchCmd := exec.Command("git", "-C", tmpDir, "fetch", "--depth", "1", "origin", commit)
+	fetchCmd.Env = env
+	if output, err := runWithTimeout(fetchCmd, cloneTimeout); err != nil {
+		_ = os.RemoveAll(tmpDir)
+		return "", fmt.Errorf("commit %s not found in remote (may have been force-pushed away): %s", commit, output)
+	}
+
+	// git checkout FETCH_HEAD
+	checkoutCmd := exec.Command("git", "-C", tmpDir, "checkout", "FETCH_HEAD")
+	checkoutCmd.Env = env
+	if output, err := runWithTimeout(checkoutCmd, cloneTimeout); err != nil {
+		_ = os.RemoveAll(tmpDir)
+		return "", fmt.Errorf("git checkout failed: %s", output)
 	}
 
 	return tmpDir, nil

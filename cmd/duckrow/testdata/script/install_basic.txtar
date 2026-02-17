@@ -1,10 +1,19 @@
-# Test installing skills from a local source
+# Test installing skills from a git source via clone URL override
 
 # Create a project directory
 mkdir myproject
 
-# Install from local skill source
-exec duckrow install ./skill-source -d myproject
+# Create skill files and turn into a git repo
+mkdir skill-source
+cp skill-md skill-source/SKILL.md
+cp prompt-md skill-source/prompt.md
+setup-git-repo skill-source test-skills test-skill
+
+# Set up config override to redirect test-owner/test-repo to local git repo
+setup-config-override test-owner/test-repo skill-source
+
+# Install from git source (redirected via override)
+exec duckrow install test-owner/test-repo -d myproject
 stdout 'Installed: test-skill'
 stdout 'Path:'
 ! stderr .
@@ -21,7 +30,7 @@ exec duckrow status myproject
 stdout 'test-skill'
 stdout 'A skill for testing'
 
--- skill-source/SKILL.md --
+-- skill-md --
 ---
 name: test-skill
 description: A skill for testing
@@ -32,5 +41,5 @@ metadata:
 # Test Skill
 
 This is a test skill.
--- skill-source/prompt.md --
+-- prompt-md --
 You are a test skill assistant.

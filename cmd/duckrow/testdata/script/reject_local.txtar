@@ -1,0 +1,15 @@
+# Local path installs are rejected with a clear error message
+
+mkdir myproject
+
+! exec duckrow install ./some-path -d myproject
+stderr 'local path installs are not supported'
+
+! exec duckrow install ../relative -d myproject
+stderr 'local path installs are not supported'
+
+! exec duckrow install /absolute/path -d myproject
+stderr 'local path installs are not supported'
+
+! exec duckrow install ~/home-path -d myproject
+stderr 'local path installs are not supported'

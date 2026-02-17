@@ -1,0 +1,307 @@
+package core
+
+import (
+	"encoding/json"
+	"fmt"
+	"os"
+	"os/exec"
+	"path/filepath"
+	"sort"
+	"strings"
+)
+
+const (
+	lockFileName       = "duckrow.lock.json"
+	currentLockVersion = 1
+)
+
+// LockFilePath returns the full path to the lock file in the given directory.
+func LockFilePath(dir string) string {
+	return filepath.Join(dir, lockFileName)
+}
+
+// ReadLockFile reads and parses the lock file from the given directory.
+// Returns nil, nil if the file does not exist.
+func ReadLockFile(dir string) (*LockFile, error) {
+	path := LockFilePath(dir)
+	data, err := os.ReadFile(path)
+	if err != nil {
+		if os.IsNotExist(err) {
+			return nil, nil
+		}
+		return nil, fmt.Errorf("reading lock file: %w", err)
+	}
+
+	var lf LockFile
+	if err := json.Unmarshal(data, &lf); err != nil {
+		return nil, fmt.Errorf("parsing lock file: %w", err)
+	}
+	return &lf, nil
+}
+
+// WriteLockFile writes the lock file to the given directory atomically.
+// Skills are sorted by name for deterministic output.
+func WriteLockFile(dir string, lf *LockFile) error {
+	// Sort skills by name for deterministic output.
+	sort.Slice(lf.Skills, func(i, j int) bool {
+		return lf.Skills[i].Name < lf.Skills[j].Name
+	})
+
+	data, err := json.MarshalIndent(lf, "", "  ")
+	if err != nil {
+		return fmt.Errorf("marshaling lock file: %w", err)
+	}
+	// Ensure trailing newline.
+	data = append(data, '\n')
+
+	path := LockFilePath(dir)
+
+	// Atomic write: write to temp file, then rename.
+	tmpPath := path + ".tmp"
+	if err := os.WriteFile(tmpPath, data, 0o644); err != nil {
+		return fmt.Errorf("writing lock file: %w", err)
+	}
+	if err := os.Rename(tmpPath, path); err != nil {
+		_ = os.Remove(tmpPath)
+		return fmt.Errorf("saving lock file: %w", err)
+	}
+
+	return nil
+}
+
+// AddOrUpdateLockEntry upserts a skill entry in the lock file by name.
+// Creates the lock file if it does not exist.
+func AddOrUpdateLockEntry(dir string, entry LockedSkill) error {
+	lf, err := ReadLockFile(dir)
+	if err != nil {
+		return err
+	}
+	if lf == nil {
+		lf = &LockFile{
+			LockVersion: currentLockVersion,
+			Skills:      []LockedSkill{},
+		}
+	}
+
+	// Upsert: replace existing entry with the same name, or append.
+	found := false
+	for i, s := range lf.Skills {
+		if s.Name == entry.Name {
+			lf.Skills[i] = entry
+			found = true
+			break
+		}
+	}
+	if !found {
+		lf.Skills = append(lf.Skills, entry)
+	}
+
+	return WriteLockFile(dir, lf)
+}
+
+// RemoveLockEntry removes a skill entry from the lock file by name.
+// No-op if the lock file does not exist or the skill is not found.
+func RemoveLockEntry(dir string, skillName string) error {
+	lf, err := ReadLockFile(dir)
+	if err != nil {
+		return err
+	}
+	if lf == nil {
+		return nil
+	}
+
+	filtered := lf.Skills[:0]
+	for _, s := range lf.Skills {
+		if s.Name != skillName {
+			filtered = append(filtered, s)
+		}
+	}
+	lf.Skills = filtered
+
+	return WriteLockFile(dir, lf)
+}
+
+// GetSkillCommit returns the git commit SHA that last modified the given sub-path
+// within a repository directory. Uses `git log -1 --format=%H -- <subPath>`.
+func GetSkillCommit(repoDir, subPath string) (string, error) {
+	args := []string{"-C", repoDir, "log", "-1", "--format=%H"}
+	if subPath != "" && subPath != "." {
+		args = append(args, "--", subPath)
+	}
+	cmd := exec.Command("git", args...)
+	output, err := cmd.Output()
+	if err != nil {
+		return "", fmt.Errorf("getting skill commit: %w", err)
+	}
+
+	commit := strings.TrimSpace(string(output))
+	if commit == "" {
+		return "", fmt.Errorf("no commits found for path %q in %s", subPath, repoDir)
+	}
+	return commit, nil
+}
+
+// NormalizeSource builds a canonical lock file source string from its components.
+// Format: host/owner/repo/skillRelPath (e.g. "github.com/acme/skills/tools/lint").
+func NormalizeSource(host, owner, repo, skillRelPath string) string {
+	base := host + "/" + owner + "/" + repo
+	if skillRelPath == "" || skillRelPath == "." {
+		return base
+	}
+	// Normalize path separators to forward slashes.
+	skillRelPath = filepath.ToSlash(skillRelPath)
+	return base + "/" + skillRelPath
+}
+
+// ParseLockSource splits a canonical lock source like "github.com/acme/skills/tools/lint"
+// into its components (host, owner, repo, subPath). Returns an error if the source
+// has fewer than 3 segments (host/owner/repo minimum).
+func ParseLockSource(source string) (host, owner, repo, subPath string, err error) {
+	parts := strings.Split(source, "/")
+	if len(parts) < 3 {
+		return "", "", "", "", fmt.Errorf("invalid lock source %q: expected at least host/owner/repo", source)
+	}
+	host = parts[0]
+	owner = parts[1]
+	repo = parts[2]
+	if len(parts) > 3 {
+		subPath = strings.Join(parts[3:], "/")
+	}
+	return host, owner, repo, subPath, nil
+}
+
+// isCanonicalSource checks whether a source string uses the canonical
+// host/owner/repo/path format. Canonical means at least 3 slash-separated
+// segments where the first segment contains a dot (hostname indicator).
+func isCanonicalSource(source string) bool {
+	parts := strings.Split(source, "/")
+	if len(parts) < 3 {
+		return false
+	}
+	return strings.Contains(parts[0], ".")
+}
+
+// repoKey extracts "host/owner/repo" from a canonical source string.
+func repoKey(source string) string {
+	parts := strings.Split(source, "/")
+	if len(parts) < 3 {
+		return source
+	}
+	return parts[0] + "/" + parts[1] + "/" + parts[2]
+}
+
+// skillSubPath extracts the sub-path portion from a canonical source string.
+// Returns "" if the source has exactly 3 segments (host/owner/repo).
+func skillSubPath(source string) string {
+	parts := strings.Split(source, "/")
+	if len(parts) <= 3 {
+		return ""
+	}
+	return strings.Join(parts[3:], "/")
+}
+
+// CheckForUpdates checks each locked skill for available updates.
+// registryCommits maps lock file source strings to the commit from the registry.
+// overrides maps repo keys (owner/repo) to clone URL overrides.
+func CheckForUpdates(lf *LockFile, overrides map[string]string, registryCommits map[string]string) ([]UpdateInfo, error) {
+	var results []UpdateInfo
+
+	// Separate skills into registry-resolved and network-fetch groups.
+	type pendingSkill struct {
+		skill   LockedSkill
+		subPath string
+	}
+
+	// Group skills needing network fetch by (repoKey, ref) to avoid duplicate clones.
+	type repoRefKey struct {
+		repo string
+		ref  string
+	}
+	repoGroups := make(map[repoRefKey][]pendingSkill)
+	var repoGroupOrder []repoRefKey
+
+	for _, skill := range lf.Skills {
+		// Check registry commit first.
+		if regCommit, ok := registryCommits[skill.Source]; ok && regCommit != "" {
+			results = append(results, UpdateInfo{
+				Name:            skill.Name,
+				Source:          skill.Source,
+				InstalledCommit: skill.Commit,
+				AvailableCommit: regCommit,
+				HasUpdate:       skill.Commit != regCommit,
+			})
+			continue
+		}
+
+		// Need network fetch. Group by repo + ref.
+		key := repoRefKey{repo: repoKey(skill.Source), ref: skill.Ref}
+		if _, exists := repoGroups[key]; !exists {
+			repoGroupOrder = append(repoGroupOrder, key)
+		}
+		repoGroups[key] = append(repoGroups[key], pendingSkill{
+			skill:   skill,
+			subPath: skillSubPath(skill.Source),
+		})
+	}
+
+	// Process each repo group: clone once, check all skills.
+	for _, key := range repoGroupOrder {
+		skills := repoGroups[key]
+		// Parse the source to build a clone URL.
+		host, owner, repo, _, err := ParseLockSource(skills[0].skill.Source)
+		if err != nil {
+			// Add error results for all skills in this group.
+			for _, ps := range skills {
+				results = append(results, UpdateInfo{
+					Name:            ps.skill.Name,
+					Source:          ps.skill.Source,
+					InstalledCommit: ps.skill.Commit,
+					AvailableCommit: ps.skill.Commit,
+					HasUpdate:       false,
+				})
+			}
+			continue
+		}
+
+		cloneURL := fmt.Sprintf("https://%s/%s/%s.git", host, owner, repo)
+
+		// Apply clone URL override.
+		repoKeyStr := strings.ToLower(owner) + "/" + strings.ToLower(repo)
+		if override, ok := overrides[repoKeyStr]; ok && override != "" {
+			cloneURL = override
+		}
+
+		tmpDir, cloneErr := cloneRepo(cloneURL, key.ref)
+		if cloneErr != nil {
+			// Can't clone — mark all skills as no-update.
+			for _, ps := range skills {
+				results = append(results, UpdateInfo{
+					Name:            ps.skill.Name,
+					Source:          ps.skill.Source,
+					InstalledCommit: ps.skill.Commit,
+					AvailableCommit: ps.skill.Commit,
+					HasUpdate:       false,
+				})
+			}
+			continue
+		}
+
+		for _, ps := range skills {
+			available, commitErr := GetSkillCommit(tmpDir, ps.subPath)
+			if commitErr != nil {
+				available = ps.skill.Commit
+			}
+			results = append(results, UpdateInfo{
+				Name:            ps.skill.Name,
+				Source:          ps.skill.Source,
+				InstalledCommit: ps.skill.Commit,
+				AvailableCommit: available,
+				HasUpdate:       ps.skill.Commit != available,
+			})
+		}
+
+		_ = os.RemoveAll(tmpDir)
+	}
+
+	return results, nil
+}

@@ -3,8 +3,16 @@
 # Create a project directory
 mkdir myproject
 
+# Create skill files and turn into a git repo
+mkdir skill-source
+cp skill-md skill-source/SKILL.md
+setup-git-repo skill-source test-skills agent-test
+
+# Set up config override to redirect test-owner/test-repo to local git repo
+setup-config-override test-owner/test-repo skill-source
+
 # Install with --agents=cursor (only create cursor symlink)
-exec duckrow install ./skill-source -d myproject --agents=cursor
+exec duckrow install test-owner/test-repo -d myproject --agents=cursor
 stdout 'Installed: agent-test'
 stdout 'Cursor'
 exists myproject/.agents/skills/agent-test/SKILL.md
@@ -20,7 +28,7 @@ dir-not-exists myproject/.agents/skills/agent-test
 dir-not-exists myproject/.cursor/skills/agent-test
 
 # Install with multiple --agents (cursor,claude-code)
-exec duckrow install ./skill-source -d myproject --agents=cursor,claude-code
+exec duckrow install test-owner/test-repo -d myproject --agents=cursor,claude-code
 stdout 'Installed: agent-test'
 exists myproject/.agents/skills/agent-test/SKILL.md
 exists myproject/.cursor/skills/agent-test
@@ -38,7 +46,7 @@ dir-not-exists myproject/.cursor/skills/agent-test
 dir-not-exists myproject/.claude/skills/agent-test
 
 # Install with default (no --agents flag, non-interactive = universal only)
-exec duckrow install ./skill-source -d myproject
+exec duckrow install test-owner/test-repo -d myproject
 stdout 'Installed: agent-test'
 exists myproject/.agents/skills/agent-test/SKILL.md
 dir-not-exists myproject/.cursor/skills
@@ -48,10 +56,10 @@ dir-not-exists myproject/.claude/skills
 exec duckrow uninstall agent-test -d myproject
 
 # Install with invalid agent name should fail
-! exec duckrow install ./skill-source -d myproject --agents=nonexistent
+! exec duckrow install test-owner/test-repo -d myproject --agents=nonexistent
 stderr 'unknown agent "nonexistent"'
 
--- skill-source/SKILL.md --
+-- skill-md --
 ---
 name: agent-test
 description: A skill for testing agent selection

@@ -42,14 +42,13 @@ type SkillEntry struct {
 	Name        string `json:"name"`
 	Description string `json:"description"`
 	Source      string `json:"source"`
-	Version     string `json:"version,omitempty"`
+	Commit      string `json:"commit,omitempty"`
 }
 
 // InstalledSkill represents a skill found on disk in a tracked folder.
 type InstalledSkill struct {
 	Name        string   `json:"name"`
 	Description string   `json:"description"`
-	Version     string   `json:"version,omitempty"`
 	Author      string   `json:"author,omitempty"`
 	Path        string   `json:"path"`   // Canonical path (.agents/skills/<name>)
 	Agents      []string `json:"agents"` // Agent names that have this skill (via symlink or copy)
@@ -85,23 +84,20 @@ type AgentDef struct {
 // ParsedSource represents a parsed skill source string.
 type ParsedSource struct {
 	Type      SourceType
-	Owner     string // GitHub owner (for github type)
-	Repo      string // GitHub repo name (for github type)
+	Host      string // Hostname (e.g. "github.com", "gitlab.com", "git.internal.co")
+	Owner     string // Repository owner
+	Repo      string // Repository name
 	CloneURL  string // Full git clone URL
 	Ref       string // Git ref (branch/tag) if specified
 	SubPath   string // Path within repo to skill(s)
 	SkillName string // Specific skill name filter (from @skill syntax)
-	LocalPath string // Resolved local path (for local type)
 }
 
 // SourceType indicates the kind of skill source.
 type SourceType string
 
 const (
-	SourceTypeGitHub SourceType = "github"
-	SourceTypeGitLab SourceType = "gitlab"
-	SourceTypeGit    SourceType = "git"
-	SourceTypeLocal  SourceType = "local"
+	SourceTypeGit SourceType = "git"
 )
 
 // FolderStatus aggregates information about a tracked folder.
@@ -110,4 +106,27 @@ type FolderStatus struct {
 	Skills []InstalledSkill
 	Agents []string // Detected agent names
 	Error  error    // Non-nil if scanning failed
+}
+
+// LockFile represents the duckrow.lock.json file that pins installed skills.
+type LockFile struct {
+	LockVersion int           `json:"lockVersion"`
+	Skills      []LockedSkill `json:"skills"`
+}
+
+// LockedSkill is a single pinned skill entry in the lock file.
+type LockedSkill struct {
+	Name   string `json:"name"`
+	Source string `json:"source"`
+	Commit string `json:"commit"`
+	Ref    string `json:"ref,omitempty"`
+}
+
+// UpdateInfo holds update status for a single locked skill.
+type UpdateInfo struct {
+	Name            string `json:"name"`
+	Source          string `json:"source"`
+	InstalledCommit string `json:"installed"`
+	AvailableCommit string `json:"available"`
+	HasUpdate       bool   `json:"hasUpdate"`
 }

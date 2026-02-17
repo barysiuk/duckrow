@@ -1,0 +1,57 @@
+# Test duckrow outdated shows available updates
+
+# Create skill repo
+mkdir skill-source
+cp skill-md skill-source/SKILL.md
+setup-git-repo skill-source test-skills test-skill
+
+# Set up config override
+setup-config-override test-owner/test-repo skill-source
+
+# Install the skill
+mkdir myproject
+exec duckrow install test-owner/test-repo -d myproject
+stdout 'Installed: test-skill'
+exists myproject/duckrow.lock.json
+
+# With no changes, outdated should show up-to-date
+exec duckrow outdated -d myproject
+stdout 'test-skill'
+stdout 'up to date'
+
+# Add a new commit to the source repo
+cp skill-md-v2 skill-source/SKILL.md
+exec git -C skill-source add .
+exec git -C skill-source -c user.name=Test -c user.email=test@test.com commit -m 'update skill'
+
+# Now outdated should show an available update
+exec duckrow outdated -d myproject
+stdout 'test-skill'
+! stdout 'up to date'
+stdout 'github.com/test-owner/test-repo'
+
+# JSON output should work too
+exec duckrow outdated -d myproject --json
+stdout '"hasUpdate": true'
+stdout '"name": "test-skill"'
+
+# Outdated without lock file should error
+! exec duckrow outdated -d skill-source
+stderr 'no duckrow.lock.json found'
+
+-- skill-md --
+---
+name: test-skill
+description: A skill for testing
+---
+# Test Skill
+
+This is a test skill.
+-- skill-md-v2 --
+---
+name: test-skill
+description: An updated skill for testing
+---
+# Test Skill v2
+
+This is an updated test skill.

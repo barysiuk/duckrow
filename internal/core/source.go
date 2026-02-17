@@ -3,8 +3,6 @@ package core
 import (
 	"fmt"
 	"net/url"
-	"os"
-	"path/filepath"
 	"regexp"
 	"strings"
 )
@@ -18,22 +16,25 @@ var ownerRepoPathPattern = regexp.MustCompile(`^([a-zA-Z0-9_.-]+)/([a-zA-Z0-9_.-
 // ParseSource parses a skill source string into a structured ParsedSource.
 //
 // Supported formats:
-//   - "owner/repo"                  → GitHub repo
-//   - "owner/repo@skill-name"       → GitHub repo, specific skill
-//   - "owner/repo/path/to/skill"    → GitHub repo with subpath
-//   - "./local/path" or "/abs/path" → Local directory
-//   - "git@host:owner/repo.git"     → SSH git URL
-//   - "https://github.com/owner/repo" → HTTPS git URL
-//   - "https://gitlab.com/owner/repo" → GitLab HTTPS URL
+//   - "owner/repo"                       → GitHub repo (shorthand)
+//   - "owner/repo@skill-name"            → GitHub repo, specific skill
+//   - "owner/repo/path/to/skill"         → GitHub repo with subpath
+//   - "git@host:owner/repo.git"          → SSH git URL
+//   - "https://github.com/owner/repo"    → HTTPS git URL
+//   - "https://gitlab.com/owner/repo"    → GitLab HTTPS URL
+//   - "https://git.example.com/owner/repo" → Any git host HTTPS URL
+//
+// Local paths (./foo, ../foo, /foo, ~/foo) are explicitly rejected.
 func ParseSource(input string) (*ParsedSource, error) {
 	input = strings.TrimSpace(input)
 	if input == "" {
 		return nil, fmt.Errorf("empty source")
 	}
 
-	// Local paths: starts with ./ ../ / or ~
-	if isLocalPath(input) {
-		return parseLocalSource(input)
+	// Local paths are not supported — reject explicitly.
+	if strings.HasPrefix(input, "./") || strings.HasPrefix(input, "../") ||
+		strings.HasPrefix(input, "/") || strings.HasPrefix(input, "~/") {
+		return nil, fmt.Errorf("local path installs are not supported: %q (use a git URL or owner/repo shorthand)", input)
 	}
 
 	// SSH git URL: git@host:owner/repo.git
@@ -53,7 +54,8 @@ func ParseSource(input string) (*ParsedSource, error) {
 		if len(parts) == 2 && ownerRepoPattern.MatchString(parts[0]) {
 			segments := strings.SplitN(parts[0], "/", 2)
 			return &ParsedSource{
-				Type:      SourceTypeGitHub,
+				Type:      SourceTypeGit,
+				Host:      "github.com",
 				Owner:     segments[0],
 				Repo:      segments[1],
 				CloneURL:  fmt.Sprintf("https://github.com/%s/%s.git", segments[0], segments[1]),
@@ -65,7 +67,8 @@ func ParseSource(input string) (*ParsedSource, error) {
 	// owner/repo/path/to/skill (3+ path segments)
 	if m := ownerRepoPathPattern.FindStringSubmatch(input); m != nil {
 		return &ParsedSource{
-			Type:     SourceTypeGitHub,
+			Type:     SourceTypeGit,
+			Host:     "github.com",
 			Owner:    m[1],
 			Repo:     m[2],
 			CloneURL: fmt.Sprintf("https://github.com/%s/%s.git", m[1], m[2]),
@@ -77,7 +80,8 @@ func ParseSource(input string) (*ParsedSource, error) {
 	if ownerRepoPattern.MatchString(input) {
 		segments := strings.SplitN(input, "/", 2)
 		return &ParsedSource{
-			Type:     SourceTypeGitHub,
+			Type:     SourceTypeGit,
+			Host:     "github.com",
 			Owner:    segments[0],
 			Repo:     segments[1],
 			CloneURL: fmt.Sprintf("https://github.com/%s/%s.git", segments[0], segments[1]),
@@ -87,37 +91,10 @@ func ParseSource(input string) (*ParsedSource, error) {
 	return nil, fmt.Errorf("unrecognized source format: %q", input)
 }
 
-func isLocalPath(input string) bool {
-	return strings.HasPrefix(input, "./") ||
-		strings.HasPrefix(input, "../") ||
-		strings.HasPrefix(input, "/") ||
-		strings.HasPrefix(input, "~/")
-}
-
-func parseLocalSource(input string) (*ParsedSource, error) {
-	expanded := expandPath(input)
-	absPath, err := filepath.Abs(expanded)
-	if err != nil {
-		return nil, fmt.Errorf("resolving local path: %w", err)
-	}
-
-	info, err := os.Stat(absPath)
-	if err != nil {
-		return nil, fmt.Errorf("local path not found: %s", absPath)
-	}
-	if !info.IsDir() {
-		return nil, fmt.Errorf("local path is not a directory: %s", absPath)
-	}
-
-	return &ParsedSource{
-		Type:      SourceTypeLocal,
-		LocalPath: absPath,
-	}, nil
-}
-
 func parseSSHSource(input string) (*ParsedSource, error) {
 	// git@github.com:owner/repo.git
 	// git@gitlab.com:owner/repo.git
+	// git@git.internal.co:owner/repo.git
 	parts := strings.SplitN(input, ":", 2)
 	if len(parts) != 2 {
 		return nil, fmt.Errorf("invalid SSH URL: %q", input)
@@ -127,15 +104,9 @@ func parseSSHSource(input string) (*ParsedSource, error) {
 	repoPath := strings.TrimSuffix(parts[1], ".git")
 	segments := strings.SplitN(repoPath, "/", 2)
 
-	sourceType := SourceTypeGit
-	if strings.Contains(host, "github.com") {
-		sourceType = SourceTypeGitHub
-	} else if strings.Contains(host, "gitlab.com") {
-		sourceType = SourceTypeGitLab
-	}
-
 	result := &ParsedSource{
-		Type:     sourceType,
+		Type:     SourceTypeGit,
+		Host:     host,
 		CloneURL: input,
 	}
 
@@ -149,7 +120,7 @@ func parseSSHSource(input string) (*ParsedSource, error) {
 
 // RepoKey returns a normalized "owner/repo" key for this source.
 // This key is used to look up clone URL overrides in the config.
-// Returns empty string if Owner or Repo are not set (e.g. local sources).
+// Returns empty string if Owner or Repo are not set.
 func (ps *ParsedSource) RepoKey() string {
 	if ps.Owner == "" || ps.Repo == "" {
 		return ""
@@ -180,18 +151,12 @@ func parseHTTPSource(input string) (*ParsedSource, error) {
 		return nil, fmt.Errorf("invalid URL: %w", err)
 	}
 
-	sourceType := SourceTypeGit
-	if strings.Contains(u.Host, "github.com") {
-		sourceType = SourceTypeGitHub
-	} else if strings.Contains(u.Host, "gitlab.com") {
-		sourceType = SourceTypeGitLab
-	}
-
 	// Parse path segments: /owner/repo[/tree/branch/subpath]
 	pathParts := strings.Split(strings.Trim(u.Path, "/"), "/")
 
 	result := &ParsedSource{
-		Type: sourceType,
+		Type: SourceTypeGit,
+		Host: u.Host,
 	}
 
 	if len(pathParts) >= 2 {

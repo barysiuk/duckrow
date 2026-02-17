@@ -78,10 +78,6 @@ var (
 	helpStyle = lipgloss.NewStyle().
 			Foreground(colorMuted)
 
-	// Skill version (used in registry skill items).
-	skillVersionStyle = lipgloss.NewStyle().
-				Foreground(colorMuted)
-
 	// Viewport overlay (SKILL.md preview).
 	viewportTitleStyle = lipgloss.NewStyle().
 				Bold(true).

@@ -1,0 +1,62 @@
+# Test that install creates/updates duckrow.lock.json with correct fields
+
+# Create a project directory
+mkdir myproject
+
+# Create skill files and turn into a git repo
+mkdir skill-source
+cp skill-md skill-source/SKILL.md
+setup-git-repo skill-source test-skills test-skill
+
+# Set up config override to redirect test-owner/test-repo to local git repo
+setup-config-override test-owner/test-repo skill-source
+
+# Install from git source (redirected via override)
+exec duckrow install test-owner/test-repo -d myproject
+stdout 'Installed: test-skill'
+! stderr .
+
+# Verify lock file was created
+exists myproject/duckrow.lock.json
+
+# Verify lock file has correct structure
+file-contains myproject/duckrow.lock.json '"lockVersion": 1'
+file-contains myproject/duckrow.lock.json '"name": "test-skill"'
+file-contains myproject/duckrow.lock.json '"source": "github.com/test-owner/test-repo"'
+file-contains myproject/duckrow.lock.json '"commit":'
+
+# Install a second skill and verify lock file is updated (not overwritten)
+mkdir skill-source-b
+cp skill-md-b skill-source-b/SKILL.md
+setup-git-repo skill-source-b test-skills-b second-skill
+
+setup-registry-config test-owner/test-repo-b skill-source-b
+
+exec duckrow install test-owner/test-repo-b -d myproject
+stdout 'Installed: second-skill'
+
+# Lock file should contain both skills
+file-contains myproject/duckrow.lock.json '"name": "test-skill"'
+file-contains myproject/duckrow.lock.json '"name": "second-skill"'
+file-contains myproject/duckrow.lock.json '"source": "github.com/test-owner/test-repo-b"'
+
+-- skill-md --
+---
+name: test-skill
+description: A skill for testing
+metadata:
+  author: tester
+---
+# Test Skill
+
+This is a test skill.
+-- skill-md-b --
+---
+name: second-skill
+description: A second skill for testing
+metadata:
+  author: tester
+---
+# Second Skill
+
+This is a second skill.

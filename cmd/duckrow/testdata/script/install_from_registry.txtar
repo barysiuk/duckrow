@@ -51,7 +51,7 @@ stderr '--skill'
 stderr '--registry requires --skill'
 
 # Test: --registry with a source argument shows error
-! exec duckrow install ./some-path --registry my-org --skill foo
+! exec duckrow install some-owner/some-repo --registry my-org --skill foo
 stderr '--registry can only be used with --skill'
 
 -- manifest --

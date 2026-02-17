@@ -119,9 +119,6 @@ func (m folderModel) openPreview(app *App) tea.Cmd {
 	}
 
 	title := si.skill.Name
-	if si.skill.Version != "" {
-		title += " v" + si.skill.Version
-	}
 
 	return func() tea.Msg {
 		return openPreviewMsg{
@@ -233,6 +230,8 @@ func (m folderModel) removeSelectedSkill(app *App) tea.Cmd {
 		if err != nil {
 			return errMsg{err: fmt.Errorf("removing %s: %w", skill.Name, err)}
 		}
+		// Remove lock entry (TUI always updates lock file).
+		_ = core.RemoveLockEntry(folderPath, skillDirName)
 		// Reload data to refresh the view after removal.
 		return app.loadDataCmd()
 	}

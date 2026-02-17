@@ -100,11 +100,7 @@ var registryListCmd = &cobra.Command{
 
 			if verbose {
 				for _, s := range manifest.Skills {
-					version := ""
-					if s.Version != "" {
-						version = " v" + s.Version
-					}
-					fmt.Fprintf(os.Stdout, "    - %s%s: %s\n", s.Name, version, s.Description)
+					fmt.Fprintf(os.Stdout, "    - %s: %s\n", s.Name, s.Description)
 				}
 			}
 		}

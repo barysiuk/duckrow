@@ -431,17 +431,45 @@ func (m installModel) startInstall(app *App) (installModel, tea.Cmd) {
 			source.ApplyCloneURLOverride(cfg.Settings.CloneURLOverrides)
 		}
 
+		// Pass registry commit through if set.
+		var registryCommit string
+		if skill.Skill.Commit != "" {
+			registryCommit = skill.Skill.Commit
+		}
+
 		installer := core.NewInstaller(app.agents)
-		_, err = installer.InstallFromSource(source, core.InstallOptions{
+		result, err := installer.InstallFromSource(source, core.InstallOptions{
 			TargetDir:    folder,
 			IsInternal:   true, // Registry skills always disable telemetry
 			TargetAgents: targetAgents,
+			Commit:       registryCommit,
 		})
+
+		if err != nil {
+			return installDoneMsg{
+				skillName: skill.Skill.Name,
+				folder:    folder,
+				err:       err,
+			}
+		}
+
+		// Write lock file entries for installed skills (TUI always locks).
+		for _, s := range result.InstalledSkills {
+			if s.Commit != "" {
+				entry := core.LockedSkill{
+					Name:   s.Name,
+					Source: s.Source,
+					Commit: s.Commit,
+					Ref:    s.Ref,
+				}
+				_ = core.AddOrUpdateLockEntry(folder, entry)
+			}
+		}
 
 		return installDoneMsg{
 			skillName: skill.Skill.Name,
 			folder:    folder,
-			err:       err,
+			err:       nil,
 		}
 	}
 
