@@ -1,0 +1,21 @@
+# Test duckrow update without args errors with usage hint
+
+# Create a minimal project with a lock file
+mkdir myproject
+cp lock-json myproject/duckrow.lock.json
+
+# Update without args should error
+! exec duckrow update -d myproject
+stderr 'specify a skill name or use --all'
+
+-- lock-json --
+{
+  "lockVersion": 1,
+  "skills": [
+    {
+      "name": "test-skill",
+      "source": "github.com/test-owner/test-repo",
+      "commit": "abc123"
+    }
+  ]
+}

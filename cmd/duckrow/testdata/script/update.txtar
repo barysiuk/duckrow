@@ -1,0 +1,51 @@
+# Test duckrow update applies updates and refreshes lock file
+
+# Create skill repo
+mkdir skill-source
+cp skill-md skill-source/SKILL.md
+setup-git-repo skill-source test-skills test-skill
+
+# Set up config override
+setup-config-override test-owner/test-repo skill-source
+
+# Install the skill
+mkdir myproject
+exec duckrow install test-owner/test-repo -d myproject
+stdout 'Installed: test-skill'
+
+# Verify original content
+file-contains myproject/.agents/skills/test-skill/SKILL.md 'This is a test skill.'
+
+# Add a new commit to the source repo with updated content
+cp skill-md-v2 skill-source/SKILL.md
+exec git -C skill-source add .
+exec git -C skill-source -c user.name=Test -c user.email=test@test.com commit -m 'update skill'
+
+# Update the skill
+exec duckrow update test-skill -d myproject
+stdout 'Updated: test-skill'
+stdout 'Update: 1 updated, 0 up-to-date, 0 errors'
+
+# Verify the content was updated
+file-contains myproject/.agents/skills/test-skill/SKILL.md 'This is an updated test skill.'
+
+# Running update again should be a no-op (already up to date)
+exec duckrow update test-skill -d myproject
+stdout 'Update: 0 updated, 1 up-to-date, 0 errors'
+
+-- skill-md --
+---
+name: test-skill
+description: A skill for testing
+---
+# Test Skill
+
+This is a test skill.
+-- skill-md-v2 --
+---
+name: test-skill
+description: An updated skill for testing
+---
+# Test Skill v2
+
+This is an updated test skill.

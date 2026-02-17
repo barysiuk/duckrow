@@ -12,7 +12,7 @@ setup-git-repo my-registry my-org skill-a skill-b
 exec duckrow registry add my-registry
 stdout 'Added registry: my-org'
 stdout '2 skills'
-! stderr .
+stderr 'non-canonical source'
 
 # Phase 4: List registries
 exec duckrow registry list

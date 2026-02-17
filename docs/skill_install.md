@@ -38,7 +38,6 @@ duckrow accepts several source formats for `duckrow install`:
 | Subpath syntax | `acme/skills/path/to/skill` | Clones repo, searches only within subpath |
 | HTTPS URL | `https://github.com/acme/skills.git` | Clones from full URL |
 | SSH URL | `git@github.com:acme/skills.git` | Clones via SSH |
-| Local path | `./my-skills` or `/absolute/path` | Uses directory directly, no clone |
 | Registry skill | `--skill go-review` (no source) | Looks up skill in configured registries |
 
 GitHub and GitLab hosts are auto-detected from URLs. Other hosts fall back to generic git.
@@ -55,7 +54,7 @@ This sets `Ref=develop` and `SubPath=backend/go-review`, cloning the `develop` b
 
 ## How Skill Discovery Works
 
-After obtaining the source directory (either via git clone or a local path), duckrow walks the directory tree recursively looking for `SKILL.md` files.
+After cloning the source repository, duckrow walks the directory tree recursively looking for `SKILL.md` files.
 
 ### Directory Traversal Rules
 
@@ -114,9 +113,9 @@ my-repo/
 
 | Source type | Action |
 |-------------|--------|
-| Local path | Used directly, no copy or clone |
 | Git repo (GitHub/GitLab/SSH/HTTPS) | Shallow clone (`--depth 1`) to temp directory |
 | Registry (`--skill` without source) | Looks up `Source` field in registry manifest, then clones that repo |
+| Lock file commit | Uses `git init` + `git fetch --depth 1 origin <commit>` to clone at exact commit |
 
 Git clones use `GIT_TERMINAL_PROMPT=0` to prevent interactive auth prompts and have a 60-second timeout.
 
@@ -235,14 +234,14 @@ Registries are git repos containing a `duckrow.json` manifest that catalogs avai
     {
       "name": "go-review",
       "description": "Reviews Go code for best practices",
-      "source": "acme/go-skills",
-      "version": "1.0.0"
+      "source": "github.com/acme/go-skills/skills/go-review",
+      "commit": "a1b2c3d4e5f6789012345678901234567890abcd"
     }
   ]
 }
 ```
 
-The `source` field is any valid source string (GitHub shorthand, URL, etc.) that duckrow can parse and clone.
+The `source` field should use canonical format (`host/owner/repo/path`). GitHub shorthand and URLs are also accepted but canonical format is preferred for multi-host support and lock file matching. The `commit` field is optional — when present, it pins the skill to that exact git commit.
 
 ### Workflow
 
@@ -292,4 +291,10 @@ duckrow uninstall go-review
 duckrow uninstall-all
 ```
 
-Both commands accept `--dir` to target a specific directory.
+Both commands accept `--dir` to target a specific directory and `--no-lock` to skip updating the lock file.
+
+## Lock File
+
+Every install records the exact git commit in `duckrow.lock.json`. This enables reproducible installs via `duckrow sync`, update detection via `duckrow outdated`, and controlled updates via `duckrow update`.
+
+See [lock-file.md](lock-file.md) for the full reference.

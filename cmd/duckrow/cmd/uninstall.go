@@ -19,6 +19,8 @@ var uninstallCmd = &cobra.Command{
 			return err
 		}
 
+		noLock, _ := cmd.Flags().GetBool("no-lock")
+
 		targetDir, _ := cmd.Flags().GetString("dir")
 		if targetDir == "" {
 			targetDir, err = os.Getwd()
@@ -37,6 +39,14 @@ var uninstallCmd = &cobra.Command{
 		if len(result.RemovedSymlinks) > 0 {
 			fmt.Fprintf(os.Stdout, "  Cleaned up agent links: %s\n", joinStrings(result.RemovedSymlinks))
 		}
+
+		// Remove lock entry unless --no-lock is set.
+		if !noLock {
+			if lockErr := core.RemoveLockEntry(targetDir, args[0]); lockErr != nil {
+				fmt.Fprintf(os.Stderr, "Warning: failed to update lock file: %v\n", lockErr)
+			}
+		}
+
 		return nil
 	},
 }
@@ -51,6 +61,8 @@ var uninstallAllCmd = &cobra.Command{
 		if err != nil {
 			return err
 		}
+
+		noLock, _ := cmd.Flags().GetBool("no-lock")
 
 		targetDir, _ := cmd.Flags().GetString("dir")
 		if targetDir == "" {
@@ -75,13 +87,27 @@ var uninstallAllCmd = &cobra.Command{
 			fmt.Fprintf(os.Stdout, "Removed: %s\n", r.Name)
 		}
 		fmt.Fprintf(os.Stdout, "\nRemoved %d skill(s).\n", len(results))
+
+		// Write empty lock file unless --no-lock is set.
+		if !noLock {
+			emptyLock := &core.LockFile{
+				LockVersion: 1,
+				Skills:      []core.LockedSkill{},
+			}
+			if lockErr := core.WriteLockFile(targetDir, emptyLock); lockErr != nil {
+				fmt.Fprintf(os.Stderr, "Warning: failed to update lock file: %v\n", lockErr)
+			}
+		}
+
 		return nil
 	},
 }
 
 func init() {
 	uninstallCmd.Flags().StringP("dir", "d", "", "Target directory (default: current directory)")
+	uninstallCmd.Flags().Bool("no-lock", false, "Remove skill without updating the lock file")
 	uninstallAllCmd.Flags().StringP("dir", "d", "", "Target directory (default: current directory)")
+	uninstallAllCmd.Flags().Bool("no-lock", false, "Remove skills without updating the lock file")
 	rootCmd.AddCommand(uninstallCmd)
 	rootCmd.AddCommand(uninstallAllCmd)
 }

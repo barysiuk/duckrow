@@ -1,0 +1,33 @@
+# Test that lock file captures ref from /tree/<ref>/ URLs
+
+# Create a project directory
+mkdir myproject
+
+# Create skill files and turn into a git repo with a branch
+mkdir skill-source
+cp skill-md skill-source/SKILL.md
+setup-git-repo skill-source test-skills test-skill
+
+# Set up config override — the clone URL override uses the local path
+# but the source URL uses a /tree/<ref>/ pattern to set the ref
+setup-config-override test-owner/test-repo skill-source
+
+# Install using a URL with /tree/main/ to set the ref
+# The clone URL override will redirect this to the local repo
+exec duckrow install https://github.com/test-owner/test-repo/tree/main -d myproject
+stdout 'Installed: test-skill'
+
+# Verify lock file was created with ref field
+exists myproject/duckrow.lock.json
+file-contains myproject/duckrow.lock.json '"ref": "main"'
+file-contains myproject/duckrow.lock.json '"source": "github.com/test-owner/test-repo"'
+file-contains myproject/duckrow.lock.json '"commit":'
+
+-- skill-md --
+---
+name: test-skill
+description: A skill for testing
+---
+# Test Skill
+
+This is a test skill.

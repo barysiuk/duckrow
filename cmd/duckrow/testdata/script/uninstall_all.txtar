@@ -1,9 +1,22 @@
 # Test uninstalling all skills
 
+# Create two skill repos as git repos
+mkdir source-a
+cp alpha-md source-a/SKILL.md
+setup-git-repo source-a test-skills-a alpha
+
+mkdir source-b
+cp beta-md source-b/SKILL.md
+setup-git-repo source-b test-skills-b beta
+
+# Set up config overrides for both repos
+setup-config-override test-owner/source-a source-a
+setup-registry-config test-owner/source-b source-b
+
 # Setup: create project and install multiple skills
 mkdir myproject
-exec duckrow install ./source-a -d myproject
-exec duckrow install ./source-b -d myproject
+exec duckrow install test-owner/source-a -d myproject
+exec duckrow install test-owner/source-b -d myproject
 exists myproject/.agents/skills/alpha/SKILL.md
 exists myproject/.agents/skills/beta/SKILL.md
 
@@ -21,13 +34,13 @@ dir-not-exists myproject/.agents/skills/beta
 exec duckrow uninstall-all -d myproject
 stdout 'No skills installed'
 
--- source-a/SKILL.md --
+-- alpha-md --
 ---
 name: alpha
 description: Alpha skill
 ---
 # Alpha
--- source-b/SKILL.md --
+-- beta-md --
 ---
 name: beta
 description: Beta skill

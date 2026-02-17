@@ -316,6 +316,15 @@ func readManifest(dir string) (*RegistryManifest, error) {
 		return nil, fmt.Errorf("parsing %s: %w", registryManifestFile, err)
 	}
 
+	// Validate source format for each skill entry.
+	for _, skill := range manifest.Skills {
+		if skill.Source != "" && !isCanonicalSource(skill.Source) {
+			manifest.Warnings = append(manifest.Warnings,
+				fmt.Sprintf("skill %q has non-canonical source %q (expected host/owner/repo/path format)",
+					skill.Name, skill.Source))
+		}
+	}
+
 	return &manifest, nil
 }
 

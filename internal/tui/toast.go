@@ -14,6 +14,7 @@ type toastType int
 const (
 	toastSuccess toastType = iota
 	toastError
+	toastWarning
 	toastLoading // Shows a spinner; persists until dismissed programmatically.
 )
 
@@ -69,7 +70,7 @@ func (m toastModel) show(message string, kind toastType) (toastModel, tea.Cmd) {
 	case toastLoading:
 		// Start the spinner; no auto-dismiss.
 		cmds = append(cmds, m.spinner.Tick)
-	case toastSuccess, toastError:
+	case toastSuccess, toastError, toastWarning:
 		// Schedule auto-dismiss.
 		id := m.id
 		cmds = append(cmds, tea.Tick(toastAutoDismiss, func(_ time.Time) tea.Msg {
@@ -122,6 +123,8 @@ func (m toastModel) view() string {
 		style = installedStyle
 	case toastError:
 		style = errorStyle
+	case toastWarning:
+		style = warningStyle
 	case toastLoading:
 		return " " + m.spinner.View() + mutedStyle.Render(m.message)
 	}

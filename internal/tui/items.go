@@ -22,11 +22,7 @@ type skillItem struct {
 }
 
 func (i skillItem) Title() string {
-	t := i.skill.Name
-	if i.skill.Version != "" {
-		t += " v" + i.skill.Version
-	}
-	return t
+	return i.skill.Name
 }
 
 func (i skillItem) Description() string {
@@ -92,10 +88,6 @@ func (d registrySkillDelegate) Render(w io.Writer, m list.Model, index int, item
 			parts = append(parts, selectedItemStyle.Render(name))
 		} else {
 			parts = append(parts, normalItemStyle.Render(name))
-		}
-
-		if it.info.Skill.Version != "" {
-			parts = append(parts, skillVersionStyle.Render("v"+it.info.Skill.Version))
 		}
 
 		if it.info.Skill.Description != "" {

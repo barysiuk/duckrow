@@ -78,7 +78,6 @@ func TestReadManifest(t *testing.T) {
 					Name:        "skill-a",
 					Description: "Skill A",
 					Source:      "owner/repo",
-					Version:     "1.0.0",
 				},
 				{
 					Name:        "skill-b",
@@ -105,9 +104,6 @@ func TestReadManifest(t *testing.T) {
 		}
 		if manifest.Skills[0].Name != "skill-a" {
 			t.Errorf("Skills[0].Name = %q, want %q", manifest.Skills[0].Name, "skill-a")
-		}
-		if manifest.Skills[0].Version != "1.0.0" {
-			t.Errorf("Skills[0].Version = %q, want %q", manifest.Skills[0].Version, "1.0.0")
 		}
 		if manifest.Skills[1].Source != "owner/other-repo" {
 			t.Errorf("Skills[1].Source = %q, want %q", manifest.Skills[1].Source, "owner/other-repo")
@@ -729,7 +725,6 @@ func setupTestGitRepo(t *testing.T, dir string) {
 				Name:        "test-skill",
 				Description: "A test skill",
 				Source:      "test-org/skills",
-				Version:     "1.0.0",
 			},
 		},
 	}

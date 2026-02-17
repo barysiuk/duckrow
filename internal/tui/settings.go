@@ -203,7 +203,7 @@ func (m settingsModel) handleInputSubmit(value string, app *App) tea.Cmd {
 			for _, r := range cfg.Registries {
 				if r.Repo == value {
 					// Same repo already registered — just report success.
-					return registryAddDoneMsg{url: value, name: manifest.Name}
+					return registryAddDoneMsg{url: value, name: manifest.Name, warnings: manifest.Warnings}
 				}
 			}
 			cfg.Registries = append(cfg.Registries, core.Registry{
@@ -213,7 +213,7 @@ func (m settingsModel) handleInputSubmit(value string, app *App) tea.Cmd {
 			if err := app.config.Save(cfg); err != nil {
 				return registryAddDoneMsg{url: value, err: err}
 			}
-			return registryAddDoneMsg{url: value, name: manifest.Name}
+			return registryAddDoneMsg{url: value, name: manifest.Name, warnings: manifest.Warnings}
 		}
 	}
 	return nil
@@ -277,13 +277,13 @@ func (m settingsModel) refreshSelectedRegistry(app *App) tea.Cmd {
 	reg := m.cfg.Registries[m.cursor]
 	return func() tea.Msg {
 		regMgr := core.NewRegistryManager(app.config.RegistriesDir())
-		_, err := regMgr.Refresh(reg.Repo)
+		manifest, err := regMgr.Refresh(reg.Repo)
 		if err != nil {
 			// Use registryAddDoneMsg so app.go can detect clone errors
 			// from gitPull and show the clone error overlay.
 			return registryAddDoneMsg{url: reg.Repo, err: fmt.Errorf("refreshing %s: %w", reg.Name, err)}
 		}
-		return registryAddDoneMsg{url: reg.Repo, name: reg.Name}
+		return registryAddDoneMsg{url: reg.Repo, name: reg.Name, warnings: manifest.Warnings}
 	}
 }
 

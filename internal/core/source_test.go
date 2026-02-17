@@ -1,8 +1,7 @@
 package core
 
 import (
-	"os"
-	"path/filepath"
+	"strings"
 	"testing"
 )
 
@@ -11,8 +10,11 @@ func TestParseSource_OwnerRepo(t *testing.T) {
 	if err != nil {
 		t.Fatalf("ParseSource() error: %v", err)
 	}
-	if src.Type != SourceTypeGitHub {
-		t.Errorf("Type = %q, want %q", src.Type, SourceTypeGitHub)
+	if src.Type != SourceTypeGit {
+		t.Errorf("Type = %q, want %q", src.Type, SourceTypeGit)
+	}
+	if src.Host != "github.com" {
+		t.Errorf("Host = %q, want %q", src.Host, "github.com")
 	}
 	if src.Owner != "vercel-labs" {
 		t.Errorf("Owner = %q, want %q", src.Owner, "vercel-labs")
@@ -33,8 +35,11 @@ func TestParseSource_OwnerRepoAtSkill(t *testing.T) {
 	if err != nil {
 		t.Fatalf("ParseSource() error: %v", err)
 	}
-	if src.Type != SourceTypeGitHub {
-		t.Errorf("Type = %q, want %q", src.Type, SourceTypeGitHub)
+	if src.Type != SourceTypeGit {
+		t.Errorf("Type = %q, want %q", src.Type, SourceTypeGit)
+	}
+	if src.Host != "github.com" {
+		t.Errorf("Host = %q, want %q", src.Host, "github.com")
 	}
 	if src.Owner != "vercel-labs" {
 		t.Errorf("Owner = %q, want %q", src.Owner, "vercel-labs")
@@ -52,8 +57,11 @@ func TestParseSource_OwnerRepoSubpath(t *testing.T) {
 	if err != nil {
 		t.Fatalf("ParseSource() error: %v", err)
 	}
-	if src.Type != SourceTypeGitHub {
-		t.Errorf("Type = %q, want %q", src.Type, SourceTypeGitHub)
+	if src.Type != SourceTypeGit {
+		t.Errorf("Type = %q, want %q", src.Type, SourceTypeGit)
+	}
+	if src.Host != "github.com" {
+		t.Errorf("Host = %q, want %q", src.Host, "github.com")
 	}
 	if src.Owner != "pandadoc" {
 		t.Errorf("Owner = %q, want %q", src.Owner, "pandadoc")
@@ -71,8 +79,11 @@ func TestParseSource_SSHUrl(t *testing.T) {
 	if err != nil {
 		t.Fatalf("ParseSource() error: %v", err)
 	}
-	if src.Type != SourceTypeGitHub {
-		t.Errorf("Type = %q, want %q", src.Type, SourceTypeGitHub)
+	if src.Type != SourceTypeGit {
+		t.Errorf("Type = %q, want %q", src.Type, SourceTypeGit)
+	}
+	if src.Host != "github.com" {
+		t.Errorf("Host = %q, want %q", src.Host, "github.com")
 	}
 	if src.Owner != "pandadoc" {
 		t.Errorf("Owner = %q, want %q", src.Owner, "pandadoc")
@@ -90,8 +101,30 @@ func TestParseSource_SSHGitLab(t *testing.T) {
 	if err != nil {
 		t.Fatalf("ParseSource() error: %v", err)
 	}
-	if src.Type != SourceTypeGitLab {
-		t.Errorf("Type = %q, want %q", src.Type, SourceTypeGitLab)
+	if src.Type != SourceTypeGit {
+		t.Errorf("Type = %q, want %q", src.Type, SourceTypeGit)
+	}
+	if src.Host != "gitlab.com" {
+		t.Errorf("Host = %q, want %q", src.Host, "gitlab.com")
+	}
+}
+
+func TestParseSource_SSHSelfHosted(t *testing.T) {
+	src, err := ParseSource("git@git.internal.co:team/repo.git")
+	if err != nil {
+		t.Fatalf("ParseSource() error: %v", err)
+	}
+	if src.Type != SourceTypeGit {
+		t.Errorf("Type = %q, want %q", src.Type, SourceTypeGit)
+	}
+	if src.Host != "git.internal.co" {
+		t.Errorf("Host = %q, want %q", src.Host, "git.internal.co")
+	}
+	if src.Owner != "team" {
+		t.Errorf("Owner = %q, want %q", src.Owner, "team")
+	}
+	if src.Repo != "repo" {
+		t.Errorf("Repo = %q, want %q", src.Repo, "repo")
 	}
 }
 
@@ -100,8 +133,11 @@ func TestParseSource_HTTPSGitHub(t *testing.T) {
 	if err != nil {
 		t.Fatalf("ParseSource() error: %v", err)
 	}
-	if src.Type != SourceTypeGitHub {
-		t.Errorf("Type = %q, want %q", src.Type, SourceTypeGitHub)
+	if src.Type != SourceTypeGit {
+		t.Errorf("Type = %q, want %q", src.Type, SourceTypeGit)
+	}
+	if src.Host != "github.com" {
+		t.Errorf("Host = %q, want %q", src.Host, "github.com")
 	}
 	if src.Owner != "vercel-labs" {
 		t.Errorf("Owner = %q, want %q", src.Owner, "vercel-labs")
@@ -111,13 +147,48 @@ func TestParseSource_HTTPSGitHub(t *testing.T) {
 	}
 }
 
+func TestParseSource_HTTPSGitLab(t *testing.T) {
+	src, err := ParseSource("https://gitlab.com/org/repo")
+	if err != nil {
+		t.Fatalf("ParseSource() error: %v", err)
+	}
+	if src.Type != SourceTypeGit {
+		t.Errorf("Type = %q, want %q", src.Type, SourceTypeGit)
+	}
+	if src.Host != "gitlab.com" {
+		t.Errorf("Host = %q, want %q", src.Host, "gitlab.com")
+	}
+}
+
+func TestParseSource_HTTPSSelfHosted(t *testing.T) {
+	src, err := ParseSource("https://git.internal.co/team/repo")
+	if err != nil {
+		t.Fatalf("ParseSource() error: %v", err)
+	}
+	if src.Type != SourceTypeGit {
+		t.Errorf("Type = %q, want %q", src.Type, SourceTypeGit)
+	}
+	if src.Host != "git.internal.co" {
+		t.Errorf("Host = %q, want %q", src.Host, "git.internal.co")
+	}
+	if src.Owner != "team" {
+		t.Errorf("Owner = %q, want %q", src.Owner, "team")
+	}
+	if src.Repo != "repo" {
+		t.Errorf("Repo = %q, want %q", src.Repo, "repo")
+	}
+}
+
 func TestParseSource_HTTPSWithTree(t *testing.T) {
 	src, err := ParseSource("https://github.com/owner/repo/tree/main/skills/my-skill")
 	if err != nil {
 		t.Fatalf("ParseSource() error: %v", err)
 	}
-	if src.Type != SourceTypeGitHub {
-		t.Errorf("Type = %q, want %q", src.Type, SourceTypeGitHub)
+	if src.Type != SourceTypeGit {
+		t.Errorf("Type = %q, want %q", src.Type, SourceTypeGit)
+	}
+	if src.Host != "github.com" {
+		t.Errorf("Host = %q, want %q", src.Host, "github.com")
 	}
 	if src.Ref != "main" {
 		t.Errorf("Ref = %q, want %q", src.Ref, "main")
@@ -127,47 +198,135 @@ func TestParseSource_HTTPSWithTree(t *testing.T) {
 	}
 }
 
-func TestParseSource_LocalPath(t *testing.T) {
-	dir := t.TempDir()
-
-	src, err := ParseSource(dir)
-	if err != nil {
-		t.Fatalf("ParseSource() error: %v", err)
+func TestParseSource_LocalPathRejected(t *testing.T) {
+	cases := []string{
+		"./foo",
+		"../bar",
+		"/absolute/path",
+		"~/home-path",
 	}
-	if src.Type != SourceTypeLocal {
-		t.Errorf("Type = %q, want %q", src.Type, SourceTypeLocal)
-	}
-	if src.LocalPath != dir {
-		t.Errorf("LocalPath = %q, want %q", src.LocalPath, dir)
+	for _, input := range cases {
+		t.Run(input, func(t *testing.T) {
+			_, err := ParseSource(input)
+			if err == nil {
+				t.Fatalf("expected error for local path %q, got nil", input)
+			}
+			if !strings.Contains(err.Error(), "local path installs are not supported") {
+				t.Errorf("error = %q, want it to contain %q", err.Error(), "local path installs are not supported")
+			}
+		})
 	}
 }
 
-func TestParseSource_LocalRelativePath(t *testing.T) {
-	// Create a temp subdirectory relative to cwd
-	dir := t.TempDir()
-	// Resolve symlinks (macOS /tmp -> /private/var)
-	dir, _ = filepath.EvalSymlinks(dir)
-	subDir := filepath.Join(dir, "skills")
-	if err := os.MkdirAll(subDir, 0o755); err != nil {
-		t.Fatalf("MkdirAll() error: %v", err)
-	}
-
-	// Change to parent dir
-	oldWd, _ := os.Getwd()
-	if err := os.Chdir(dir); err != nil {
-		t.Fatalf("Chdir() error: %v", err)
-	}
-	defer func() { _ = os.Chdir(oldWd) }()
-
-	src, err := ParseSource("./skills")
+func TestParseSource_CanonicalGitHub(t *testing.T) {
+	src, err := ParseSource("github.com/pandadoc-studio/skills/skills/communication/slack-digest")
 	if err != nil {
 		t.Fatalf("ParseSource() error: %v", err)
 	}
-	if src.Type != SourceTypeLocal {
-		t.Errorf("Type = %q, want %q", src.Type, SourceTypeLocal)
+	if src.Type != SourceTypeGit {
+		t.Errorf("Type = %q, want %q", src.Type, SourceTypeGit)
 	}
-	if src.LocalPath != subDir {
-		t.Errorf("LocalPath = %q, want %q", src.LocalPath, subDir)
+	if src.Host != "github.com" {
+		t.Errorf("Host = %q, want %q", src.Host, "github.com")
+	}
+	if src.Owner != "pandadoc-studio" {
+		t.Errorf("Owner = %q, want %q", src.Owner, "pandadoc-studio")
+	}
+	if src.Repo != "skills" {
+		t.Errorf("Repo = %q, want %q", src.Repo, "skills")
+	}
+	if src.SubPath != "skills/communication/slack-digest" {
+		t.Errorf("SubPath = %q, want %q", src.SubPath, "skills/communication/slack-digest")
+	}
+	if src.CloneURL != "https://github.com/pandadoc-studio/skills.git" {
+		t.Errorf("CloneURL = %q, want %q", src.CloneURL, "https://github.com/pandadoc-studio/skills.git")
+	}
+}
+
+func TestParseSource_CanonicalGitLab(t *testing.T) {
+	src, err := ParseSource("gitlab.com/org/repo/path/to/skill")
+	if err != nil {
+		t.Fatalf("ParseSource() error: %v", err)
+	}
+	if src.Host != "gitlab.com" {
+		t.Errorf("Host = %q, want %q", src.Host, "gitlab.com")
+	}
+	if src.Owner != "org" {
+		t.Errorf("Owner = %q, want %q", src.Owner, "org")
+	}
+	if src.Repo != "repo" {
+		t.Errorf("Repo = %q, want %q", src.Repo, "repo")
+	}
+	if src.SubPath != "path/to/skill" {
+		t.Errorf("SubPath = %q, want %q", src.SubPath, "path/to/skill")
+	}
+	if src.CloneURL != "https://gitlab.com/org/repo.git" {
+		t.Errorf("CloneURL = %q, want %q", src.CloneURL, "https://gitlab.com/org/repo.git")
+	}
+}
+
+func TestParseSource_CanonicalSelfHosted(t *testing.T) {
+	src, err := ParseSource("git.internal.co/team/repo/my-skill")
+	if err != nil {
+		t.Fatalf("ParseSource() error: %v", err)
+	}
+	if src.Host != "git.internal.co" {
+		t.Errorf("Host = %q, want %q", src.Host, "git.internal.co")
+	}
+	if src.Owner != "team" {
+		t.Errorf("Owner = %q, want %q", src.Owner, "team")
+	}
+	if src.Repo != "repo" {
+		t.Errorf("Repo = %q, want %q", src.Repo, "repo")
+	}
+	if src.SubPath != "my-skill" {
+		t.Errorf("SubPath = %q, want %q", src.SubPath, "my-skill")
+	}
+	if src.CloneURL != "https://git.internal.co/team/repo.git" {
+		t.Errorf("CloneURL = %q, want %q", src.CloneURL, "https://git.internal.co/team/repo.git")
+	}
+}
+
+func TestParseSource_CanonicalNoSubPath(t *testing.T) {
+	src, err := ParseSource("github.com/owner/repo/skill")
+	if err != nil {
+		t.Fatalf("ParseSource() error: %v", err)
+	}
+	if src.Host != "github.com" {
+		t.Errorf("Host = %q, want %q", src.Host, "github.com")
+	}
+	if src.Owner != "owner" {
+		t.Errorf("Owner = %q, want %q", src.Owner, "owner")
+	}
+	if src.Repo != "repo" {
+		t.Errorf("Repo = %q, want %q", src.Repo, "repo")
+	}
+	if src.SubPath != "skill" {
+		t.Errorf("SubPath = %q, want %q", src.SubPath, "skill")
+	}
+}
+
+func TestParseSource_CanonicalRepoKey(t *testing.T) {
+	// Verify that canonical sources produce correct RepoKey (owner/repo, not host/owner).
+	tests := []struct {
+		input   string
+		wantKey string
+	}{
+		{"github.com/pandadoc-studio/skills/skills/communication/slack-digest", "pandadoc-studio/skills"},
+		{"gitlab.com/Org/Repo/path/to/skill", "org/repo"},
+		{"git.internal.co/team/repo/my-skill", "team/repo"},
+	}
+	for _, tt := range tests {
+		t.Run(tt.input, func(t *testing.T) {
+			src, err := ParseSource(tt.input)
+			if err != nil {
+				t.Fatalf("ParseSource(%q) error: %v", tt.input, err)
+			}
+			got := src.RepoKey()
+			if got != tt.wantKey {
+				t.Errorf("RepoKey() = %q, want %q", got, tt.wantKey)
+			}
+		})
 	}
 }
 
@@ -239,6 +398,8 @@ func TestRepoKey_FromParsedSource(t *testing.T) {
 		{"git@github.com:pandadoc-studio/skills.git", "pandadoc-studio/skills"},
 		{"git@github.com-work:pandadoc-studio/skills.git", "pandadoc-studio/skills"},
 		{"https://github.com/PandaDoc/Skills", "pandadoc/skills"},
+		{"github.com/pandadoc-studio/skills/skills/communication/slack-digest", "pandadoc-studio/skills"},
+		{"gitlab.com/org/repo/path/to/skill", "org/repo"},
 	}
 
 	for _, tt := range tests {
@@ -306,11 +467,11 @@ func TestApplyCloneURLOverride(t *testing.T) {
 		}
 	})
 
-	t.Run("local source has no repo key", func(t *testing.T) {
-		src := &ParsedSource{Type: SourceTypeLocal, LocalPath: "/tmp/skills"}
+	t.Run("source without owner/repo has no repo key", func(t *testing.T) {
+		src := &ParsedSource{Type: SourceTypeGit}
 		applied := src.ApplyCloneURLOverride(overrides)
 		if applied {
-			t.Error("ApplyCloneURLOverride() returned true for local source")
+			t.Error("ApplyCloneURLOverride() returned true for source without owner/repo")
 		}
 	})
 }

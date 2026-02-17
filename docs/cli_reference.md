@@ -80,7 +80,7 @@ duckrow status /path/to/project
 
 ### install
 
-Install skills from a git repository, local path, or configured registry.
+Install skills from a git repository or configured registry.
 
 ```bash
 # Install all skills from a GitHub repo
@@ -97,9 +97,6 @@ duckrow install https://github.com/acme/skills.git
 
 # Install from an SSH clone URL
 duckrow install git@github.com:acme/skills.git
-
-# Install from a local directory
-duckrow install ./my-local-skills
 
 # Install into a specific project directory
 duckrow install acme/skills --dir /path/to/project
@@ -119,7 +116,7 @@ duckrow install --skill go-review --registry my-org
 
 | Argument | Required | Default | Description |
 |----------|----------|---------|-------------|
-| `source` | No* | - | Source to install from (repo, URL, or local path) |
+| `source` | No* | - | Source to install from (repo shorthand, URL, or SSH) |
 
 *Either `source` or `--skill` (without source) is required.
 
@@ -130,6 +127,7 @@ duckrow install --skill go-review --registry my-org
 | `--registry` | `-r` | string | - | Registry to search (only with `--skill`, no source) |
 | `--internal` | - | bool | false | Include internal skills |
 | `--agents` | - | string | - | Comma-separated agent names for symlinks |
+| `--no-lock` | - | bool | false | Skip writing to lock file |
 
 ### uninstall
 
@@ -150,6 +148,7 @@ duckrow uninstall go-review --dir /path/to/project
 | Flag | Short | Type | Default | Description |
 |------|-------|------|---------|-------------|
 | `--dir` | `-d` | string | Current directory | Target directory |
+| `--no-lock` | - | bool | false | Skip writing to lock file |
 
 ### uninstall-all
 
@@ -166,6 +165,88 @@ duckrow uninstall-all --dir /path/to/project
 | Flag | Short | Type | Default | Description |
 |------|-------|------|---------|-------------|
 | `--dir` | `-d` | string | Current directory | Target directory |
+| `--no-lock` | - | bool | false | Skip writing to lock file |
+
+## Lock File Commands
+
+### sync
+
+Install all skills declared in `duckrow.lock.json` at their pinned commits. Skills whose directories already exist are skipped.
+
+```bash
+# Sync skills in current directory
+duckrow sync
+
+# Sync into a specific directory
+duckrow sync --dir /path/to/project
+
+# Preview what would be installed
+duckrow sync --dry-run
+
+# Also create symlinks for non-universal agents
+duckrow sync --agents cursor,claude-code
+```
+
+| Flag | Short | Type | Default | Description |
+|------|-------|------|---------|-------------|
+| `--dir` | `-d` | string | Current directory | Target directory |
+| `--dry-run` | - | bool | false | Show what would be done without making changes |
+| `--agents` | - | string | - | Comma-separated agent names for symlinks |
+
+To force reinstall of a specific skill, delete its directory and rerun `duckrow sync`.
+
+### outdated
+
+Show which installed skills have newer commits available.
+
+```bash
+# Check current directory
+duckrow outdated
+
+# Check a specific directory
+duckrow outdated --dir /path/to/project
+
+# Output as JSON for scripting
+duckrow outdated --json
+```
+
+| Flag | Short | Type | Default | Description |
+|------|-------|------|---------|-------------|
+| `--dir` | `-d` | string | Current directory | Target directory |
+| `--json` | - | bool | false | Output as JSON for scripting |
+
+### update
+
+Update one or all skills to the available commit and update the lock file.
+
+```bash
+# Update a specific skill
+duckrow update go-review
+
+# Update all skills
+duckrow update --all
+
+# Preview what would be updated
+duckrow update --all --dry-run
+
+# Update with agent symlinks
+duckrow update go-review --agents cursor
+```
+
+Running `duckrow update` without arguments or `--all` returns an error with a usage hint.
+
+| Argument | Required | Default | Description |
+|----------|----------|---------|-------------|
+| `skill-name` | No* | - | Name of the skill to update |
+
+*Either `skill-name` or `--all` is required.
+
+| Flag | Short | Type | Default | Description |
+|------|-------|------|---------|-------------|
+| `--dir` | `-d` | string | Current directory | Target directory |
+| `--all` | - | bool | false | Update all skills in the lock file |
+| `--dry-run` | - | bool | false | Show what would be updated without making changes |
+| `--agents` | - | string | - | Comma-separated agent names for symlinks |
 
 ## Registry Management
 
@@ -245,10 +326,25 @@ duckrow                              Launch interactive TUI
     --registry, -r <name>              Registry filter (with --skill only)
     --internal                         Include internal skills
     --agents <names>                   Agent names for symlinks
+    --no-lock                          Skip writing to lock file
   uninstall <skill-name>             Remove an installed skill
     --dir, -d <path>                   Target directory
+    --no-lock                          Skip writing to lock file
   uninstall-all                      Remove all installed skills
     --dir, -d <path>                   Target directory
+    --no-lock                          Skip writing to lock file
+  sync                               Install skills from lock file
+    --dir, -d <path>                   Target directory
+    --dry-run                          Preview without changes
+    --agents <names>                   Agent names for symlinks
+  outdated                           Show skills with available updates
+    --dir, -d <path>                   Target directory
+    --json                             Output as JSON
+  update [skill-name]                Update skill(s) to available commit
+    --dir, -d <path>                   Target directory
+    --all                              Update all skills
+    --dry-run                          Preview without changes
+    --agents <names>                   Agent names for symlinks
   registry                           Manage skill registries
     add <repo-url>                     Add a registry
     list                               List registries

@@ -76,7 +76,6 @@ func (s *Scanner) ScanFolder(folderPath string) ([]InstalledSkill, error) {
 				skill: InstalledSkill{
 					Name:        metadata.Name,
 					Description: metadata.Description,
-					Version:     metadata.Metadata.Version,
 					Author:      metadata.Metadata.Author,
 					Path:        skillPath,
 					Agents:      agents,

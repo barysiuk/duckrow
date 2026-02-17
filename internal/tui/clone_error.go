@@ -286,7 +286,7 @@ func (m cloneErrorModel) retryInstallCmd(app *App, url string) tea.Cmd {
 		}
 
 		installer := core.NewInstaller(app.agents)
-		_, err = installer.InstallFromSource(source, core.InstallOptions{
+		result, err := installer.InstallFromSource(source, core.InstallOptions{
 			TargetDir:    folder,
 			IsInternal:   true,
 			TargetAgents: targetAgents,
@@ -309,6 +309,19 @@ func (m cloneErrorModel) retryInstallCmd(app *App, url string) tea.Cmd {
 				retryURL:     url,
 				skillName:    skill.Skill.Name,
 				folder:       folder,
+			}
+		}
+
+		// Write lock file entries for installed skills (TUI always locks).
+		for _, s := range result.InstalledSkills {
+			if s.Commit != "" {
+				entry := core.LockedSkill{
+					Name:   s.Name,
+					Source: s.Source,
+					Commit: s.Commit,
+					Ref:    s.Ref,
+				}
+				_ = core.AddOrUpdateLockEntry(folder, entry)
 			}
 		}
 
@@ -572,9 +585,10 @@ type cloneRetryResultMsg struct {
 
 // registryAddDoneMsg is sent when a registry add completes (from settings, not retry).
 type registryAddDoneMsg struct {
-	url  string
-	name string
-	err  error
+	url      string
+	name     string
+	warnings []string
+	err      error
 }
 
 // hintBulletStyle styles the bullet point for hint items.

@@ -7,7 +7,23 @@ import (
 	"testing"
 )
 
-func TestInstaller_InstallFromLocalSource(t *testing.T) {
+// helper to create a source pointing at a local git repo via clone URL override.
+func makeGitSource(t *testing.T, repoDir string) *ParsedSource {
+	t.Helper()
+	return &ParsedSource{
+		Type:     SourceTypeGit,
+		Host:     "github.com",
+		Owner:    "test",
+		Repo:     "repo",
+		CloneURL: repoDir,
+	}
+}
+
+func TestInstaller_InstallFromGitSource(t *testing.T) {
+	if testing.Short() {
+		t.Skip("skipping test that requires git")
+	}
+
 	// Create a source directory with a skill
 	srcDir := t.TempDir()
 	skillDir := filepath.Join(srcDir, "skills", "test-skill")
@@ -32,16 +48,15 @@ Instructions here.
 		t.Fatalf("WriteFile(rules.md) error: %v", err)
 	}
 
+	setupTestGitRepoInDir(t, srcDir)
+
 	// Create target directory
 	targetDir := t.TempDir()
 
 	agents, _ := LoadAgents()
 	installer := NewInstaller(agents)
 
-	source := &ParsedSource{
-		Type:      SourceTypeLocal,
-		LocalPath: srcDir,
-	}
+	source := makeGitSource(t, srcDir)
 
 	result, err := installer.InstallFromSource(source, InstallOptions{
 		TargetDir: targetDir,
@@ -79,6 +94,10 @@ Instructions here.
 }
 
 func TestInstaller_InstallWithAgentSymlinks(t *testing.T) {
+	if testing.Short() {
+		t.Skip("skipping test that requires git")
+	}
+
 	srcDir := t.TempDir()
 	if err := os.WriteFile(filepath.Join(srcDir, "SKILL.md"), []byte(`---
 name: symlink-test
@@ -87,6 +106,8 @@ description: Test symlink creation
 `), 0o644); err != nil {
 		t.Fatalf("WriteFile() error: %v", err)
 	}
+
+	setupTestGitRepoInDir(t, srcDir)
 
 	targetDir := t.TempDir()
 
@@ -105,10 +126,7 @@ description: Test symlink creation
 
 	installer := NewInstaller(agents)
 
-	source := &ParsedSource{
-		Type:      SourceTypeLocal,
-		LocalPath: srcDir,
-	}
+	source := makeGitSource(t, srcDir)
 
 	result, err := installer.InstallFromSource(source, InstallOptions{
 		TargetDir:    targetDir,
@@ -153,6 +171,10 @@ description: Test symlink creation
 }
 
 func TestInstaller_DefaultUniversalOnly(t *testing.T) {
+	if testing.Short() {
+		t.Skip("skipping test that requires git")
+	}
+
 	// When no TargetAgents is provided, only the canonical .agents/skills/ dir
 	// should be created (universal agents). No agent-specific directories.
 	srcDir := t.TempDir()
@@ -164,14 +186,13 @@ description: Test default universal-only install
 		t.Fatalf("WriteFile() error: %v", err)
 	}
 
+	setupTestGitRepoInDir(t, srcDir)
+
 	targetDir := t.TempDir()
 	agents, _ := LoadAgents()
 	installer := NewInstaller(agents)
 
-	source := &ParsedSource{
-		Type:      SourceTypeLocal,
-		LocalPath: srcDir,
-	}
+	source := makeGitSource(t, srcDir)
 
 	result, err := installer.InstallFromSource(source, InstallOptions{
 		TargetDir: targetDir,
@@ -218,6 +239,10 @@ description: Test default universal-only install
 }
 
 func TestInstaller_SkillFilter(t *testing.T) {
+	if testing.Short() {
+		t.Skip("skipping test that requires git")
+	}
+
 	srcDir := t.TempDir()
 
 	// Create two skills
@@ -235,14 +260,13 @@ description: Test skill
 		}
 	}
 
+	setupTestGitRepoInDir(t, srcDir)
+
 	targetDir := t.TempDir()
 	agents, _ := LoadAgents()
 	installer := NewInstaller(agents)
 
-	source := &ParsedSource{
-		Type:      SourceTypeLocal,
-		LocalPath: srcDir,
-	}
+	source := makeGitSource(t, srcDir)
 
 	result, err := installer.InstallFromSource(source, InstallOptions{
 		TargetDir:   targetDir,
@@ -261,6 +285,10 @@ description: Test skill
 }
 
 func TestInstaller_SkillFilterNotFound(t *testing.T) {
+	if testing.Short() {
+		t.Skip("skipping test that requires git")
+	}
+
 	srcDir := t.TempDir()
 	dir := filepath.Join(srcDir, "skills", "real-skill")
 	if err := os.MkdirAll(dir, 0o755); err != nil {
@@ -274,14 +302,13 @@ description: Test skill
 		t.Fatalf("WriteFile() error: %v", err)
 	}
 
+	setupTestGitRepoInDir(t, srcDir)
+
 	targetDir := t.TempDir()
 	agents, _ := LoadAgents()
 	installer := NewInstaller(agents)
 
-	source := &ParsedSource{
-		Type:      SourceTypeLocal,
-		LocalPath: srcDir,
-	}
+	source := makeGitSource(t, srcDir)
 
 	_, err := installer.InstallFromSource(source, InstallOptions{
 		TargetDir:   targetDir,
@@ -293,16 +320,24 @@ description: Test skill
 }
 
 func TestInstaller_NoSkillsFound(t *testing.T) {
-	srcDir := t.TempDir() // Empty directory
+	if testing.Short() {
+		t.Skip("skipping test that requires git")
+	}
+
+	srcDir := t.TempDir()
+	// Need at least one file for git to commit
+	if err := os.WriteFile(filepath.Join(srcDir, ".gitkeep"), []byte(""), 0o644); err != nil {
+		t.Fatalf("WriteFile() error: %v", err)
+	}
+
+	setupTestGitRepoInDir(t, srcDir)
+
 	targetDir := t.TempDir()
 
 	agents, _ := LoadAgents()
 	installer := NewInstaller(agents)
 
-	source := &ParsedSource{
-		Type:      SourceTypeLocal,
-		LocalPath: srcDir,
-	}
+	source := makeGitSource(t, srcDir)
 
 	_, err := installer.InstallFromSource(source, InstallOptions{
 		TargetDir: targetDir,
@@ -313,6 +348,10 @@ func TestInstaller_NoSkillsFound(t *testing.T) {
 }
 
 func TestInstaller_CopyExclusions(t *testing.T) {
+	if testing.Short() {
+		t.Skip("skipping test that requires git")
+	}
+
 	srcDir := t.TempDir()
 
 	// Create a skill with files that should be excluded
@@ -332,21 +371,14 @@ description: Test copy exclusions
 	if err := os.WriteFile(filepath.Join(srcDir, "_internal.md"), []byte("# Exclude"), 0o644); err != nil {
 		t.Fatalf("WriteFile(_internal.md) error: %v", err)
 	}
-	if err := os.MkdirAll(filepath.Join(srcDir, ".git"), 0o755); err != nil {
-		t.Fatalf("MkdirAll(.git) error: %v", err)
-	}
-	if err := os.WriteFile(filepath.Join(srcDir, ".git", "config"), []byte("[core]"), 0o644); err != nil {
-		t.Fatalf("WriteFile(.git/config) error: %v", err)
-	}
+
+	setupTestGitRepoInDir(t, srcDir)
 
 	targetDir := t.TempDir()
 	agents, _ := LoadAgents()
 	installer := NewInstaller(agents)
 
-	source := &ParsedSource{
-		Type:      SourceTypeLocal,
-		LocalPath: srcDir,
-	}
+	source := makeGitSource(t, srcDir)
 
 	_, err := installer.InstallFromSource(source, InstallOptions{
 		TargetDir: targetDir,
@@ -477,7 +509,8 @@ func TestInstaller_CloneFailureReturnsCloneError(t *testing.T) {
 
 	// Try to install from a nonexistent repository.
 	source := &ParsedSource{
-		Type:     SourceTypeGitHub,
+		Type:     SourceTypeGit,
+		Host:     "github.com",
 		Owner:    "nonexistent-owner-xyz",
 		Repo:     "nonexistent-repo-xyz",
 		CloneURL: "https://github.com/nonexistent-owner-xyz/nonexistent-repo-xyz.git",

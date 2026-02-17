@@ -1,8 +1,16 @@
 # Test uninstalling a skill
 
+# Create skill source as a git repo
+mkdir skill-source
+cp skill-md skill-source/SKILL.md
+setup-git-repo skill-source test-skills my-skill
+
+# Set up config override
+setup-config-override test-owner/test-repo skill-source
+
 # Setup: create project and install a skill
 mkdir myproject
-exec duckrow install ./skill-source -d myproject
+exec duckrow install test-owner/test-repo -d myproject
 stdout 'Installed: my-skill'
 exists myproject/.agents/skills/my-skill/SKILL.md
 
@@ -22,7 +30,7 @@ stdout 'Skills: none installed'
 ! exec duckrow uninstall nonexistent -d myproject
 stderr 'not found'
 
--- skill-source/SKILL.md --
+-- skill-md --
 ---
 name: my-skill
 description: A skill to uninstall

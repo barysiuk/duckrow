@@ -78,9 +78,6 @@ metadata:
 	if skill.Description != "Review code for best practices" {
 		t.Errorf("Description = %q, want %q", skill.Description, "Review code for best practices")
 	}
-	if skill.Version != "1.0.0" {
-		t.Errorf("Version = %q, want %q", skill.Version, "1.0.0")
-	}
 	if skill.Author != "testorg" {
 		t.Errorf("Author = %q, want %q", skill.Author, "testorg")
 	}

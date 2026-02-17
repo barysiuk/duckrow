@@ -85,13 +85,9 @@ func showFolderStatus(scanner *core.Scanner, path string, tracked bool) error {
 
 	fmt.Fprintf(os.Stdout, "  Skills (%d):\n", len(skills))
 	for _, s := range skills {
-		version := ""
-		if s.Version != "" {
-			version = " v" + s.Version
-		}
 		// Show relative path from the folder root
 		relPath := skillRelPath(path, s.Path)
-		fmt.Fprintf(os.Stdout, "    - %s%s [%s]\n", s.Name, version, relPath)
+		fmt.Fprintf(os.Stdout, "    - %s [%s]\n", s.Name, relPath)
 		if s.Description != "" {
 			fmt.Fprintf(os.Stdout, "      %s\n", s.Description)
 		}
