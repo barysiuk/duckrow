@@ -131,3 +131,10 @@ type UpdateInfo struct {
 	AvailableCommit string `json:"available"`
 	HasUpdate       bool   `json:"hasUpdate"`
 }
+
+// CachedCommits stores resolved commit SHAs for unpinned registry skills.
+// Written to <registryDir>/duckrow.commits.json during hydration.
+type CachedCommits struct {
+	GeneratedAt time.Time         `json:"generatedAt"`
+	Commits     map[string]string `json:"commits"` // source -> commit SHA
+}

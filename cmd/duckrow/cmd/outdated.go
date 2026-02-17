@@ -55,7 +55,9 @@ Other skills are checked by fetching the latest commit from the source repo.`,
 		}
 
 		// Build registry commit lookup: map[lockSource] -> commit.
-		registryCommits := buildRegistryCommitLookup(d.config, cfg)
+		rm := core.NewRegistryManager(d.config.RegistriesDir())
+		rm.HydrateRegistryCommits(cfg.Registries, cfg.Settings.CloneURLOverrides)
+		registryCommits := core.BuildRegistryCommitMap(cfg.Registries, rm)
 
 		updates, err := core.CheckForUpdates(lf, cfg.Settings.CloneURLOverrides, registryCommits)
 		if err != nil {
@@ -76,10 +78,10 @@ Other skills are checked by fetching the latest commit from the source repo.`,
 		fmt.Fprintln(w, "Skill\tInstalled\tAvailable\tSource")
 
 		for _, u := range updates {
-			installed := truncateCommit(u.InstalledCommit)
+			installed := core.TruncateCommit(u.InstalledCommit)
 			available := "(up to date)"
 			if u.HasUpdate {
-				available = truncateCommit(u.AvailableCommit)
+				available = core.TruncateCommit(u.AvailableCommit)
 			}
 			// Truncate source to host/owner/repo for table output.
 			source := truncateSource(u.Source)
@@ -98,30 +100,6 @@ func truncateSource(source string) string {
 		return parts[0] + "/" + parts[1] + "/" + parts[2]
 	}
 	return source
-}
-
-// buildRegistryCommitLookup builds a map from lock file source strings to
-// registry commit hashes. This allows CheckForUpdates to skip network fetches
-// for registry-pinned skills.
-func buildRegistryCommitLookup(configMgr *core.ConfigManager, cfg *core.Config) map[string]string {
-	commits := make(map[string]string)
-
-	if len(cfg.Registries) == 0 {
-		return commits
-	}
-
-	rm := core.NewRegistryManager(configMgr.RegistriesDir())
-	manifests := rm.LoadAllManifests(cfg.Registries)
-
-	for _, manifest := range manifests {
-		for _, skill := range manifest.Skills {
-			if skill.Commit != "" && skill.Source != "" {
-				commits[skill.Source] = skill.Commit
-			}
-		}
-	}
-
-	return commits
 }
 
 func init() {

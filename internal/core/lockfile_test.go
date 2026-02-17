@@ -426,3 +426,80 @@ func TestParseLockSource(t *testing.T) {
 		}
 	}
 }
+
+func TestSourcePathKey(t *testing.T) {
+	tests := []struct {
+		source string
+		want   string
+	}{
+		{"github.com/org/repo/skill", "org/repo/skill"},
+		{"github.com-work/org/repo/skill", "org/repo/skill"},
+		{"github.com/org/repo", "org/repo"},
+		{"noseparator", "noseparator"},
+		{"host/a", "a"},
+	}
+	for _, tt := range tests {
+		got := SourcePathKey(tt.source)
+		if got != tt.want {
+			t.Errorf("SourcePathKey(%q) = %q, want %q", tt.source, got, tt.want)
+		}
+	}
+}
+
+func TestLookupRegistryCommit(t *testing.T) {
+	registryCommits := map[string]string{
+		"github.com/org/repo/skill-a": "aaa",
+		"github.com/org/repo/skill-b": "bbb",
+	}
+	pathIndex := BuildPathIndex(registryCommits)
+
+	t.Run("exact match", func(t *testing.T) {
+		got := LookupRegistryCommit("github.com/org/repo/skill-a", registryCommits, pathIndex)
+		if got != "aaa" {
+			t.Errorf("got %q, want %q", got, "aaa")
+		}
+	})
+
+	t.Run("host-agnostic fallback", func(t *testing.T) {
+		got := LookupRegistryCommit("github.com-work/org/repo/skill-a", registryCommits, pathIndex)
+		if got != "aaa" {
+			t.Errorf("got %q, want %q", got, "aaa")
+		}
+	})
+
+	t.Run("no match", func(t *testing.T) {
+		got := LookupRegistryCommit("github.com/other/repo/skill-x", registryCommits, pathIndex)
+		if got != "" {
+			t.Errorf("got %q, want empty", got)
+		}
+	})
+
+	t.Run("exact match wins over empty commit", func(t *testing.T) {
+		commits := map[string]string{
+			"github.com/org/repo/skill": "",
+		}
+		idx := BuildPathIndex(commits)
+		got := LookupRegistryCommit("github.com/org/repo/skill", commits, idx)
+		if got != "" {
+			t.Errorf("got %q, want empty (commit is empty string)", got)
+		}
+	})
+}
+
+func TestBuildPathIndex(t *testing.T) {
+	commits := map[string]string{
+		"github.com/org/repo/skill-a": "aaa",
+		"gitlab.com/org/repo/skill-b": "bbb",
+	}
+	index := BuildPathIndex(commits)
+
+	if len(index) != 2 {
+		t.Fatalf("len(index) = %d, want 2", len(index))
+	}
+	if index["org/repo/skill-a"] != "aaa" {
+		t.Errorf("skill-a = %q, want %q", index["org/repo/skill-a"], "aaa")
+	}
+	if index["org/repo/skill-b"] != "bbb" {
+		t.Errorf("skill-b = %q, want %q", index["org/repo/skill-b"], "bbb")
+	}
+}

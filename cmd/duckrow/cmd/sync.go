@@ -87,7 +87,7 @@ Use duckrow outdated and duckrow update to move the lock file forward.`,
 			}
 
 			if dryRun {
-				fmt.Fprintf(os.Stdout, "install: %s (commit %s)\n", skill.Name, truncateCommit(skill.Commit))
+				fmt.Fprintf(os.Stdout, "install: %s (commit %s)\n", skill.Name, core.TruncateCommit(skill.Commit))
 				installed++
 				continue
 			}
@@ -138,13 +138,6 @@ Use duckrow outdated and duckrow update to move the lock file forward.`,
 		}
 		return nil
 	},
-}
-
-func truncateCommit(commit string) string {
-	if len(commit) > 7 {
-		return commit[:7]
-	}
-	return commit
 }
 
 func init() {

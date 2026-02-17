@@ -190,6 +190,26 @@ func repoKey(source string) string {
 	return parts[0] + "/" + parts[1] + "/" + parts[2]
 }
 
+// SourcePathKey strips the host from a canonical source, returning "owner/repo/path".
+// This allows matching sources across different host aliases (e.g. github.com vs
+// github.com-work) that refer to the same repository and skill path.
+func SourcePathKey(source string) string {
+	idx := strings.Index(source, "/")
+	if idx < 0 {
+		return source
+	}
+	return source[idx+1:]
+}
+
+// TruncateCommit returns the first 7 characters of a commit hash,
+// or the full string if it's shorter.
+func TruncateCommit(commit string) string {
+	if len(commit) > 7 {
+		return commit[:7]
+	}
+	return commit
+}
+
 // skillSubPath extracts the sub-path portion from a canonical source string.
 // Returns "" if the source has exactly 3 segments (host/owner/repo).
 func skillSubPath(source string) string {
@@ -200,11 +220,45 @@ func skillSubPath(source string) string {
 	return strings.Join(parts[3:], "/")
 }
 
+// LookupRegistryCommit finds the registry commit for a given source string.
+// It first tries an exact match, then falls back to host-agnostic matching
+// using SourcePathKey. This handles SSH host aliases (e.g. github.com-work)
+// that may differ from the registry's canonical host.
+//
+// The pathIndex maps SourcePathKey(source) -> commit and must be pre-built
+// by the caller for efficiency.
+func LookupRegistryCommit(source string, registryCommits map[string]string, pathIndex map[string]string) string {
+	// Exact match first.
+	if commit, ok := registryCommits[source]; ok && commit != "" {
+		return commit
+	}
+	// Fallback: match by path (host-agnostic).
+	if commit, ok := pathIndex[SourcePathKey(source)]; ok && commit != "" {
+		return commit
+	}
+	return ""
+}
+
+// BuildPathIndex builds a host-agnostic index from a registry commit map.
+// The returned map keys are SourcePathKey values (owner/repo/path).
+func BuildPathIndex(registryCommits map[string]string) map[string]string {
+	index := make(map[string]string, len(registryCommits))
+	for source, commit := range registryCommits {
+		index[SourcePathKey(source)] = commit
+	}
+	return index
+}
+
 // CheckForUpdates checks each locked skill for available updates.
 // registryCommits maps lock file source strings to the commit from the registry.
 // overrides maps repo keys (owner/repo) to clone URL overrides.
 func CheckForUpdates(lf *LockFile, overrides map[string]string, registryCommits map[string]string) ([]UpdateInfo, error) {
 	var results []UpdateInfo
+
+	// Build a path-based index for host-agnostic source matching.
+	// This allows matching sources across SSH host aliases (e.g. github.com
+	// vs github.com-work) that refer to the same repository and skill path.
+	pathIndex := BuildPathIndex(registryCommits)
 
 	// Separate skills into registry-resolved and network-fetch groups.
 	type pendingSkill struct {
@@ -221,8 +275,8 @@ func CheckForUpdates(lf *LockFile, overrides map[string]string, registryCommits 
 	var repoGroupOrder []repoRefKey
 
 	for _, skill := range lf.Skills {
-		// Check registry commit first.
-		if regCommit, ok := registryCommits[skill.Source]; ok && regCommit != "" {
+		// Check registry commit first (exact match, then host-agnostic fallback).
+		if regCommit := LookupRegistryCommit(skill.Source, registryCommits, pathIndex); regCommit != "" {
 			results = append(results, UpdateInfo{
 				Name:            skill.Name,
 				Source:          skill.Source,

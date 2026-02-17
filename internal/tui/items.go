@@ -18,10 +18,14 @@ import (
 // skillItem wraps an InstalledSkill for the bubbles list.
 // Implements list.DefaultItem (Title + Description + FilterValue).
 type skillItem struct {
-	skill core.InstalledSkill
+	skill     core.InstalledSkill
+	hasUpdate bool
 }
 
 func (i skillItem) Title() string {
+	if i.hasUpdate {
+		return i.skill.Name + " " + warningStyle.Render("(update available)")
+	}
 	return i.skill.Name
 }
 
@@ -34,11 +38,13 @@ func (i skillItem) Description() string {
 
 func (i skillItem) FilterValue() string { return i.skill.Name }
 
-// skillsToItems converts a slice of InstalledSkill to list items.
-func skillsToItems(skills []core.InstalledSkill) []list.Item {
+// skillsToItems converts a slice of InstalledSkill to list items,
+// optionally marking items that have updates available.
+func skillsToItems(skills []core.InstalledSkill, updateInfo map[string]core.UpdateInfo) []list.Item {
 	items := make([]list.Item, len(skills))
 	for i, s := range skills {
-		items[i] = skillItem{skill: s}
+		_, hasUpdate := updateInfo[s.Name]
+		items[i] = skillItem{skill: s, hasUpdate: hasUpdate}
 	}
 	return items
 }

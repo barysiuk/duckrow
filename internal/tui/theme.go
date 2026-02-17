@@ -124,6 +124,16 @@ func renderSectionHeader(label string, _ int) string {
 	return "  " + rule + text + rule
 }
 
+// renderSectionHeaderWithUpdate renders a section header with an amber-colored
+// update portion, e.g. "  ── SKILLS (3 installed, 2 updates available) ──"
+func renderSectionHeaderWithUpdate(prefix, updatePart, suffix string, _ int) string {
+	rule := sectionRuleStyle.Render("──")
+	prefixText := sectionHeaderStyle.Render(" " + prefix)
+	updateText := warningStyle.Render(updatePart)
+	suffixText := sectionHeaderStyle.Render(suffix + " ")
+	return "  " + rule + prefixText + updateText + suffixText + rule
+}
+
 // newSkillDelegate creates a DefaultDelegate styled to match the DuckRow theme.
 // Uses the fancy list pattern: vertical bar for selection, title + description
 // on two lines, filter match highlighting.

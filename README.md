@@ -40,11 +40,17 @@ duckrow sync
 
 ## Interactive TUI
 
-Run `duckrow` to launch the terminal UI. Browse installed skills, install from your registry, check for updates — all without memorizing commands.
+Run `duckrow` to launch the terminal UI. Browse installed skills, install from your registry, check for updates, and update skills — all without memorizing commands.
 
 <p align="center">
   <img src="docs/images/duckrow_tui.png" alt="duckrow TUI screenshot" width="800" />
 </p>
+
+Key actions: navigate with `j`/`k`, preview a skill with `enter`, install with `i`, remove with `d`, update with `u`/`U`, refresh registries with `r`, switch folders with `c`, and open settings with `s`. Press `?` for the full keybinding reference.
+
+The TUI automatically detects available updates for registry-tracked skills and shows update badges inline. Registry data is refreshed asynchronously in the background — the UI is fully interactive from the first frame.
+
+See [docs/tui.md](docs/tui.md) for the full TUI reference.
 
 ## CLI
 

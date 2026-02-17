@@ -21,6 +21,8 @@ type keyMap struct {
 	Retry        key.Binding
 	Toggle       key.Binding
 	ToggleAll    key.Binding
+	Update       key.Binding
+	UpdateAll    key.Binding
 }
 
 var keys = keyMap{
@@ -92,6 +94,14 @@ var keys = keyMap{
 		key.WithKeys("a"),
 		key.WithHelp("a", "all/none"),
 	),
+	Update: key.NewBinding(
+		key.WithKeys("u"),
+		key.WithHelp("u", "update"),
+	),
+	UpdateAll: key.NewBinding(
+		key.WithKeys("U"),
+		key.WithHelp("U", "update all"),
+	),
 }
 
 // ---------------------------------------------------------------------------
@@ -101,15 +111,22 @@ var keys = keyMap{
 
 // folderHelpKeyMap is shown in the folder view.
 type folderHelpKeyMap struct {
-	isTracked bool
+	isTracked        bool
+	updatesAvailable bool
 }
 
 func (k folderHelpKeyMap) ShortHelp() []key.Binding {
 	bindings := []key.Binding{
 		keys.Up, keys.Down, keys.Enter,
-		keys.Filter, keys.Delete,
-		keys.Install, keys.ChangeFolder, keys.Settings, keys.Quit,
+		keys.Filter,
 	}
+	if k.updatesAvailable {
+		bindings = append(bindings, keys.Update, keys.UpdateAll)
+	}
+	bindings = append(bindings,
+		keys.Delete, keys.Refresh,
+		keys.Install, keys.ChangeFolder, keys.Settings, keys.Quit,
+	)
 	if !k.isTracked {
 		bindings = append([]key.Binding{keys.AddFolder}, bindings...)
 	}

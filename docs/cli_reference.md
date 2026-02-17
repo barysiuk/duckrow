@@ -8,7 +8,7 @@ Complete reference for all duckrow CLI commands.
 duckrow          # Launch interactive TUI
 ```
 
-Running without arguments or subcommands opens the terminal UI.
+Running without arguments or subcommands opens the terminal UI. See [docs/tui.md](tui.md) for the full TUI reference including keybindings and workflows.
 
 ## Version
 
@@ -197,7 +197,7 @@ To force reinstall of a specific skill, delete its directory and rerun `duckrow 
 
 ### outdated
 
-Show which installed skills have newer commits available.
+Show which installed skills have newer commits available. Before checking, this command refreshes the commit cache for unpinned registry skills (see [commit hydration](lock-file.md#commit-hydration)).
 
 ```bash
 # Check current directory
@@ -217,7 +217,7 @@ duckrow outdated --json
 
 ### update
 
-Update one or all skills to the available commit and update the lock file.
+Update one or all skills to the available commit and update the lock file. Before checking for updates, this command refreshes the commit cache for unpinned registry skills (see [commit hydration](lock-file.md#commit-hydration)).
 
 ```bash
 # Update a specific skill

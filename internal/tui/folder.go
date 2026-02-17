@@ -29,6 +29,10 @@ type folderModel struct {
 	isTracked  bool
 	regSkills  []core.RegistrySkillInfo
 	availCount int // Number of registry skills NOT installed
+
+	// Update info: skill name -> update info.
+	updateInfo  map[string]core.UpdateInfo
+	updateCount int // Number of skills with updates available
 }
 
 func newFolderModel() folderModel {
@@ -55,15 +59,24 @@ func (m folderModel) setSize(width, height int) folderModel {
 	return m
 }
 
-func (m folderModel) setData(status *core.FolderStatus, isTracked bool, regSkills []core.RegistrySkillInfo) folderModel {
+func (m folderModel) setData(status *core.FolderStatus, isTracked bool, regSkills []core.RegistrySkillInfo, updateInfo map[string]core.UpdateInfo) folderModel {
 	m.status = status
 	m.isTracked = isTracked
 	m.regSkills = regSkills
 	m.availCount = m.countAvailable()
+	m.updateInfo = updateInfo
+
+	// Count skills with updates.
+	m.updateCount = 0
+	for _, ui := range updateInfo {
+		if ui.HasUpdate {
+			m.updateCount++
+		}
+	}
 
 	// Convert skills to list items.
 	if status != nil {
-		items := skillsToItems(status.Skills)
+		items := skillsToItems(status.Skills, updateInfo)
 		m.list.SetItems(items)
 	} else {
 		m.list.SetItems(nil)
@@ -84,8 +97,14 @@ func (m folderModel) update(msg tea.Msg, app *App) (folderModel, tea.Cmd) {
 		case key.Matches(msg, keys.Delete):
 			return m, m.removeSelectedSkill(app)
 
+		case key.Matches(msg, keys.Update):
+			return m, m.updateSelectedSkill(app)
+
+		case key.Matches(msg, keys.UpdateAll):
+			return m, m.updateAllSkills(app)
+
 		case key.Matches(msg, keys.Refresh):
-			return m, app.reloadConfig()
+			return m, m.refreshWithRegistries(app)
 
 		case key.Matches(msg, keys.Enter):
 			// Open SKILL.md preview for the selected skill.
@@ -150,20 +169,37 @@ func (m folderModel) view() string {
 	var sectionHeader string
 	if skillCount == 0 {
 		sectionHeader = renderSectionHeader("SKILLS", m.width) + "\n"
+	} else if m.updateCount > 0 {
+		label := fmt.Sprintf("SKILLS (%d installed, ", skillCount)
+		updateLabel := fmt.Sprintf("%d updates available", m.updateCount)
+		closing := ")"
+		sectionHeader = renderSectionHeaderWithUpdate(label, updateLabel, closing, m.width) + "\n"
 	} else {
 		sectionHeader = renderSectionHeader(fmt.Sprintf("SKILLS (%d installed)", skillCount), m.width) + "\n"
 	}
 
-	var footer string
-	if m.availCount > 0 {
-		footer = mutedStyle.Render(fmt.Sprintf("  %d skills available from registries", m.availCount)) +
-			"  " + headerHintStyle.Render("[i] Install")
-	} else if len(m.regSkills) == 0 {
-		footer = mutedStyle.Render("  No registries configured.") +
-			"  " + headerHintStyle.Render("[s] Settings to add")
-	} else {
-		footer = mutedStyle.Render("  All registry skills installed")
+	// Build footer: optional update prefix + registry status.
+	var parts []string
+	if m.updateCount > 0 {
+		parts = append(parts,
+			warningStyle.Render(fmt.Sprintf("%d updates available", m.updateCount))+
+				"  "+headerHintStyle.Render("[u] Update"))
 	}
+
+	if m.availCount > 0 {
+		parts = append(parts,
+			mutedStyle.Render(fmt.Sprintf("%d skills available from registries", m.availCount))+
+				"  "+headerHintStyle.Render("[i] Install"))
+	} else if len(m.regSkills) == 0 {
+		parts = append(parts,
+			mutedStyle.Render("No registries configured.")+
+				"  "+headerHintStyle.Render("[s] Settings to add"))
+	} else {
+		parts = append(parts,
+			mutedStyle.Render("All registry skills installed"))
+	}
+
+	footer := "  " + strings.Join(parts, "  |  ")
 	// Blank line padding between list and footer message.
 	footerBlock := "\n\n" + footer
 
@@ -240,6 +276,187 @@ func (m folderModel) removeSelectedSkill(app *App) tea.Cmd {
 		fmt.Sprintf("Remove skill %s?", skill.Name),
 		deleteCmd,
 	)
+	return nil
+}
+
+// updateSelectedSkill updates the currently selected skill if it has an update available.
+func (m folderModel) updateSelectedSkill(app *App) tea.Cmd {
+	if m.updateCount == 0 {
+		return nil
+	}
+
+	item := m.list.SelectedItem()
+	if item == nil || m.status == nil {
+		return nil
+	}
+
+	si, ok := item.(skillItem)
+	if !ok {
+		return nil
+	}
+
+	ui, hasUpdate := m.updateInfo[si.skill.Name]
+	if !hasUpdate || !ui.HasUpdate {
+		return nil
+	}
+
+	folderPath := app.activeFolder
+
+	updateCmd := m.buildUpdateCmd(app, ui, folderPath)
+
+	shortOld := core.TruncateCommit(ui.InstalledCommit)
+	shortNew := core.TruncateCommit(ui.AvailableCommit)
+
+	app.confirm = app.confirm.show(
+		fmt.Sprintf("Update %s? (%s -> %s)", ui.Name, shortOld, shortNew),
+		updateCmd,
+	)
+	return nil
+}
+
+// updateAllSkills updates all skills that have updates available.
+func (m folderModel) updateAllSkills(app *App) tea.Cmd {
+	if m.updateCount == 0 {
+		return nil
+	}
+
+	folderPath := app.activeFolder
+
+	bulkCmd := func() tea.Msg {
+		var updated, errors int
+		cfg, cfgErr := app.config.Load()
+
+		for _, ui := range m.updateInfo {
+			if !ui.HasUpdate {
+				continue
+			}
+
+			err := executeSkillUpdate(app, ui, folderPath, cfg, cfgErr)
+			if err != nil {
+				errors++
+				continue
+			}
+			updated++
+		}
+
+		return bulkUpdateDoneMsg{
+			updated: updated,
+			errors:  errors,
+		}
+	}
+
+	app.confirm = app.confirm.show(
+		fmt.Sprintf("Update all skills? (%d updates available)", m.updateCount),
+		bulkCmd,
+	)
+	return nil
+}
+
+// refreshWithRegistries triggers an async registry refresh + data reload.
+func (m folderModel) refreshWithRegistries(app *App) tea.Cmd {
+	return tea.Batch(
+		func() tea.Msg { return startRegistryRefreshMsg{} },
+		app.loadDataCmd,
+	)
+}
+
+// buildUpdateCmd creates a tea.Cmd that updates a single skill.
+func (m folderModel) buildUpdateCmd(app *App, ui core.UpdateInfo, folderPath string) tea.Cmd {
+	return func() tea.Msg {
+		cfg, cfgErr := app.config.Load()
+
+		err := executeSkillUpdate(app, ui, folderPath, cfg, cfgErr)
+		if err != nil {
+			return updateDoneMsg{
+				skillName: ui.Name,
+				err:       err,
+			}
+		}
+
+		return updateDoneMsg{
+			skillName: ui.Name,
+		}
+	}
+}
+
+// executeSkillUpdate performs the actual update: remove old skill, reinstall at new commit,
+// update lock entry. Returns an error if any step fails.
+func executeSkillUpdate(app *App, ui core.UpdateInfo, folderPath string, cfg *core.Config, cfgErr error) error {
+	// Read lock file to get the ref.
+	lf, err := core.ReadLockFile(folderPath)
+	if err != nil {
+		return fmt.Errorf("reading lock file: %w", err)
+	}
+	if lf == nil {
+		return fmt.Errorf("no lock file found")
+	}
+
+	// Find the lock entry for this skill.
+	var lockEntry *core.LockedSkill
+	for i := range lf.Skills {
+		if lf.Skills[i].Name == ui.Name {
+			lockEntry = &lf.Skills[i]
+			break
+		}
+	}
+	if lockEntry == nil {
+		return fmt.Errorf("skill %s not found in lock file", ui.Name)
+	}
+
+	// Parse lock source to build a ParsedSource.
+	host, owner, repo, subPath, parseErr := core.ParseLockSource(ui.Source)
+	if parseErr != nil {
+		return fmt.Errorf("parsing source: %w", parseErr)
+	}
+
+	cloneURL := fmt.Sprintf("https://%s/%s/%s.git", host, owner, repo)
+	source := &core.ParsedSource{
+		Type:     core.SourceTypeGit,
+		Host:     host,
+		Owner:    owner,
+		Repo:     repo,
+		CloneURL: cloneURL,
+		SubPath:  subPath,
+		Ref:      lockEntry.Ref,
+	}
+
+	// Apply clone URL override.
+	if cfgErr == nil && cfg != nil {
+		source.ApplyCloneURLOverride(cfg.Settings.CloneURLOverrides)
+	}
+
+	// Remove existing skill.
+	remover := core.NewRemover(app.agents)
+	_, removeErr := remover.Remove(ui.Name, core.RemoveOptions{TargetDir: folderPath})
+	if removeErr != nil {
+		return fmt.Errorf("removing: %w", removeErr)
+	}
+
+	// Reinstall at the available commit.
+	installer := core.NewInstaller(app.agents)
+	result, installErr := installer.InstallFromSource(source, core.InstallOptions{
+		TargetDir:   folderPath,
+		SkillFilter: ui.Name,
+		Commit:      ui.AvailableCommit,
+		IsInternal:  true,
+	})
+	if installErr != nil {
+		return fmt.Errorf("installing: %w", installErr)
+	}
+
+	// Update lock file with new commit.
+	for _, s := range result.InstalledSkills {
+		entry := core.LockedSkill{
+			Name:   s.Name,
+			Source: s.Source,
+			Commit: s.Commit,
+			Ref:    s.Ref,
+		}
+		if lockErr := core.AddOrUpdateLockEntry(folderPath, entry); lockErr != nil {
+			return fmt.Errorf("updating lock file: %w", lockErr)
+		}
+	}
+
 	return nil
 }
 

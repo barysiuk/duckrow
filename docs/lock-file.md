@@ -243,9 +243,52 @@ Update reinstalls the skill: the existing directory and agent symlinks are remov
 
 Both `outdated` and `update` use the same precedence to find the available commit for each skill:
 
-1. **Registry commit** — if a configured registry has a `commit` field for this skill, that commit is used. This lets registry authors pin specific blessed versions.
+1. **Registry commit** — if a configured registry has a commit for this skill (pinned in the manifest or resolved via hydration), that commit is used. No network fetch is needed.
 2. **Lock entry ref** — if the lock entry has a `ref` (branch or tag), the latest commit on that ref is fetched from the source repository.
 3. **Default branch** — otherwise, the latest commit on the repository's default branch is fetched.
+
+Registry commits come from two sources, merged together:
+
+- **Pinned commits** — explicit `commit` fields in the registry's `duckrow.json` manifest. These always take precedence.
+- **Hydrated commits** — for skills without a `commit` field, duckrow resolves the latest commit from the source repo during registry refresh and caches the result (see [Commit Hydration](#commit-hydration) below).
+
+### Commit Hydration
+
+Registry manifests can list skills with or without a `commit` field. Skills with an explicit commit are **pinned** — the registry author has blessed a specific version. Skills without a commit are **unpinned** — they track whatever is latest in the source repo.
+
+For unpinned skills, duckrow resolves the actual latest commit during registry refresh. This process is called **commit hydration**:
+
+1. Groups unpinned skills by source repository
+2. Performs a shallow clone of each unique source repo
+3. Runs `git log` to determine the latest commit for each skill's sub-path
+4. Caches the resolved commits to `duckrow.commits.json` in the registry's local directory
+
+Hydration happens automatically during:
+
+- **TUI startup** — registries are refreshed asynchronously in the background
+- **TUI `[r]` refresh** — triggers a full registry refresh including hydration
+- **CLI `duckrow outdated`** — hydrates before checking for updates
+- **CLI `duckrow update`** — hydrates before applying updates
+
+The cache file (`duckrow.commits.json`) is stored alongside the registry clone at `~/.duckrow/registries/<registry-key>/duckrow.commits.json`. It is not meant to be edited manually.
+
+When building the final commit map, pinned commits from the manifest always take precedence over cached (hydrated) commits.
+
+### Host-Agnostic Source Matching
+
+Lock file sources may use SSH host aliases that differ from the registry's canonical host. For example, a team member might configure `github.com-work` as an SSH alias for `github.com`. This means the lock file source could be:
+
+```
+github.com-work/acme/skills/go-review
+```
+
+while the registry lists:
+
+```
+github.com/acme/skills/go-review
+```
+
+duckrow handles this by falling back to **path-based matching** when an exact source match fails. It strips the host component and compares the remaining `owner/repo/path` portion. This ensures update detection works regardless of SSH host aliases or other host variations.
 
 ## Lock File and Existing Commands
 
@@ -366,6 +409,10 @@ Registry manifests (`duckrow.json`) can include an optional `commit` field per s
       "name": "go-review",
       "source": "github.com/acme/skills/skills/engineering/go-review",
       "commit": "a1b2c3d4e5f6789012345678901234567890abcd"
+    },
+    {
+      "name": "pr-guidelines",
+      "source": "github.com/acme/skills/skills/engineering/pr-guidelines"
     }
   ]
 }
@@ -378,3 +425,5 @@ When a registry provides a `commit`:
 - No network fetch is needed for that skill during `outdated` checks
 
 This lets registry authors bless specific versions of external skills for their organization.
+
+Skills without a `commit` field are still tracked for updates via [commit hydration](#commit-hydration) — duckrow resolves the latest commit from the source repo during registry refresh.
