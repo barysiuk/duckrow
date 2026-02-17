@@ -79,6 +79,18 @@ type App struct {
 	// Active folder's computed data.
 	activeFolderStatus *core.FolderStatus
 
+	// Registry commit map: source -> commit (built from registry manifests).
+	registryCommits map[string]string
+
+	// Update info for the active folder's skills: skill name -> update info.
+	updateInfo map[string]core.UpdateInfo
+
+	// Whether registries are being refreshed asynchronously.
+	refreshingRegistries bool
+
+	// Spinner for async registry refresh indicator in the header.
+	refreshSpinner spinner.Model
+
 	// Toast notifications (replaces old statusText/err banner).
 	toast toastModel
 
@@ -102,6 +114,11 @@ func NewApp(config *core.ConfigManager, agents []core.AgentDef) App {
 		spinner.WithStyle(spinnerStyle),
 	)
 
+	rs := spinner.New(
+		spinner.WithSpinner(spinner.Dot),
+		spinner.WithStyle(spinnerStyle),
+	)
+
 	return App{
 		config:         config,
 		agents:         agents,
@@ -117,6 +134,7 @@ func NewApp(config *core.ConfigManager, agents []core.AgentDef) App {
 		cloneError:     newCloneErrorModel(),
 		help:           h,
 		previewSpinner: s,
+		refreshSpinner: rs,
 		toast:          newToastModel(),
 		confirm:        newConfirmModel(),
 	}
@@ -125,10 +143,11 @@ func NewApp(config *core.ConfigManager, agents []core.AgentDef) App {
 // --- Messages ---
 
 type loadedDataMsg struct {
-	cfg            *core.Config
-	folderStatus   []core.FolderStatus
-	registrySkills []core.RegistrySkillInfo
-	err            error
+	cfg             *core.Config
+	folderStatus    []core.FolderStatus
+	registrySkills  []core.RegistrySkillInfo
+	registryCommits map[string]string // source -> commit from registries
+	err             error
 }
 
 type errMsg struct {
@@ -145,6 +164,24 @@ type installDoneMsg struct {
 	err       error
 }
 
+type updateDoneMsg struct {
+	skillName string
+	err       error
+}
+
+type bulkUpdateDoneMsg struct {
+	updated int
+	errors  int
+}
+
+// registryRefreshDoneMsg is sent when the async registry refresh completes.
+type registryRefreshDoneMsg struct {
+	registryCommits map[string]string // source -> latest commit
+}
+
+// startRegistryRefreshMsg triggers the async registry refresh and shows the spinner.
+type startRegistryRefreshMsg struct{}
+
 // openPreviewMsg is sent by the folder model to open the SKILL.md preview.
 type openPreviewMsg struct {
 	title   string
@@ -160,7 +197,13 @@ type previewRenderedMsg struct {
 // --- Init / Update / View ---
 
 func (a App) Init() tea.Cmd {
-	return a.loadDataCmd
+	return tea.Batch(a.loadDataCmd, a.startRegistryRefreshCmd)
+}
+
+// startRegistryRefreshCmd sets the refreshing flag and kicks off the async refresh.
+// This is a two-step pattern: first send a message to update UI state, then run the async work.
+func (a App) startRegistryRefreshCmd() tea.Msg {
+	return startRegistryRefreshMsg{}
 }
 
 func (a App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
@@ -182,6 +225,7 @@ func (a App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		a.cfg = msg.cfg
 		a.folderStatus = msg.folderStatus
 		a.registrySkills = msg.registrySkills
+		a.registryCommits = msg.registryCommits
 		a.refreshActiveFolder()
 		a.pushDataToSubModels()
 		// Re-propagate sizes — isTracked may have changed, affecting height budgets.
@@ -214,6 +258,38 @@ func (a App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		a.activeView = viewFolder
 		return a, tea.Batch(cmd, a.loadDataCmd)
 
+	case updateDoneMsg:
+		if msg.err != nil {
+			var cmd tea.Cmd
+			a.toast, cmd = a.toast.show(fmt.Sprintf("Error updating %s: %v", msg.skillName, msg.err), toastError)
+			return a, tea.Batch(cmd, a.loadDataCmd)
+		}
+		var cmd tea.Cmd
+		a.toast, cmd = a.toast.show(fmt.Sprintf("Updated %s", msg.skillName), toastSuccess)
+		return a, tea.Batch(cmd, a.loadDataCmd)
+
+	case bulkUpdateDoneMsg:
+		var cmd tea.Cmd
+		if msg.errors > 0 {
+			a.toast, cmd = a.toast.show(
+				fmt.Sprintf("Updated %d skills, %d errors", msg.updated, msg.errors), toastWarning)
+		} else {
+			a.toast, cmd = a.toast.show(
+				fmt.Sprintf("Updated %d skills", msg.updated), toastSuccess)
+		}
+		return a, tea.Batch(cmd, a.loadDataCmd)
+
+	case startRegistryRefreshMsg:
+		a.refreshingRegistries = true
+		return a, tea.Batch(a.refreshSpinner.Tick, a.refreshRegistriesCmd)
+
+	case registryRefreshDoneMsg:
+		a.refreshingRegistries = false
+		a.registryCommits = msg.registryCommits
+		a.refreshActiveFolder()
+		a.pushDataToSubModels()
+		return a, nil
+
 	case registryAddDoneMsg:
 		if msg.err != nil {
 			// Check if this is a clone error.
@@ -235,7 +311,8 @@ func (a App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		} else {
 			a.toast, cmd = a.toast.show(fmt.Sprintf("Added registry %s", msg.name), toastSuccess)
 		}
-		return a, tea.Batch(cmd, a.loadDataCmd)
+		// Reload data and trigger async registry refresh (hydration + commit map rebuild).
+		return a, tea.Batch(cmd, a.loadDataCmd, a.startRegistryRefreshCmd)
 
 	case cloneRetryResultMsg:
 		// Result from a retry initiated from the clone error overlay.
@@ -309,21 +386,32 @@ func (a App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return a, nil
 
 	case spinner.TickMsg:
-		// Route spinner ticks to the appropriate consumer.
+		// Route spinner ticks to all active consumers.
+		// Multiple spinners can be active simultaneously (e.g. refresh + toast),
+		// so we collect commands from each and batch them.
+		var cmds []tea.Cmd
+		if a.refreshingRegistries {
+			var cmd tea.Cmd
+			a.refreshSpinner, cmd = a.refreshSpinner.Update(msg)
+			cmds = append(cmds, cmd)
+		}
 		if a.toast.active && a.toast.kind == toastLoading {
 			var cmd tea.Cmd
 			a.toast, cmd = a.toast.update(msg)
-			return a, cmd
+			cmds = append(cmds, cmd)
 		}
 		if a.previewLoading {
 			var cmd tea.Cmd
 			a.previewSpinner, cmd = a.previewSpinner.Update(msg)
-			return a, cmd
+			cmds = append(cmds, cmd)
 		}
 		if a.activeView == viewCloneError && a.cloneError.isRetrying() {
 			var cmd tea.Cmd
 			a.cloneError, cmd = a.cloneError.update(msg, &a)
-			return a, cmd
+			cmds = append(cmds, cmd)
+		}
+		if len(cmds) > 0 {
+			return a, tea.Batch(cmds...)
 		}
 		// Fall through to delegate section for install spinner, etc.
 
@@ -580,6 +668,12 @@ func (a App) renderHeader() string {
 		}
 	}
 
+	// Prepend refresh spinner to hints when registries are being refreshed.
+	if a.refreshingRegistries {
+		refreshIndicator := a.refreshSpinner.View() + mutedStyle.Render("refreshing") + "  "
+		hints = refreshIndicator + hints
+	}
+
 	// Indent 1 char to align with content box's left border.
 	indent := " "
 	left := lipgloss.JoinHorizontal(lipgloss.Top, indent, logo, " ", path)
@@ -595,7 +689,7 @@ func (a App) renderHelpBar() string {
 
 	switch a.activeView {
 	case viewFolder:
-		km = folderHelpKeyMap{isTracked: a.isTracked}
+		km = folderHelpKeyMap{isTracked: a.isTracked, updatesAvailable: len(a.updateInfo) > 0}
 	case viewFolderPicker:
 		km = pickerHelpKeyMap{}
 	case viewInstallPicker:
@@ -668,39 +762,68 @@ func (a App) loadDataCmd() tea.Msg {
 
 	regSkills := a.registry.ListSkills(cfg.Registries)
 
+	// Build registry commit map for update detection.
+	registryCommits := core.BuildRegistryCommitMap(cfg.Registries, a.registry)
+
 	return loadedDataMsg{
-		cfg:            cfg,
-		folderStatus:   statuses,
-		registrySkills: regSkills,
+		cfg:             cfg,
+		folderStatus:    statuses,
+		registrySkills:  regSkills,
+		registryCommits: registryCommits,
 	}
 }
 
 func (a *App) refreshActiveFolder() {
 	a.isTracked = false
 	a.activeFolderStatus = nil
+	a.updateInfo = nil
 
 	for i := range a.folderStatus {
 		if a.folderStatus[i].Folder.Path == a.activeFolder {
 			a.isTracked = true
 			a.activeFolderStatus = &a.folderStatus[i]
-			return
+			break
 		}
 	}
 
-	// Active folder not tracked -- scan it anyway for display.
-	skills, scanErr := a.scanner.ScanFolder(a.activeFolder)
-	agents := a.scanner.DetectAgents(a.activeFolder)
-	status := &core.FolderStatus{
-		Folder: core.TrackedFolder{Path: a.activeFolder},
-		Skills: skills,
-		Agents: agents,
-		Error:  scanErr,
+	if a.activeFolderStatus == nil {
+		// Active folder not tracked -- scan it anyway for display.
+		skills, scanErr := a.scanner.ScanFolder(a.activeFolder)
+		agents := a.scanner.DetectAgents(a.activeFolder)
+		status := &core.FolderStatus{
+			Folder: core.TrackedFolder{Path: a.activeFolder},
+			Skills: skills,
+			Agents: agents,
+			Error:  scanErr,
+		}
+		a.activeFolderStatus = status
 	}
-	a.activeFolderStatus = status
+
+	// Compute update info by comparing lock file commits against registry commits.
+	if len(a.registryCommits) > 0 {
+		lf, err := core.ReadLockFile(a.activeFolder)
+		if err == nil && lf != nil {
+			pathIndex := core.BuildPathIndex(a.registryCommits)
+			a.updateInfo = make(map[string]core.UpdateInfo)
+			for _, skill := range lf.Skills {
+				if regCommit := core.LookupRegistryCommit(skill.Source, a.registryCommits, pathIndex); regCommit != "" {
+					if skill.Commit != regCommit {
+						a.updateInfo[skill.Name] = core.UpdateInfo{
+							Name:            skill.Name,
+							Source:          skill.Source,
+							InstalledCommit: skill.Commit,
+							AvailableCommit: regCommit,
+							HasUpdate:       true,
+						}
+					}
+				}
+			}
+		}
+	}
 }
 
 func (a *App) pushDataToSubModels() {
-	a.folder = a.folder.setData(a.activeFolderStatus, a.isTracked, a.registrySkills)
+	a.folder = a.folder.setData(a.activeFolderStatus, a.isTracked, a.registrySkills, a.updateInfo)
 	a.settings = a.settings.setData(a.cfg)
 }
 
@@ -768,6 +891,29 @@ func (a *App) addActiveFolder() tea.Cmd {
 
 func (a *App) reloadConfig() tea.Cmd {
 	return a.loadDataCmd
+}
+
+// refreshRegistriesCmd refreshes all registries (network call), hydrates
+// unpinned skill commits, and returns the updated commit map.
+// This runs asynchronously — the TUI remains responsive while it executes.
+func (a App) refreshRegistriesCmd() tea.Msg {
+	cfg, err := a.config.Load()
+	if err != nil {
+		return registryRefreshDoneMsg{}
+	}
+
+	if len(cfg.Registries) > 0 {
+		// Refresh registries (git pull).
+		// Errors are intentionally ignored — stale data is acceptable.
+		_, _ = a.registry.RefreshAll(cfg.Registries)
+
+		// Hydrate unpinned skills: resolve latest commits via shallow clone.
+		// Best-effort — clone errors are silently skipped.
+		a.registry.HydrateRegistryCommits(cfg.Registries, cfg.Settings.CloneURLOverrides)
+	}
+
+	registryCommits := core.BuildRegistryCommitMap(cfg.Registries, a.registry)
+	return registryRefreshDoneMsg{registryCommits: registryCommits}
 }
 
 // clampHeight truncates content to at most maxLines lines.

@@ -767,3 +767,522 @@ func setupBareGitRepo(t *testing.T, dir string) {
 	runGit("add", ".")
 	runGit("commit", "-m", "initial")
 }
+
+func TestBuildRegistryCommitMap(t *testing.T) {
+	t.Run("builds map from registry manifests", func(t *testing.T) {
+		registriesDir := t.TempDir()
+		rm := NewRegistryManager(registriesDir)
+
+		repoA := "git@example.com:org/reg-a.git"
+		repoB := "git@example.com:org/reg-b.git"
+
+		createTestRegistryClone(t, registriesDir, repoA, RegistryManifest{
+			Name: "org-a",
+			Skills: []SkillEntry{
+				{Name: "skill-1", Source: "github.com/org/repo/skill-1", Commit: "abc1234"},
+				{Name: "skill-2", Source: "github.com/org/repo/skill-2", Commit: "def5678"},
+			},
+		})
+		createTestRegistryClone(t, registriesDir, repoB, RegistryManifest{
+			Name: "org-b",
+			Skills: []SkillEntry{
+				{Name: "skill-3", Source: "github.com/other/repo/skill-3", Commit: "ghi9012"},
+			},
+		})
+
+		registries := []Registry{
+			{Name: "org-a", Repo: repoA},
+			{Name: "org-b", Repo: repoB},
+		}
+
+		commits := BuildRegistryCommitMap(registries, rm)
+
+		if len(commits) != 3 {
+			t.Fatalf("len(commits) = %d, want 3", len(commits))
+		}
+		if commits["github.com/org/repo/skill-1"] != "abc1234" {
+			t.Errorf("skill-1 commit = %q, want %q", commits["github.com/org/repo/skill-1"], "abc1234")
+		}
+		if commits["github.com/org/repo/skill-2"] != "def5678" {
+			t.Errorf("skill-2 commit = %q, want %q", commits["github.com/org/repo/skill-2"], "def5678")
+		}
+		if commits["github.com/other/repo/skill-3"] != "ghi9012" {
+			t.Errorf("skill-3 commit = %q, want %q", commits["github.com/other/repo/skill-3"], "ghi9012")
+		}
+	})
+
+	t.Run("skips skills with empty commit", func(t *testing.T) {
+		registriesDir := t.TempDir()
+		rm := NewRegistryManager(registriesDir)
+
+		repoURL := "git@example.com:org/reg.git"
+		createTestRegistryClone(t, registriesDir, repoURL, RegistryManifest{
+			Name: "org",
+			Skills: []SkillEntry{
+				{Name: "has-commit", Source: "github.com/org/repo/has-commit", Commit: "abc1234"},
+				{Name: "no-commit", Source: "github.com/org/repo/no-commit", Commit: ""},
+			},
+		})
+
+		registries := []Registry{{Name: "org", Repo: repoURL}}
+		commits := BuildRegistryCommitMap(registries, rm)
+
+		if len(commits) != 1 {
+			t.Fatalf("len(commits) = %d, want 1", len(commits))
+		}
+		if _, ok := commits["github.com/org/repo/no-commit"]; ok {
+			t.Error("should not include skill with empty commit")
+		}
+	})
+
+	t.Run("skips skills with empty source", func(t *testing.T) {
+		registriesDir := t.TempDir()
+		rm := NewRegistryManager(registriesDir)
+
+		repoURL := "git@example.com:org/reg.git"
+		createTestRegistryClone(t, registriesDir, repoURL, RegistryManifest{
+			Name: "org",
+			Skills: []SkillEntry{
+				{Name: "has-source", Source: "github.com/org/repo/has-source", Commit: "abc1234"},
+				{Name: "no-source", Source: "", Commit: "def5678"},
+			},
+		})
+
+		registries := []Registry{{Name: "org", Repo: repoURL}}
+		commits := BuildRegistryCommitMap(registries, rm)
+
+		if len(commits) != 1 {
+			t.Fatalf("len(commits) = %d, want 1", len(commits))
+		}
+	})
+
+	t.Run("returns empty map when no registries", func(t *testing.T) {
+		registriesDir := t.TempDir()
+		rm := NewRegistryManager(registriesDir)
+
+		commits := BuildRegistryCommitMap(nil, rm)
+		if len(commits) != 0 {
+			t.Errorf("len(commits) = %d, want 0", len(commits))
+		}
+	})
+
+	t.Run("skips missing registries gracefully", func(t *testing.T) {
+		registriesDir := t.TempDir()
+		rm := NewRegistryManager(registriesDir)
+
+		repoURL := "git@example.com:org/reg.git"
+		createTestRegistryClone(t, registriesDir, repoURL, RegistryManifest{
+			Name: "org",
+			Skills: []SkillEntry{
+				{Name: "skill-1", Source: "github.com/org/repo/skill-1", Commit: "abc1234"},
+			},
+		})
+
+		registries := []Registry{
+			{Name: "org", Repo: repoURL},
+			{Name: "missing", Repo: "git@example.com:missing/reg.git"},
+		}
+
+		commits := BuildRegistryCommitMap(registries, rm)
+		if len(commits) != 1 {
+			t.Fatalf("len(commits) = %d, want 1", len(commits))
+		}
+	})
+
+	t.Run("last registry wins for duplicate sources", func(t *testing.T) {
+		registriesDir := t.TempDir()
+		rm := NewRegistryManager(registriesDir)
+
+		repoA := "git@example.com:org/reg-a.git"
+		repoB := "git@example.com:org/reg-b.git"
+
+		createTestRegistryClone(t, registriesDir, repoA, RegistryManifest{
+			Name: "org-a",
+			Skills: []SkillEntry{
+				{Name: "shared", Source: "github.com/org/repo/shared", Commit: "old-commit"},
+			},
+		})
+		createTestRegistryClone(t, registriesDir, repoB, RegistryManifest{
+			Name: "org-b",
+			Skills: []SkillEntry{
+				{Name: "shared", Source: "github.com/org/repo/shared", Commit: "new-commit"},
+			},
+		})
+
+		registries := []Registry{
+			{Name: "org-a", Repo: repoA},
+			{Name: "org-b", Repo: repoB},
+		}
+
+		commits := BuildRegistryCommitMap(registries, rm)
+		// Registries are iterated in slice order; last write wins in the map.
+		if commits["github.com/org/repo/shared"] == "" {
+			t.Fatal("expected commit for shared source")
+		}
+	})
+}
+
+func TestLoadCachedCommits(t *testing.T) {
+	t.Run("returns empty map for missing file", func(t *testing.T) {
+		dir := t.TempDir()
+		commits := loadCachedCommits(dir)
+		if len(commits) != 0 {
+			t.Errorf("len(commits) = %d, want 0", len(commits))
+		}
+	})
+
+	t.Run("returns empty map for corrupt JSON", func(t *testing.T) {
+		dir := t.TempDir()
+		if err := os.WriteFile(filepath.Join(dir, cachedCommitsFile), []byte("not json"), 0o644); err != nil {
+			t.Fatal(err)
+		}
+		commits := loadCachedCommits(dir)
+		if len(commits) != 0 {
+			t.Errorf("len(commits) = %d, want 0", len(commits))
+		}
+	})
+
+	t.Run("returns empty map for null commits field", func(t *testing.T) {
+		dir := t.TempDir()
+		if err := os.WriteFile(filepath.Join(dir, cachedCommitsFile), []byte(`{"generatedAt":"2025-01-01T00:00:00Z","commits":null}`), 0o644); err != nil {
+			t.Fatal(err)
+		}
+		commits := loadCachedCommits(dir)
+		if len(commits) != 0 {
+			t.Errorf("len(commits) = %d, want 0", len(commits))
+		}
+	})
+
+	t.Run("round-trips with writeCachedCommits", func(t *testing.T) {
+		dir := t.TempDir()
+
+		original := map[string]string{
+			"github.com/org/repo/skill-a": "aaa111",
+			"github.com/org/repo/skill-b": "bbb222",
+		}
+
+		if err := writeCachedCommits(dir, original); err != nil {
+			t.Fatalf("writeCachedCommits: %v", err)
+		}
+
+		loaded := loadCachedCommits(dir)
+		if len(loaded) != 2 {
+			t.Fatalf("len(loaded) = %d, want 2", len(loaded))
+		}
+		if loaded["github.com/org/repo/skill-a"] != "aaa111" {
+			t.Errorf("skill-a commit = %q, want %q", loaded["github.com/org/repo/skill-a"], "aaa111")
+		}
+		if loaded["github.com/org/repo/skill-b"] != "bbb222" {
+			t.Errorf("skill-b commit = %q, want %q", loaded["github.com/org/repo/skill-b"], "bbb222")
+		}
+	})
+}
+
+func TestWriteCachedCommits(t *testing.T) {
+	t.Run("creates valid JSON file", func(t *testing.T) {
+		dir := t.TempDir()
+
+		commits := map[string]string{
+			"github.com/org/repo/skill": "abc123",
+		}
+
+		if err := writeCachedCommits(dir, commits); err != nil {
+			t.Fatalf("writeCachedCommits: %v", err)
+		}
+
+		data, err := os.ReadFile(filepath.Join(dir, cachedCommitsFile))
+		if err != nil {
+			t.Fatal(err)
+		}
+
+		var cached CachedCommits
+		if err := json.Unmarshal(data, &cached); err != nil {
+			t.Fatalf("JSON parse error: %v", err)
+		}
+
+		if cached.GeneratedAt.IsZero() {
+			t.Error("generatedAt should not be zero")
+		}
+		if cached.Commits["github.com/org/repo/skill"] != "abc123" {
+			t.Errorf("commit = %q, want %q", cached.Commits["github.com/org/repo/skill"], "abc123")
+		}
+	})
+
+	t.Run("overwrites existing file", func(t *testing.T) {
+		dir := t.TempDir()
+
+		first := map[string]string{"github.com/org/repo/old": "old-sha"}
+		second := map[string]string{"github.com/org/repo/new": "new-sha"}
+
+		if err := writeCachedCommits(dir, first); err != nil {
+			t.Fatal(err)
+		}
+		if err := writeCachedCommits(dir, second); err != nil {
+			t.Fatal(err)
+		}
+
+		loaded := loadCachedCommits(dir)
+		if len(loaded) != 1 {
+			t.Fatalf("len(loaded) = %d, want 1", len(loaded))
+		}
+		if _, ok := loaded["github.com/org/repo/old"]; ok {
+			t.Error("old entry should not be present after overwrite")
+		}
+		if loaded["github.com/org/repo/new"] != "new-sha" {
+			t.Errorf("new commit = %q, want %q", loaded["github.com/org/repo/new"], "new-sha")
+		}
+	})
+}
+
+func TestBuildRegistryCommitMap_WithCachedCommits(t *testing.T) {
+	t.Run("includes cached commits for unpinned skills", func(t *testing.T) {
+		registriesDir := t.TempDir()
+		rm := NewRegistryManager(registriesDir)
+
+		repoURL := "git@example.com:org/reg.git"
+		regDir := createTestRegistryClone(t, registriesDir, repoURL, RegistryManifest{
+			Name: "org",
+			Skills: []SkillEntry{
+				{Name: "pinned", Source: "github.com/org/repo/pinned", Commit: "pinned-sha"},
+				{Name: "unpinned", Source: "github.com/org/repo/unpinned"}, // no commit
+			},
+		})
+
+		// Write cached commit for the unpinned skill.
+		if err := writeCachedCommits(regDir, map[string]string{
+			"github.com/org/repo/unpinned": "cached-sha",
+		}); err != nil {
+			t.Fatal(err)
+		}
+
+		registries := []Registry{{Name: "org", Repo: repoURL}}
+		commits := BuildRegistryCommitMap(registries, rm)
+
+		if len(commits) != 2 {
+			t.Fatalf("len(commits) = %d, want 2", len(commits))
+		}
+		if commits["github.com/org/repo/pinned"] != "pinned-sha" {
+			t.Errorf("pinned commit = %q, want %q", commits["github.com/org/repo/pinned"], "pinned-sha")
+		}
+		if commits["github.com/org/repo/unpinned"] != "cached-sha" {
+			t.Errorf("unpinned commit = %q, want %q", commits["github.com/org/repo/unpinned"], "cached-sha")
+		}
+	})
+
+	t.Run("pinned commit takes precedence over cached", func(t *testing.T) {
+		registriesDir := t.TempDir()
+		rm := NewRegistryManager(registriesDir)
+
+		repoURL := "git@example.com:org/reg.git"
+		regDir := createTestRegistryClone(t, registriesDir, repoURL, RegistryManifest{
+			Name: "org",
+			Skills: []SkillEntry{
+				{Name: "skill", Source: "github.com/org/repo/skill", Commit: "pinned-sha"},
+			},
+		})
+
+		// Write a different cached commit for the same skill.
+		if err := writeCachedCommits(regDir, map[string]string{
+			"github.com/org/repo/skill": "stale-cached-sha",
+		}); err != nil {
+			t.Fatal(err)
+		}
+
+		registries := []Registry{{Name: "org", Repo: repoURL}}
+		commits := BuildRegistryCommitMap(registries, rm)
+
+		if commits["github.com/org/repo/skill"] != "pinned-sha" {
+			t.Errorf("commit = %q, want %q (pinned should win)", commits["github.com/org/repo/skill"], "pinned-sha")
+		}
+	})
+
+	t.Run("no cache file still works", func(t *testing.T) {
+		registriesDir := t.TempDir()
+		rm := NewRegistryManager(registriesDir)
+
+		repoURL := "git@example.com:org/reg.git"
+		createTestRegistryClone(t, registriesDir, repoURL, RegistryManifest{
+			Name: "org",
+			Skills: []SkillEntry{
+				{Name: "skill", Source: "github.com/org/repo/skill", Commit: "abc123"},
+			},
+		})
+
+		registries := []Registry{{Name: "org", Repo: repoURL}}
+		commits := BuildRegistryCommitMap(registries, rm)
+
+		if len(commits) != 1 {
+			t.Fatalf("len(commits) = %d, want 1", len(commits))
+		}
+		if commits["github.com/org/repo/skill"] != "abc123" {
+			t.Errorf("commit = %q, want %q", commits["github.com/org/repo/skill"], "abc123")
+		}
+	})
+}
+
+func TestHydrateRegistryCommits(t *testing.T) {
+	if testing.Short() {
+		t.Skip("skipping integration test in short mode")
+	}
+
+	t.Run("resolves commits for unpinned skills", func(t *testing.T) {
+		// Create a source repo with two skills in sub-paths.
+		sourceDir := t.TempDir()
+
+		// Create skill files.
+		skillADir := filepath.Join(sourceDir, "skills", "skill-a")
+		skillBDir := filepath.Join(sourceDir, "skills", "skill-b")
+		if err := os.MkdirAll(skillADir, 0o755); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.MkdirAll(skillBDir, 0o755); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(filepath.Join(skillADir, "SKILL.md"), []byte("---\nname: skill-a\ndescription: A\n---\n"), 0o644); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(filepath.Join(skillBDir, "SKILL.md"), []byte("---\nname: skill-b\ndescription: B\n---\n"), 0o644); err != nil {
+			t.Fatal(err)
+		}
+
+		setupTestGitRepoInDir(t, sourceDir)
+
+		// Create registry directory with a manifest pointing to the source repo.
+		registriesDir := t.TempDir()
+		rm := NewRegistryManager(registriesDir)
+
+		regRepoURL := "git@example.com:org/reg.git"
+		regDir := createTestRegistryClone(t, registriesDir, regRepoURL, RegistryManifest{
+			Name: "org",
+			Skills: []SkillEntry{
+				{Name: "skill-a", Source: "localhost/testorg/testrepo/skills/skill-a"},       // unpinned
+				{Name: "skill-b", Source: "localhost/testorg/testrepo/skills/skill-b"},       // unpinned
+				{Name: "pinned", Source: "localhost/testorg/testrepo/pinned", Commit: "abc"}, // pinned — should be skipped
+			},
+		})
+
+		registries := []Registry{{Name: "org", Repo: regRepoURL}}
+
+		// Use clone URL override to point to the local git repo.
+		overrides := map[string]string{
+			"testorg/testrepo": sourceDir,
+		}
+
+		rm.HydrateRegistryCommits(registries, overrides)
+
+		// Verify cache file was written.
+		cached := loadCachedCommits(regDir)
+		if len(cached) != 2 {
+			t.Fatalf("len(cached) = %d, want 2 (only unpinned skills)", len(cached))
+		}
+
+		// Both should have valid non-empty commit SHAs.
+		for _, source := range []string{
+			"localhost/testorg/testrepo/skills/skill-a",
+			"localhost/testorg/testrepo/skills/skill-b",
+		} {
+			sha := cached[source]
+			if sha == "" {
+				t.Errorf("expected non-empty commit for %s", source)
+			}
+			if len(sha) != 40 {
+				t.Errorf("commit for %s = %q, want 40-char SHA", source, sha)
+			}
+		}
+
+		// Pinned skill should NOT be in the cache.
+		if _, ok := cached["localhost/testorg/testrepo/pinned"]; ok {
+			t.Error("pinned skill should not be in cached commits")
+		}
+	})
+
+	t.Run("skips all-pinned registries", func(t *testing.T) {
+		registriesDir := t.TempDir()
+		rm := NewRegistryManager(registriesDir)
+
+		regRepoURL := "git@example.com:org/reg.git"
+		regDir := createTestRegistryClone(t, registriesDir, regRepoURL, RegistryManifest{
+			Name: "org",
+			Skills: []SkillEntry{
+				{Name: "skill", Source: "github.com/org/repo/skill", Commit: "abc123"},
+			},
+		})
+
+		registries := []Registry{{Name: "org", Repo: regRepoURL}}
+		rm.HydrateRegistryCommits(registries, nil)
+
+		// No cache file should be written since all skills are pinned.
+		_, err := os.Stat(filepath.Join(regDir, cachedCommitsFile))
+		if err == nil {
+			t.Error("cache file should not exist for all-pinned registry")
+		}
+	})
+
+	t.Run("continues on clone error", func(t *testing.T) {
+		registriesDir := t.TempDir()
+		rm := NewRegistryManager(registriesDir)
+
+		regRepoURL := "git@example.com:org/reg.git"
+		createTestRegistryClone(t, registriesDir, regRepoURL, RegistryManifest{
+			Name: "org",
+			Skills: []SkillEntry{
+				// Source points to a non-existent repo — clone will fail.
+				{Name: "unreachable", Source: "localhost/no/such-repo/skill"},
+			},
+		})
+
+		registries := []Registry{{Name: "org", Repo: regRepoURL}}
+
+		// Should not panic — clone errors are silently skipped.
+		rm.HydrateRegistryCommits(registries, nil)
+	})
+
+	t.Run("end-to-end with BuildRegistryCommitMap", func(t *testing.T) {
+		// Create source repo with a skill.
+		sourceDir := t.TempDir()
+		skillDir := filepath.Join(sourceDir, "my-skill")
+		if err := os.MkdirAll(skillDir, 0o755); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(filepath.Join(skillDir, "SKILL.md"), []byte("---\nname: my-skill\ndescription: Test\n---\n"), 0o644); err != nil {
+			t.Fatal(err)
+		}
+		setupTestGitRepoInDir(t, sourceDir)
+
+		// Set up registry with one pinned and one unpinned skill.
+		registriesDir := t.TempDir()
+		rm := NewRegistryManager(registriesDir)
+
+		regRepoURL := "git@example.com:org/reg.git"
+		createTestRegistryClone(t, registriesDir, regRepoURL, RegistryManifest{
+			Name: "org",
+			Skills: []SkillEntry{
+				{Name: "pinned-skill", Source: "github.com/org/other/pinned-skill", Commit: "pinned-sha"},
+				{Name: "my-skill", Source: "localhost/testorg/testrepo/my-skill"}, // unpinned
+			},
+		})
+
+		registries := []Registry{{Name: "org", Repo: regRepoURL}}
+		overrides := map[string]string{"testorg/testrepo": sourceDir}
+
+		// Hydrate first.
+		rm.HydrateRegistryCommits(registries, overrides)
+
+		// BuildRegistryCommitMap should now include both pinned and cached commits.
+		commits := BuildRegistryCommitMap(registries, rm)
+
+		if len(commits) != 2 {
+			t.Fatalf("len(commits) = %d, want 2", len(commits))
+		}
+		if commits["github.com/org/other/pinned-skill"] != "pinned-sha" {
+			t.Errorf("pinned commit = %q, want %q", commits["github.com/org/other/pinned-skill"], "pinned-sha")
+		}
+		hydrated := commits["localhost/testorg/testrepo/my-skill"]
+		if hydrated == "" {
+			t.Fatal("expected non-empty commit for hydrated skill")
+		}
+		if len(hydrated) != 40 {
+			t.Errorf("hydrated commit = %q, want 40-char SHA", hydrated)
+		}
+	})
+}

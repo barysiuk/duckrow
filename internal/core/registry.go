@@ -300,6 +300,186 @@ func (rm *RegistryManager) FindSkill(registries []Registry, skillName, registryF
 	}
 }
 
+// BuildRegistryCommitMap builds a map from canonical source strings to
+// registry commit hashes. This allows update checks to skip network fetches
+// for registry-pinned skills by comparing the installed commit against the
+// registry's pinned commit locally.
+//
+// The map is built by merging two sources per registry:
+//  1. Cached commits from duckrow.commits.json (hydrated unpinned skills)
+//  2. Pinned commits from the manifest (explicit commit field in duckrow.json)
+//
+// Pinned commits take precedence over cached commits.
+func BuildRegistryCommitMap(registries []Registry, rm *RegistryManager) map[string]string {
+	commits := make(map[string]string)
+
+	if len(registries) == 0 {
+		return commits
+	}
+
+	for _, reg := range registries {
+		regDir := filepath.Join(rm.registriesDir, RegistryDirKey(reg.Repo))
+
+		// Layer 1: cached commits (hydrated unpinned skills).
+		cached := loadCachedCommits(regDir)
+		for source, commit := range cached {
+			commits[source] = commit
+		}
+
+		// Layer 2: pinned commits from manifest (takes precedence).
+		manifest, err := rm.LoadManifest(reg.Repo)
+		if err != nil {
+			continue
+		}
+		for _, skill := range manifest.Skills {
+			if skill.Commit != "" && skill.Source != "" {
+				commits[skill.Source] = skill.Commit
+			}
+		}
+	}
+
+	return commits
+}
+
+const cachedCommitsFile = "duckrow.commits.json"
+
+// loadCachedCommits reads the cached commits file from a registry directory.
+// Returns an empty map if the file doesn't exist or can't be parsed.
+func loadCachedCommits(registryDir string) map[string]string {
+	path := filepath.Join(registryDir, cachedCommitsFile)
+	data, err := os.ReadFile(path)
+	if err != nil {
+		return make(map[string]string)
+	}
+
+	var cached CachedCommits
+	if err := json.Unmarshal(data, &cached); err != nil {
+		return make(map[string]string)
+	}
+
+	if cached.Commits == nil {
+		return make(map[string]string)
+	}
+	return cached.Commits
+}
+
+// writeCachedCommits writes resolved commits to the cache file in a registry directory.
+func writeCachedCommits(registryDir string, commits map[string]string) error {
+	cached := CachedCommits{
+		GeneratedAt: time.Now().UTC(),
+		Commits:     commits,
+	}
+
+	data, err := json.MarshalIndent(cached, "", "  ")
+	if err != nil {
+		return fmt.Errorf("marshaling cached commits: %w", err)
+	}
+
+	path := filepath.Join(registryDir, cachedCommitsFile)
+	if err := os.WriteFile(path, data, 0o644); err != nil {
+		return fmt.Errorf("writing %s: %w", cachedCommitsFile, err)
+	}
+	return nil
+}
+
+// HydrateRegistryCommits resolves the latest commit SHA for each unpinned
+// skill in the configured registries. Unpinned skills are those with a Source
+// but no Commit field in the registry manifest.
+//
+// For each unique source repository, a shallow clone is performed and the
+// latest commit for each skill's sub-path is determined via git log. Results
+// are cached to duckrow.commits.json in the registry directory so that
+// BuildRegistryCommitMap can include them without additional network calls.
+//
+// Clone errors are logged and skipped — hydration is best-effort.
+// The overrides parameter maps "owner/repo" keys to clone URL overrides
+// for private repositories.
+func (rm *RegistryManager) HydrateRegistryCommits(registries []Registry, overrides map[string]string) {
+	for _, reg := range registries {
+		regDir := filepath.Join(rm.registriesDir, RegistryDirKey(reg.Repo))
+		manifest, err := rm.LoadManifest(reg.Repo)
+		if err != nil {
+			continue
+		}
+
+		// Collect unpinned skills (have Source but no Commit).
+		type unpinnedSkill struct {
+			source  string
+			subPath string
+		}
+		type repoRefKey struct {
+			repo string
+			ref  string // always "" for registry skills (they don't have a ref field)
+		}
+
+		repoGroups := make(map[repoRefKey][]unpinnedSkill)
+		var repoGroupOrder []repoRefKey
+
+		for _, skill := range manifest.Skills {
+			if skill.Source == "" || skill.Commit != "" {
+				continue // skip: no source or already pinned
+			}
+
+			rk := repoKey(skill.Source)
+			sp := skillSubPath(skill.Source)
+			key := repoRefKey{repo: rk}
+
+			if _, exists := repoGroups[key]; !exists {
+				repoGroupOrder = append(repoGroupOrder, key)
+			}
+			repoGroups[key] = append(repoGroups[key], unpinnedSkill{
+				source:  skill.Source,
+				subPath: sp,
+			})
+		}
+
+		if len(repoGroups) == 0 {
+			continue // all skills are pinned
+		}
+
+		// Resolve commits for each repo group.
+		resolved := make(map[string]string)
+
+		for _, key := range repoGroupOrder {
+			skills := repoGroups[key]
+
+			// Parse source to build clone URL.
+			host, owner, repo, _, parseErr := ParseLockSource(skills[0].source)
+			if parseErr != nil {
+				continue
+			}
+
+			cloneURL := fmt.Sprintf("https://%s/%s/%s.git", host, owner, repo)
+
+			// Apply clone URL override.
+			repoKeyStr := strings.ToLower(owner) + "/" + strings.ToLower(repo)
+			if override, ok := overrides[repoKeyStr]; ok && override != "" {
+				cloneURL = override
+			}
+
+			tmpDir, cloneErr := cloneRepo(cloneURL, key.ref)
+			if cloneErr != nil {
+				continue // best-effort: skip repos that fail to clone
+			}
+
+			for _, s := range skills {
+				commit, commitErr := GetSkillCommit(tmpDir, s.subPath)
+				if commitErr != nil {
+					continue
+				}
+				resolved[s.source] = commit
+			}
+
+			_ = os.RemoveAll(tmpDir)
+		}
+
+		// Write resolved commits to cache file.
+		if len(resolved) > 0 {
+			_ = writeCachedCommits(regDir, resolved)
+		}
+	}
+}
+
 // readManifest reads and parses the duckrow.json manifest from a directory.
 func readManifest(dir string) (*RegistryManifest, error) {
 	path := filepath.Join(dir, registryManifestFile)

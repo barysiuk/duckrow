@@ -76,7 +76,9 @@ returns an error with a usage hint.`,
 		}
 
 		// Build registry commit lookup.
-		registryCommits := buildRegistryCommitLookup(d.config, cfg)
+		rm := core.NewRegistryManager(d.config.RegistriesDir())
+		rm.HydrateRegistryCommits(cfg.Registries, cfg.Settings.CloneURLOverrides)
+		registryCommits := core.BuildRegistryCommitMap(cfg.Registries, rm)
 
 		// Determine which skills to check.
 		var skillsToCheck *core.LockFile
@@ -122,7 +124,7 @@ returns an error with a usage hint.`,
 
 			if dryRun {
 				fmt.Fprintf(os.Stdout, "update: %s %s -> %s\n", u.Name,
-					truncateCommit(u.InstalledCommit), truncateCommit(u.AvailableCommit))
+					core.TruncateCommit(u.InstalledCommit), core.TruncateCommit(u.AvailableCommit))
 				updated++
 				continue
 			}
@@ -203,7 +205,7 @@ returns an error with a usage hint.`,
 					fmt.Fprintf(os.Stderr, "Warning: failed to update lock file: %v\n", lockErr)
 				}
 				fmt.Fprintf(os.Stdout, "Updated: %s %s -> %s\n", s.Name,
-					truncateCommit(u.InstalledCommit), truncateCommit(s.Commit))
+					core.TruncateCommit(u.InstalledCommit), core.TruncateCommit(s.Commit))
 			}
 			updated++
 		}
