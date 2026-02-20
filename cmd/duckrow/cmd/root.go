@@ -19,9 +19,9 @@ var (
 var rootCmd = &cobra.Command{
 	Use:   "duckrow",
 	Short: "Get your ducks in a row - manage AI agent skills across projects",
-	Long: `DuckRow manages AI agent skills across multiple project folders.
+	Long: `DuckRow manages AI agent skills and MCP configurations across multiple project folders.
 
-Track folders, install and remove skills, manage private registries,
+Track folders, install and remove skills and MCPs, manage private registries,
 and see what's installed everywhere - all from a single tool.
 
 Run without arguments to launch the interactive TUI.`,

@@ -12,7 +12,7 @@ setup-git-repo skill-source test-skills test-skill
 setup-config-override test-owner/test-repo skill-source
 
 # Install with --no-lock
-exec duckrow install test-owner/test-repo -d myproject --no-lock
+exec duckrow skill install https://github.com/test-owner/test-repo -d myproject --no-lock
 stdout 'Installed: test-skill'
 ! stderr .
 
@@ -29,13 +29,13 @@ setup-git-repo skill-source-b test-skills-b other-skill
 
 setup-registry-config test-owner/test-repo-b skill-source-b
 
-exec duckrow install test-owner/test-repo-b -d myproject
+exec duckrow skill install https://github.com/test-owner/test-repo-b -d myproject
 stdout 'Installed: other-skill'
 exists myproject/duckrow.lock.json
 file-contains myproject/duckrow.lock.json '"name": "other-skill"'
 
 # Uninstall with --no-lock should not touch the lock file
-exec duckrow uninstall other-skill -d myproject --no-lock
+exec duckrow skill uninstall other-skill -d myproject --no-lock
 stdout 'Removed: other-skill'
 # Lock file should still contain the entry (--no-lock skipped removal)
 file-contains myproject/duckrow.lock.json '"name": "other-skill"'

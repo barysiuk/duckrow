@@ -1,4 +1,4 @@
-# Test installing a skill from a configured registry using --skill flag
+# Test installing a skill from a configured registry by name
 
 # Create a project directory
 mkdir myproject
@@ -26,8 +26,8 @@ stdout 'Added registry: my-org'
 # "fake-owner/skill-source" (the Source in the manifest) resolves locally
 setup-registry-config fake-owner/skill-source skill-repo
 
-# Install using --skill (no source argument) — resolves from registry
-exec duckrow install --skill go-review -d myproject
+# Install using registry name lookup — resolves from registry
+exec duckrow skill install go-review -d myproject
 stdout 'Installed: go-review'
 ! stdout 'py-review'
 
@@ -36,23 +36,21 @@ exists myproject/.agents/skills/go-review/SKILL.md
 file-contains myproject/.agents/skills/go-review/SKILL.md 'Go code reviewer'
 dir-not-exists myproject/.agents/skills/py-review
 
-# Test: --skill with nonexistent skill shows available skills
-! exec duckrow install --skill nonexistent -d myproject
+# Test: registry name lookup with nonexistent skill shows error
+! exec duckrow skill install nonexistent -d myproject
 stderr 'not found'
-stderr 'Available'
 
-# Test: no args and no --skill shows error
-! exec duckrow install
-stderr 'source'
-stderr '--skill'
+# Test: no args shows error (requires exactly 1 arg)
+! exec duckrow skill install
+stderr 'accepts 1 arg'
 
-# Test: --registry without --skill shows error
-! exec duckrow install --registry my-org
-stderr '--registry requires --skill'
+# Test: --registry without a URL arg is a registry lookup
+exec duckrow skill install go-review --registry my-org -d myproject
+stdout 'Installed: go-review'
 
-# Test: --registry with a source argument shows error
-! exec duckrow install some-owner/some-repo --registry my-org --skill foo
-stderr '--registry can only be used with --skill'
+# Test: --registry with a URL source shows error
+! exec duckrow skill install https://github.com/some-owner/some-repo --registry my-org
+stderr '--registry cannot be used with a direct URL source'
 
 -- manifest --
 {

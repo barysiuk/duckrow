@@ -100,8 +100,11 @@ var registryListCmd = &cobra.Command{
 			fmt.Fprintf(os.Stdout, "  %s  %s  (%d skills)\n", reg.Name, reg.Repo, len(manifest.Skills))
 
 			if verbose {
-				for _, s := range manifest.Skills {
-					fmt.Fprintf(os.Stdout, "    - %s: %s\n", s.Name, s.Description)
+				if len(manifest.Skills) > 0 {
+					fmt.Fprintln(os.Stdout, "    Skills:")
+					for _, s := range manifest.Skills {
+						fmt.Fprintf(os.Stdout, "      - %s: %s\n", s.Name, s.Description)
+					}
 				}
 			}
 		}

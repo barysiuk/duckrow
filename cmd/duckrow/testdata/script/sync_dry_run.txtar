@@ -10,7 +10,7 @@ setup-config-override test-owner/test-repo skill-source
 
 # Create project and install a skill (creates lock file)
 mkdir myproject
-exec duckrow install test-owner/test-repo -d myproject
+exec duckrow skill install https://github.com/test-owner/test-repo -d myproject
 stdout 'Installed: test-skill'
 exists myproject/duckrow.lock.json
 

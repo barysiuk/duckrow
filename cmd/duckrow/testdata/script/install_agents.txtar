@@ -12,7 +12,7 @@ setup-git-repo skill-source test-skills agent-test
 setup-config-override test-owner/test-repo skill-source
 
 # Install with --agents=cursor (only create cursor symlink)
-exec duckrow install test-owner/test-repo -d myproject --agents=cursor
+exec duckrow skill install https://github.com/test-owner/test-repo -d myproject --agents=cursor
 stdout 'Installed: agent-test'
 stdout 'Cursor'
 exists myproject/.agents/skills/agent-test/SKILL.md
@@ -23,14 +23,14 @@ is-symlink myproject/.cursor/skills/agent-test
 dir-not-exists myproject/.claude/skills
 
 # Clean up
-exec duckrow uninstall agent-test -d myproject
+exec duckrow skill uninstall agent-test -d myproject
 dir-not-exists myproject/.agents/skills/agent-test
 dir-not-exists myproject/.cursor/skills/agent-test
 
 # Install with multiple --agents (cursor,claude-code)
-exec duckrow install test-owner/test-repo -d myproject --agents=cursor,claude-code
+exec duckrow skill install https://github.com/test-owner/test-repo -d myproject --agents=cursor,claude-code
 stdout 'Installed: agent-test'
-exists myproject/.agents/skills/agent-test/SKILL.md
+exists myproject/.agents/skills/agent-test/SKILL.MD
 exists myproject/.cursor/skills/agent-test
 is-symlink myproject/.cursor/skills/agent-test
 exists myproject/.claude/skills/agent-test
@@ -40,23 +40,23 @@ is-symlink myproject/.claude/skills/agent-test
 dir-not-exists myproject/.windsurf/skills
 
 # Clean up
-exec duckrow uninstall agent-test -d myproject
+exec duckrow skill uninstall agent-test -d myproject
 dir-not-exists myproject/.agents/skills/agent-test
 dir-not-exists myproject/.cursor/skills/agent-test
 dir-not-exists myproject/.claude/skills/agent-test
 
 # Install with default (no --agents flag, non-interactive = universal only)
-exec duckrow install test-owner/test-repo -d myproject
+exec duckrow skill install https://github.com/test-owner/test-repo -d myproject
 stdout 'Installed: agent-test'
-exists myproject/.agents/skills/agent-test/SKILL.md
+exists myproject/.agents/skills/agent-test/SKILL.MD
 dir-not-exists myproject/.cursor/skills
 dir-not-exists myproject/.claude/skills
 
 # Clean up
-exec duckrow uninstall agent-test -d myproject
+exec duckrow skill uninstall agent-test -d myproject
 
 # Install with invalid agent name should fail
-! exec duckrow install test-owner/test-repo -d myproject --agents=nonexistent
+! exec duckrow skill install https://github.com/test-owner/test-repo -d myproject --agents=nonexistent
 stderr 'unknown agent "nonexistent"'
 
 -- skill-md --

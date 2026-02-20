@@ -15,15 +15,15 @@ setup-registry-config test-owner/source-b source-b
 
 # Install both skills
 mkdir myproject
-exec duckrow install test-owner/source-a -d myproject
-exec duckrow install test-owner/source-b -d myproject
+exec duckrow skill install https://github.com/test-owner/source-a -d myproject
+exec duckrow skill install https://github.com/test-owner/source-b -d myproject
 
 # Verify lock file has both skills
 file-contains myproject/duckrow.lock.json '"name": "alpha"'
 file-contains myproject/duckrow.lock.json '"name": "beta"'
 
 # Uninstall one skill
-exec duckrow uninstall alpha -d myproject
+exec duckrow skill uninstall alpha -d myproject
 stdout 'Removed: alpha'
 
 # Lock file should still exist with only beta
@@ -31,17 +31,17 @@ file-contains myproject/duckrow.lock.json '"name": "beta"'
 ! file-contains myproject/duckrow.lock.json '"name": "alpha"'
 
 # Uninstall the other skill
-exec duckrow uninstall beta -d myproject
+exec duckrow skill uninstall beta -d myproject
 stdout 'Removed: beta'
 
 # Lock file should exist but have empty skills array
 file-contains myproject/duckrow.lock.json '"lockVersion": 1'
 ! file-contains myproject/duckrow.lock.json '"name": "beta"'
 
-# uninstall-all should leave an empty lock file
-exec duckrow install test-owner/source-a -d myproject
-exec duckrow install test-owner/source-b -d myproject
-exec duckrow uninstall-all -d myproject
+# uninstall --all should leave an empty lock file
+exec duckrow skill install https://github.com/test-owner/source-a -d myproject
+exec duckrow skill install https://github.com/test-owner/source-b -d myproject
+exec duckrow skill uninstall --all -d myproject
 stdout 'Removed 2 skill'
 
 # Lock file should exist with empty skills

@@ -5,16 +5,25 @@ stdout 'add'
 stdout 'remove-folder'
 stdout 'folders'
 stdout 'status'
-stdout 'install'
-stdout 'uninstall'
+stdout 'skill'
+stdout 'sync'
 stdout 'registry'
 stdout 'version'
 ! stderr .
 
-# Test help for subcommands
-exec duckrow install --help
-stdout 'source'
-stdout 'GitHub shorthand'
+# Test help for skill subcommand
+exec duckrow skill --help
+stdout 'install'
+stdout 'uninstall'
+stdout 'update'
+stdout 'outdated'
+stdout 'sync'
+
+# Test help for skill install
+exec duckrow skill install --help
+stdout 'source-or-name'
+stdout 'git URL'
+stdout 'registry'
 
 exec duckrow registry --help
 stdout 'add'

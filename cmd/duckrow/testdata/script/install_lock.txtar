@@ -12,7 +12,7 @@ setup-git-repo skill-source test-skills test-skill
 setup-config-override test-owner/test-repo skill-source
 
 # Install from git source (redirected via override)
-exec duckrow install test-owner/test-repo -d myproject
+exec duckrow skill install https://github.com/test-owner/test-repo -d myproject
 stdout 'Installed: test-skill'
 ! stderr .
 
@@ -32,7 +32,7 @@ setup-git-repo skill-source-b test-skills-b second-skill
 
 setup-registry-config test-owner/test-repo-b skill-source-b
 
-exec duckrow install test-owner/test-repo-b -d myproject
+exec duckrow skill install https://github.com/test-owner/test-repo-b -d myproject
 stdout 'Installed: second-skill'
 
 # Lock file should contain both skills

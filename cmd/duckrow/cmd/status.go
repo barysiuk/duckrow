@@ -80,16 +80,15 @@ func showFolderStatus(scanner *core.Scanner, path string, tracked bool) error {
 
 	if len(skills) == 0 {
 		fmt.Fprintln(os.Stdout, "  Skills: none installed")
-		return nil
-	}
-
-	fmt.Fprintf(os.Stdout, "  Skills (%d):\n", len(skills))
-	for _, s := range skills {
-		// Show relative path from the folder root
-		relPath := skillRelPath(path, s.Path)
-		fmt.Fprintf(os.Stdout, "    - %s [%s]\n", s.Name, relPath)
-		if s.Description != "" {
-			fmt.Fprintf(os.Stdout, "      %s\n", s.Description)
+	} else {
+		fmt.Fprintf(os.Stdout, "  Skills (%d):\n", len(skills))
+		for _, s := range skills {
+			// Show relative path from the folder root
+			relPath := skillRelPath(path, s.Path)
+			fmt.Fprintf(os.Stdout, "    - %s [%s]\n", s.Name, relPath)
+			if s.Description != "" {
+				fmt.Fprintf(os.Stdout, "      %s\n", s.Description)
+			}
 		}
 	}
 	return nil

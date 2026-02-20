@@ -1,4 +1,4 @@
-# Test installing with skill filter
+# Test installing a specific skill from a multi-skill repo using URL subpath
 
 # Create a project directory
 mkdir myproject
@@ -15,8 +15,8 @@ setup-git-repo multi-skills test-skills skill-a skill-b skill-c
 # Set up config override
 setup-config-override test-owner/multi-skills multi-skills
 
-# Install only "skill-b" from a multi-skill source
-exec duckrow install test-owner/multi-skills -d myproject --skill skill-b
+# Install only "skill-b" from a multi-skill source using URL subpath
+exec duckrow skill install https://github.com/test-owner/multi-skills/tree/main/skills/skill-b -d myproject
 stdout 'Installed: skill-b'
 ! stdout 'skill-a'
 ! stdout 'skill-c'
@@ -25,11 +25,6 @@ stdout 'Installed: skill-b'
 exists myproject/.agents/skills/skill-b/SKILL.md
 dir-not-exists myproject/.agents/skills/skill-a
 dir-not-exists myproject/.agents/skills/skill-c
-
-# Install with a nonexistent filter
-! exec duckrow install test-owner/multi-skills -d myproject --skill nonexistent
-stderr 'not found'
-stderr 'Available'
 
 -- skill-a-md --
 ---

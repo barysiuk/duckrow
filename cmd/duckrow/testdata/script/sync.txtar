@@ -10,9 +10,9 @@ setup-config-override test-owner/test-repo skill-source
 
 # Create project and install a skill (creates lock file)
 mkdir myproject
-exec duckrow install test-owner/test-repo -d myproject
+exec duckrow skill install https://github.com/test-owner/test-repo -d myproject
 stdout 'Installed: test-skill'
-exists myproject/.agents/skills/test-skill/SKILL.md
+exists myproject/.agents/skills/test-skill/SKILL.MD
 exists myproject/duckrow.lock.json
 
 # Verify lock file has the skill
@@ -35,7 +35,7 @@ stdout 'Installed: test-skill'
 stdout 'Synced: 1 installed, 0 skipped, 0 errors'
 
 # Verify skill is restored
-exists myproject/.agents/skills/test-skill/SKILL.md
+exists myproject/.agents/skills/test-skill/SKILL.MD
 file-contains myproject/.agents/skills/test-skill/SKILL.md 'test-skill'
 
 # Sync without a lock file should error
