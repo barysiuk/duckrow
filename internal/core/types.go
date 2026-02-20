@@ -93,6 +93,8 @@ type AgentDef struct {
 	GlobalSkillsDir string   `json:"globalSkillsDir"`         // Global skill directory (e.g. "~/.cursor/skills")
 	DetectPaths     []string `json:"detectPaths"`             // Paths to check for agent presence
 	Universal       bool     `json:"universal"`               // If true, uses .agents/skills as skillsDir
+	MCPConfigPath   string   `json:"mcpConfigPath,omitempty"` // Project-relative MCP config file (e.g. ".cursor/mcp.json")
+	MCPConfigKey    string   `json:"mcpConfigKey,omitempty"`  // Top-level JSON key in the config file (e.g. "mcpServers")
 }
 
 // ParsedSource represents a parsed skill source string.

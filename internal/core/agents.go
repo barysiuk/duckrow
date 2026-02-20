@@ -74,6 +74,26 @@ func GetNonUniversalAgents(agents []AgentDef) []AgentDef {
 	return nonUniversal
 }
 
+// GetMCPCapableAgents returns agents that have MCP config paths defined.
+func GetMCPCapableAgents(agents []AgentDef) []AgentDef {
+	var capable []AgentDef
+	for _, a := range agents {
+		if a.MCPConfigPath != "" {
+			capable = append(capable, a)
+		}
+	}
+	return capable
+}
+
+// ResolveMCPConfigPath resolves the full path to an agent's MCP config file
+// relative to the given project directory.
+func ResolveMCPConfigPath(agent AgentDef, projectDir string) string {
+	if agent.MCPConfigPath == "" {
+		return ""
+	}
+	return filepath.Join(projectDir, agent.MCPConfigPath)
+}
+
 // ResolveAgentSkillsDir resolves the project-level skill directory for an agent,
 // relative to the given base directory.
 func ResolveAgentSkillsDir(agent AgentDef, baseDir string) string {

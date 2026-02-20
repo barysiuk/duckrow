@@ -264,3 +264,115 @@ func TestDetectAgentsInFolder(t *testing.T) {
 		t.Error("'not-present' should not be detected")
 	}
 }
+
+func TestGetMCPCapableAgents(t *testing.T) {
+	agents, err := LoadAgents()
+	if err != nil {
+		t.Fatalf("LoadAgents() error: %v", err)
+	}
+
+	capable := GetMCPCapableAgents(agents)
+
+	// Expect exactly 4 MCP-capable agents: opencode, claude-code, cursor, github-copilot.
+	if len(capable) != 4 {
+		t.Fatalf("len(capable) = %d, want 4", len(capable))
+	}
+
+	names := make(map[string]bool)
+	for _, a := range capable {
+		names[a.Name] = true
+		if a.MCPConfigPath == "" {
+			t.Errorf("MCP-capable agent %q has empty MCPConfigPath", a.Name)
+		}
+		if a.MCPConfigKey == "" {
+			t.Errorf("MCP-capable agent %q has empty MCPConfigKey", a.Name)
+		}
+	}
+
+	expected := []string{"opencode", "claude-code", "cursor", "github-copilot"}
+	for _, name := range expected {
+		if !names[name] {
+			t.Errorf("expected MCP-capable agent %q not found", name)
+		}
+	}
+}
+
+func TestGetMCPCapableAgents_NonMCPAgentsExcluded(t *testing.T) {
+	agents, _ := LoadAgents()
+	capable := GetMCPCapableAgents(agents)
+
+	capableNames := make(map[string]bool)
+	for _, a := range capable {
+		capableNames[a.Name] = true
+	}
+
+	// These agents should NOT be MCP-capable.
+	nonMCP := []string{"codex", "gemini-cli", "goose", "windsurf", "cline"}
+	for _, name := range nonMCP {
+		if capableNames[name] {
+			t.Errorf("agent %q should not be MCP-capable", name)
+		}
+	}
+}
+
+func TestResolveMCPConfigPath(t *testing.T) {
+	agent := AgentDef{
+		Name:          "cursor",
+		MCPConfigPath: ".cursor/mcp.json",
+	}
+
+	got := ResolveMCPConfigPath(agent, "/projects/myapp")
+	want := filepath.Join("/projects/myapp", ".cursor/mcp.json")
+	if got != want {
+		t.Errorf("ResolveMCPConfigPath = %q, want %q", got, want)
+	}
+}
+
+func TestResolveMCPConfigPath_Empty(t *testing.T) {
+	agent := AgentDef{
+		Name: "codex",
+		// No MCPConfigPath.
+	}
+
+	got := ResolveMCPConfigPath(agent, "/projects/myapp")
+	if got != "" {
+		t.Errorf("ResolveMCPConfigPath = %q, want empty", got)
+	}
+}
+
+func TestLoadAgents_MCPFields(t *testing.T) {
+	agents, err := LoadAgents()
+	if err != nil {
+		t.Fatalf("LoadAgents() error: %v", err)
+	}
+
+	// Verify specific agents have the expected MCP fields.
+	mcpExpected := map[string]struct {
+		configPath string
+		configKey  string
+	}{
+		"opencode":       {configPath: "opencode.json", configKey: "mcp"},
+		"claude-code":    {configPath: ".mcp.json", configKey: "mcpServers"},
+		"cursor":         {configPath: ".cursor/mcp.json", configKey: "mcpServers"},
+		"github-copilot": {configPath: ".vscode/mcp.json", configKey: "servers"},
+	}
+
+	for _, a := range agents {
+		if expected, ok := mcpExpected[a.Name]; ok {
+			if a.MCPConfigPath != expected.configPath {
+				t.Errorf("agent %q: MCPConfigPath = %q, want %q", a.Name, a.MCPConfigPath, expected.configPath)
+			}
+			if a.MCPConfigKey != expected.configKey {
+				t.Errorf("agent %q: MCPConfigKey = %q, want %q", a.Name, a.MCPConfigKey, expected.configKey)
+			}
+		} else {
+			// Non-MCP agents should have empty MCP fields.
+			if a.MCPConfigPath != "" {
+				t.Errorf("agent %q: MCPConfigPath = %q, want empty", a.Name, a.MCPConfigPath)
+			}
+			if a.MCPConfigKey != "" {
+				t.Errorf("agent %q: MCPConfigKey = %q, want empty", a.Name, a.MCPConfigKey)
+			}
+		}
+	}
+}
