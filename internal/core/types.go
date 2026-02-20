@@ -35,6 +35,7 @@ type RegistryManifest struct {
 	Name        string       `json:"name"`
 	Description string       `json:"description,omitempty"`
 	Skills      []SkillEntry `json:"skills"`
+	MCPs        []MCPEntry   `json:"mcps,omitempty"`
 	Warnings    []string     `json:"-"` // validation warnings, not serialized
 }
 
@@ -44,6 +45,18 @@ type SkillEntry struct {
 	Description string `json:"description"`
 	Source      string `json:"source"`
 	Commit      string `json:"commit,omitempty"`
+}
+
+// MCPEntry is an MCP server configuration listed in a registry manifest.
+// An entry is either stdio (command present) or remote (url present), not both.
+type MCPEntry struct {
+	Name        string            `json:"name"`
+	Description string            `json:"description,omitempty"`
+	Command     string            `json:"command,omitempty"`
+	Args        []string          `json:"args,omitempty"`
+	Env         map[string]string `json:"env,omitempty"`
+	URL         string            `json:"url,omitempty"`
+	Type        string            `json:"type,omitempty"` // "http" or "sse" for remote MCPs
 }
 
 // InstalledSkill represents a skill found on disk in a tracked folder.
@@ -109,10 +122,12 @@ type FolderStatus struct {
 	Error  error    // Non-nil if scanning failed
 }
 
-// LockFile represents the duckrow.lock.json file that pins installed skills.
+// LockFile represents the duckrow.lock.json file that pins installed skills
+// and MCP server configurations.
 type LockFile struct {
 	LockVersion int           `json:"lockVersion"`
 	Skills      []LockedSkill `json:"skills"`
+	MCPs        []LockedMCP   `json:"mcps,omitempty"`
 }
 
 // LockedSkill is a single pinned skill entry in the lock file.
@@ -121,6 +136,16 @@ type LockedSkill struct {
 	Source string `json:"source"`
 	Commit string `json:"commit"`
 	Ref    string `json:"ref,omitempty"`
+}
+
+// LockedMCP is a single MCP server entry in the lock file.
+// It records which MCP was installed, from which registry, and for which agents.
+type LockedMCP struct {
+	Name        string   `json:"name"`
+	Registry    string   `json:"registry"`
+	ConfigHash  string   `json:"configHash"`
+	Agents      []string `json:"agents"`
+	RequiredEnv []string `json:"requiredEnv,omitempty"`
 }
 
 // UpdateInfo holds update status for a single locked skill.

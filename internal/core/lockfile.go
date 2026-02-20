@@ -1,11 +1,13 @@
 package core
 
 import (
+	"crypto/sha256"
 	"encoding/json"
 	"fmt"
 	"os"
 	"os/exec"
 	"path/filepath"
+	"regexp"
 	"sort"
 	"strings"
 )
@@ -13,6 +15,7 @@ import (
 const (
 	lockFileName       = "duckrow.lock.json"
 	currentLockVersion = 1
+	mcpLockVersion     = 2 // lock version when MCPs are present
 )
 
 // LockFilePath returns the full path to the lock file in the given directory.
@@ -40,12 +43,23 @@ func ReadLockFile(dir string) (*LockFile, error) {
 }
 
 // WriteLockFile writes the lock file to the given directory atomically.
-// Skills are sorted by name for deterministic output.
+// Skills and MCPs are sorted by name for deterministic output.
+// The lock version is bumped to 2 if MCPs are present.
 func WriteLockFile(dir string, lf *LockFile) error {
 	// Sort skills by name for deterministic output.
 	sort.Slice(lf.Skills, func(i, j int) bool {
 		return lf.Skills[i].Name < lf.Skills[j].Name
 	})
+
+	// Sort MCPs by name for deterministic output.
+	sort.Slice(lf.MCPs, func(i, j int) bool {
+		return lf.MCPs[i].Name < lf.MCPs[j].Name
+	})
+
+	// Bump lock version to 2 if MCPs are present.
+	if len(lf.MCPs) > 0 && lf.LockVersion < mcpLockVersion {
+		lf.LockVersion = mcpLockVersion
+	}
 
 	data, err := json.MarshalIndent(lf, "", "  ")
 	if err != nil {
@@ -119,6 +133,117 @@ func RemoveLockEntry(dir string, skillName string) error {
 	lf.Skills = filtered
 
 	return WriteLockFile(dir, lf)
+}
+
+// AddOrUpdateMCPLockEntry upserts an MCP entry in the lock file by name.
+// Creates the lock file if it does not exist.
+func AddOrUpdateMCPLockEntry(dir string, entry LockedMCP) error {
+	lf, err := ReadLockFile(dir)
+	if err != nil {
+		return err
+	}
+	if lf == nil {
+		lf = &LockFile{
+			LockVersion: mcpLockVersion,
+			Skills:      []LockedSkill{},
+			MCPs:        []LockedMCP{},
+		}
+	}
+
+	// Upsert: replace existing entry with the same name, or append.
+	found := false
+	for i, m := range lf.MCPs {
+		if m.Name == entry.Name {
+			lf.MCPs[i] = entry
+			found = true
+			break
+		}
+	}
+	if !found {
+		lf.MCPs = append(lf.MCPs, entry)
+	}
+
+	return WriteLockFile(dir, lf)
+}
+
+// RemoveMCPLockEntry removes an MCP entry from the lock file by name.
+// No-op if the lock file does not exist or the MCP is not found.
+func RemoveMCPLockEntry(dir string, mcpName string) error {
+	lf, err := ReadLockFile(dir)
+	if err != nil {
+		return err
+	}
+	if lf == nil {
+		return nil
+	}
+
+	filtered := lf.MCPs[:0]
+	for _, m := range lf.MCPs {
+		if m.Name != mcpName {
+			filtered = append(filtered, m)
+		}
+	}
+	lf.MCPs = filtered
+
+	return WriteLockFile(dir, lf)
+}
+
+// envVarRefPattern matches $VAR references in env values.
+var envVarRefPattern = regexp.MustCompile(`\$([A-Za-z_][A-Za-z0-9_]*)`)
+
+// ExtractRequiredEnv extracts environment variable names from $VAR references
+// in an MCP entry's env map. Returns a sorted, deduplicated list.
+func ExtractRequiredEnv(env map[string]string) []string {
+	seen := make(map[string]bool)
+	for _, val := range env {
+		matches := envVarRefPattern.FindAllStringSubmatch(val, -1)
+		for _, match := range matches {
+			seen[match[1]] = true
+		}
+	}
+
+	result := make([]string, 0, len(seen))
+	for name := range seen {
+		result = append(result, name)
+	}
+	sort.Strings(result)
+	return result
+}
+
+// ComputeConfigHash computes a SHA-256 hash of an MCP entry's config-relevant
+// fields. The hash input is a deterministic JSON object containing only config
+// fields (command, args, env, url, type). name and description are excluded.
+// Keys are sorted alphabetically, with compact JSON (no whitespace).
+// The returned hash has a "sha256:" prefix.
+func ComputeConfigHash(entry MCPEntry) string {
+	// Build a map with only config-relevant fields.
+	m := make(map[string]interface{})
+	if entry.Command != "" {
+		m["command"] = entry.Command
+	}
+	if len(entry.Args) > 0 {
+		m["args"] = entry.Args
+	}
+	if len(entry.Env) > 0 {
+		// Sort env keys for determinism.
+		sortedEnv := make(map[string]string, len(entry.Env))
+		for k, v := range entry.Env {
+			sortedEnv[k] = v
+		}
+		m["env"] = sortedEnv
+	}
+	if entry.URL != "" {
+		m["url"] = entry.URL
+	}
+	if entry.Type != "" {
+		m["type"] = entry.Type
+	}
+
+	// Marshal with sorted keys (Go's encoding/json sorts map keys by default).
+	data, _ := json.Marshal(m)
+
+	h := sha256.Sum256(data)
+	return "sha256:" + fmt.Sprintf("%x", h)
 }
 
 // GetSkillCommit returns the git commit SHA that last modified the given sub-path
