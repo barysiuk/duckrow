@@ -8,7 +8,8 @@
     "detectPaths": ["$XDG_CONFIG/opencode"],
     "universal": true,
     "mcpConfigPath": "opencode.json",
-    "mcpConfigKey": "mcp"
+    "mcpConfigKey": "mcp",
+    "mcpConfigFormat": "jsonc"
   },
   {
     "name": "claude-code",
@@ -28,7 +29,8 @@
     "detectPaths": ["~/.cursor"],
     "universal": false,
     "mcpConfigPath": ".cursor/mcp.json",
-    "mcpConfigKey": "mcpServers"
+    "mcpConfigKey": "mcpServers",
+    "mcpConfigFormat": "jsonc"
   },
   {
     "name": "codex",
@@ -55,7 +57,8 @@
     "detectPaths": ["~/.copilot"],
     "universal": true,
     "mcpConfigPath": ".vscode/mcp.json",
-    "mcpConfigKey": "servers"
+    "mcpConfigKey": "servers",
+    "mcpConfigFormat": "jsonc"
   },
   {
     "name": "goose",

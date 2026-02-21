@@ -6,16 +6,19 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+
+	"github.com/tailscale/hujson"
 )
 
 // testMCPAgents returns a minimal set of MCP-capable agents for tests.
 func testMCPAgents() []AgentDef {
 	return []AgentDef{
 		{
-			Name:          "cursor",
-			DisplayName:   "Cursor",
-			MCPConfigPath: ".cursor/mcp.json",
-			MCPConfigKey:  "mcpServers",
+			Name:            "cursor",
+			DisplayName:     "Cursor",
+			MCPConfigPath:   ".cursor/mcp.json",
+			MCPConfigKey:    "mcpServers",
+			MCPConfigFormat: "jsonc",
 		},
 		{
 			Name:          "claude-code",
@@ -24,16 +27,18 @@ func testMCPAgents() []AgentDef {
 			MCPConfigKey:  "mcpServers",
 		},
 		{
-			Name:          "github-copilot",
-			DisplayName:   "GitHub Copilot",
-			MCPConfigPath: ".vscode/mcp.json",
-			MCPConfigKey:  "servers",
+			Name:            "github-copilot",
+			DisplayName:     "GitHub Copilot",
+			MCPConfigPath:   ".vscode/mcp.json",
+			MCPConfigKey:    "servers",
+			MCPConfigFormat: "jsonc",
 		},
 		{
-			Name:          "opencode",
-			DisplayName:   "OpenCode",
-			MCPConfigPath: "opencode.json",
-			MCPConfigKey:  "mcp",
+			Name:            "opencode",
+			DisplayName:     "OpenCode",
+			MCPConfigPath:   "opencode.json",
+			MCPConfigKey:    "mcp",
+			MCPConfigFormat: "jsonc",
 		},
 	}
 }
@@ -567,25 +572,26 @@ func TestUninstallMCPConfig_EntryNotInFile(t *testing.T) {
 }
 
 // ---------------------------------------------------------------------------
-// escapeJSONKey tests
+// jsonPointerEscape tests
 // ---------------------------------------------------------------------------
 
-func TestEscapeJSONKey(t *testing.T) {
+func TestJSONPointerEscape(t *testing.T) {
 	tests := []struct {
 		input string
 		want  string
 	}{
 		{"simple-name", "simple-name"},
-		{"name.with.dots", `\name.with.dots`},
-		{"name*star", `\name*star`},
+		{"name/with/slashes", "name~1with~1slashes"},
+		{"name~tilde", "name~0tilde"},
 		{"normal", "normal"},
+		{"a~b/c", "a~0b~1c"},
 	}
 
 	for _, tt := range tests {
 		t.Run(tt.input, func(t *testing.T) {
-			got := escapeJSONKey(tt.input)
+			got := jsonPointerEscape(tt.input)
 			if got != tt.want {
-				t.Errorf("escapeJSONKey(%q) = %q, want %q", tt.input, got, tt.want)
+				t.Errorf("jsonPointerEscape(%q) = %q, want %q", tt.input, got, tt.want)
 			}
 		})
 	}
@@ -662,5 +668,353 @@ func TestInstallMCPConfig_CreatesParentDirs(t *testing.T) {
 	cursorDir := filepath.Join(projectDir, ".cursor")
 	if !dirExists(cursorDir) {
 		t.Error(".cursor directory was not created")
+	}
+}
+
+// ---------------------------------------------------------------------------
+// JSONC comment preservation tests
+// ---------------------------------------------------------------------------
+
+func TestInstallMCPConfig_PreservesComments_JSONC(t *testing.T) {
+	projectDir := t.TempDir()
+	agent := AgentDef{
+		Name:            "opencode",
+		DisplayName:     "OpenCode",
+		MCPConfigPath:   "opencode.json",
+		MCPConfigKey:    "mcp",
+		MCPConfigFormat: "jsonc",
+	}
+
+	// Write a JSONC config with comments.
+	existing := `{
+  // Provider configuration
+  "provider": "anthropic",
+  "model": "claude-3.5-sonnet" // fast model
+}`
+	configPath := filepath.Join(projectDir, "opencode.json")
+	if err := os.WriteFile(configPath, []byte(existing), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	entry := MCPEntry{
+		Name:    "test-mcp",
+		Command: "node",
+		Args:    []string{"server.js"},
+	}
+
+	_, err := InstallMCPConfig(entry, MCPInstallOptions{
+		ProjectDir:   projectDir,
+		TargetAgents: []AgentDef{agent},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	data, err := os.ReadFile(configPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	content := string(data)
+
+	// Comments should be preserved.
+	if !strings.Contains(content, "// Provider configuration") {
+		t.Error("line comment was not preserved")
+	}
+	if !strings.Contains(content, "// fast model") {
+		t.Error("inline comment was not preserved")
+	}
+
+	// MCP entry should have been added.
+	if !strings.Contains(content, "test-mcp") {
+		t.Error("MCP entry was not added")
+	}
+
+	// Other keys should be preserved.
+	if !strings.Contains(content, "anthropic") {
+		t.Error("existing key 'provider' was lost")
+	}
+}
+
+func TestInstallMCPConfig_StripsComments_StrictJSON(t *testing.T) {
+	projectDir := t.TempDir()
+	agent := AgentDef{
+		Name:          "claude-code",
+		DisplayName:   "Claude Code",
+		MCPConfigPath: ".mcp.json",
+		MCPConfigKey:  "mcpServers",
+		// No MCPConfigFormat — strict JSON.
+	}
+
+	// Write a file with comments (user might have accidentally added them).
+	existing := `{
+  // This comment should be stripped
+  "mcpServers": {}
+}`
+	configPath := filepath.Join(projectDir, ".mcp.json")
+	if err := os.WriteFile(configPath, []byte(existing), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	entry := MCPEntry{
+		Name:    "test-mcp",
+		Command: "node",
+		Args:    []string{"server.js"},
+	}
+
+	_, err := InstallMCPConfig(entry, MCPInstallOptions{
+		ProjectDir:   projectDir,
+		TargetAgents: []AgentDef{agent},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	data, err := os.ReadFile(configPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	content := string(data)
+
+	// Comments should be stripped for strict JSON.
+	if strings.Contains(content, "//") {
+		t.Error("comment was not stripped for strict JSON agent")
+	}
+
+	// Must be valid standard JSON.
+	var parsed map[string]interface{}
+	if err := json.Unmarshal(data, &parsed); err != nil {
+		t.Errorf("output is not valid JSON: %v", err)
+	}
+}
+
+func TestInstallMCPConfig_NoTrailingCommas(t *testing.T) {
+	projectDir := t.TempDir()
+	agent := AgentDef{
+		Name:            "opencode",
+		DisplayName:     "OpenCode",
+		MCPConfigPath:   "opencode.json",
+		MCPConfigKey:    "mcp",
+		MCPConfigFormat: "jsonc",
+	}
+
+	entry := MCPEntry{
+		Name:    "test-mcp",
+		Command: "node",
+		Args:    []string{"server.js"},
+	}
+
+	_, err := InstallMCPConfig(entry, MCPInstallOptions{
+		ProjectDir:   projectDir,
+		TargetAgents: []AgentDef{agent},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	data, err := os.ReadFile(filepath.Join(projectDir, "opencode.json"))
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	content := string(data)
+
+	// Should not have trailing commas (e.g. "},}" or "],}").
+	if strings.Contains(content, ",\n}") || strings.Contains(content, ",\n\t}") || strings.Contains(content, ",\n\t\t}") {
+		t.Errorf("output contains trailing commas:\n%s", content)
+	}
+}
+
+func TestInstallMCPConfig_FormattedOutput(t *testing.T) {
+	projectDir := t.TempDir()
+	agent := AgentDef{
+		Name:          "claude-code",
+		DisplayName:   "Claude Code",
+		MCPConfigPath: ".mcp.json",
+		MCPConfigKey:  "mcpServers",
+	}
+
+	entry := MCPEntry{
+		Name:    "test-mcp",
+		Command: "node",
+		Args:    []string{"server.js"},
+	}
+
+	_, err := InstallMCPConfig(entry, MCPInstallOptions{
+		ProjectDir:   projectDir,
+		TargetAgents: []AgentDef{agent},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	data, err := os.ReadFile(filepath.Join(projectDir, ".mcp.json"))
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	content := string(data)
+
+	// Output should be formatted (contain newlines and indentation).
+	if !strings.Contains(content, "\n") {
+		t.Error("output is not formatted (no newlines)")
+	}
+	if !strings.Contains(content, "\t") {
+		t.Error("output is not indented")
+	}
+}
+
+func TestUninstallMCPConfig_PreservesComments(t *testing.T) {
+	projectDir := t.TempDir()
+	agent := AgentDef{
+		Name:            "cursor",
+		DisplayName:     "Cursor",
+		MCPConfigPath:   ".cursor/mcp.json",
+		MCPConfigKey:    "mcpServers",
+		MCPConfigFormat: "jsonc",
+	}
+
+	// Write a JSONC config with comments and two MCP entries.
+	existing := `{
+	// Cursor MCP configuration
+	"mcpServers": {
+		// Database server for local dev
+		"db-server": {
+			"command": "node",
+			"args": ["db.js"]
+		},
+		"other-server": {
+			"command": "python",
+			"args": ["serve.py"]
+		}
+	}
+}`
+	configPath := filepath.Join(projectDir, ".cursor", "mcp.json")
+	if err := os.MkdirAll(filepath.Dir(configPath), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(configPath, []byte(existing), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	// Remove db-server.
+	_, err := UninstallMCPConfig("db-server", []AgentDef{agent}, MCPUninstallOptions{
+		ProjectDir: projectDir,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	data, err := os.ReadFile(configPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	content := string(data)
+
+	// Top-level comment should be preserved.
+	if !strings.Contains(content, "// Cursor MCP configuration") {
+		t.Error("top-level comment was not preserved after uninstall")
+	}
+
+	// The removed entry should be gone.
+	if strings.Contains(content, "db-server") {
+		t.Error("removed entry still present")
+	}
+
+	// The other entry should remain.
+	if !strings.Contains(content, "other-server") {
+		t.Error("other entry was lost after uninstall")
+	}
+}
+
+func TestInstallMCPConfig_PreservesBlockComments(t *testing.T) {
+	projectDir := t.TempDir()
+	agent := AgentDef{
+		Name:            "github-copilot",
+		DisplayName:     "GitHub Copilot",
+		MCPConfigPath:   ".vscode/mcp.json",
+		MCPConfigKey:    "servers",
+		MCPConfigFormat: "jsonc",
+	}
+
+	// Write a JSONC config with block comments.
+	existing := `{
+	/*
+	 * GitHub Copilot MCP servers
+	 * Managed by the team
+	 */
+	"servers": {}
+}`
+	configPath := filepath.Join(projectDir, ".vscode", "mcp.json")
+	if err := os.MkdirAll(filepath.Dir(configPath), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(configPath, []byte(existing), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	entry := MCPEntry{
+		Name: "docs-search",
+		Type: "http",
+		URL:  "https://mcp.example.com/docs",
+	}
+
+	_, err := InstallMCPConfig(entry, MCPInstallOptions{
+		ProjectDir:   projectDir,
+		TargetAgents: []AgentDef{agent},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	data, err := os.ReadFile(configPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	content := string(data)
+
+	// Block comment should be preserved.
+	if !strings.Contains(content, "Managed by the team") {
+		t.Error("block comment was not preserved")
+	}
+
+	// MCP entry should have been added.
+	if !strings.Contains(content, "docs-search") {
+		t.Error("MCP entry was not added")
+	}
+}
+
+// ---------------------------------------------------------------------------
+// removeTrailingCommas tests
+// ---------------------------------------------------------------------------
+
+func TestRemoveTrailingCommas(t *testing.T) {
+	input := []byte(`{
+	"a": [1, 2, 3,],
+	"b": {"x": 1, "y": 2,},
+}`)
+
+	v, err := hujson.Parse(input)
+	if err != nil {
+		t.Fatalf("parse error: %v", err)
+	}
+
+	removeTrailingCommas(&v)
+	output := string(v.Pack())
+
+	// Should not have trailing commas.
+	if strings.Contains(output, ",]") || strings.Contains(output, ",\n]") {
+		t.Error("trailing comma in array not removed")
+	}
+	if strings.Contains(output, ",}") || strings.Contains(output, ",\n}") {
+		t.Error("trailing comma in object not removed")
+	}
+
+	// Content should be preserved.
+	if !strings.Contains(output, `"a"`) || !strings.Contains(output, `"b"`) {
+		t.Error("content was lost")
 	}
 }

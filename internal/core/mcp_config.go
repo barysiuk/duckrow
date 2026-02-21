@@ -6,8 +6,7 @@ import (
 	"os"
 	"path/filepath"
 
-	"github.com/tidwall/gjson"
-	"github.com/tidwall/sjson"
+	"github.com/tailscale/hujson"
 )
 
 // MCPInstallOptions configures an MCP installation.
@@ -43,6 +42,7 @@ type MCPUninstallResult struct {
 // InstallMCPConfig writes an MCP entry into agent config files.
 // For stdio MCPs, the command is wrapped with `duckrow env --mcp <name>`.
 // For remote MCPs, the config is written as-is.
+// Comments and user formatting are preserved in JSONC-capable agent configs.
 func InstallMCPConfig(entry MCPEntry, opts MCPInstallOptions) (*MCPInstallResult, error) {
 	if opts.ProjectDir == "" {
 		return nil, fmt.Errorf("project directory is required")
@@ -67,6 +67,7 @@ func InstallMCPConfig(entry MCPEntry, opts MCPInstallOptions) (*MCPInstallResult
 
 // UninstallMCPConfig removes an MCP entry from agent config files.
 // It reads the lock file to determine which agents were targeted.
+// Comments and user formatting are preserved in JSONC-capable agent configs.
 func UninstallMCPConfig(mcpName string, agents []AgentDef, opts MCPUninstallOptions) (*MCPUninstallResult, error) {
 	if opts.ProjectDir == "" {
 		return nil, fmt.Errorf("project directory is required")
@@ -97,35 +98,66 @@ func installMCPForAgent(entry MCPEntry, agent AgentDef, opts MCPInstallOptions) 
 		FilePath: configPath,
 	}
 
-	// Read existing config file content (or start fresh).
+	// Read existing config file content (or start with empty object).
 	content, err := readConfigFile(configPath)
 	if err != nil {
 		ar.Action = "error"
 		ar.Message = fmt.Sprintf("reading config: %v", err)
 		return ar
 	}
+	if content == "" {
+		content = "{}"
+	}
 
-	// Check if entry already exists.
-	entryPath := agent.MCPConfigKey + "." + escapeJSONKey(entry.Name)
-	if gjson.Get(content, entryPath).Exists() && !opts.Force {
+	// Parse as JSONC/JWCC AST — preserves comments and whitespace.
+	root, err := hujson.Parse([]byte(content))
+	if err != nil {
+		ar.Action = "error"
+		ar.Message = fmt.Sprintf("parsing config: %v", err)
+		return ar
+	}
+
+	// Check if entry already exists using JSON Pointer.
+	entryPtr := "/" + jsonPointerEscape(agent.MCPConfigKey) + "/" + jsonPointerEscape(entry.Name)
+	if root.Find(entryPtr) != nil && !opts.Force {
 		ar.Action = "skipped"
 		ar.Message = "already exists, use --force"
 		return ar
 	}
 
-	// Build the agent-specific MCP config value.
-	mcpValue := buildAgentMCPConfig(entry, agent)
+	// Build the agent-specific MCP config value as JSON.
+	mcpValueJSON := buildAgentMCPConfig(entry, agent)
 
-	// Set the entry in the config.
-	newContent, err := sjson.SetRaw(content, entryPath, mcpValue)
-	if err != nil {
+	// Determine the patch operation: "add" for new, "replace" for force-update.
+	op := "add"
+	if root.Find(entryPtr) != nil {
+		op = "replace"
+	}
+
+	// Ensure the top-level config key object exists.
+	topKeyPtr := "/" + jsonPointerEscape(agent.MCPConfigKey)
+	if root.Find(topKeyPtr) == nil {
+		topKeyPatch := fmt.Sprintf(`[{"op":"add","path":%q,"value":{}}]`, topKeyPtr)
+		if err := root.Patch([]byte(topKeyPatch)); err != nil {
+			ar.Action = "error"
+			ar.Message = fmt.Sprintf("creating config key %q: %v", agent.MCPConfigKey, err)
+			return ar
+		}
+	}
+
+	// Apply the patch to add/replace the MCP entry.
+	patch := fmt.Sprintf(`[{"op":%q,"path":%q,"value":%s}]`, op, entryPtr, mcpValueJSON)
+	if err := root.Patch([]byte(patch)); err != nil {
 		ar.Action = "error"
 		ar.Message = fmt.Sprintf("writing MCP entry: %v", err)
 		return ar
 	}
 
+	// Format and finalize the output.
+	output := finalizeConfig(&root, agent)
+
 	// Write atomically.
-	if err := writeConfigFile(configPath, newContent); err != nil {
+	if err := writeConfigFile(configPath, string(output)); err != nil {
 		ar.Action = "error"
 		ar.Message = fmt.Sprintf("saving config: %v", err)
 		return ar
@@ -156,24 +188,35 @@ func uninstallMCPForAgent(mcpName string, agent AgentDef, opts MCPUninstallOptio
 		return ar
 	}
 
+	// Parse as JSONC/JWCC AST.
+	root, err := hujson.Parse([]byte(content))
+	if err != nil {
+		ar.Action = "error"
+		ar.Message = fmt.Sprintf("parsing config: %v", err)
+		return ar
+	}
+
 	// Check if entry exists.
-	entryPath := agent.MCPConfigKey + "." + escapeJSONKey(mcpName)
-	if !gjson.Get(content, entryPath).Exists() {
+	entryPtr := "/" + jsonPointerEscape(agent.MCPConfigKey) + "/" + jsonPointerEscape(mcpName)
+	if root.Find(entryPtr) == nil {
 		ar.Action = "skipped"
 		ar.Message = "entry not found"
 		return ar
 	}
 
-	// Delete the entry.
-	newContent, err := sjson.Delete(content, entryPath)
-	if err != nil {
+	// Remove the entry.
+	patch := fmt.Sprintf(`[{"op":"remove","path":%q}]`, entryPtr)
+	if err := root.Patch([]byte(patch)); err != nil {
 		ar.Action = "error"
 		ar.Message = fmt.Sprintf("removing MCP entry: %v", err)
 		return ar
 	}
 
+	// Format and finalize the output.
+	output := finalizeConfig(&root, agent)
+
 	// Write back.
-	if err := writeConfigFile(configPath, newContent); err != nil {
+	if err := writeConfigFile(configPath, string(output)); err != nil {
 		ar.Action = "error"
 		ar.Message = fmt.Sprintf("saving config: %v", err)
 		return ar
@@ -183,8 +226,46 @@ func uninstallMCPForAgent(mcpName string, agent AgentDef, opts MCPUninstallOptio
 	return ar
 }
 
+// finalizeConfig formats the JSONC AST and produces the final output bytes.
+// For JSONC agents: preserves comments, removes trailing commas.
+// For strict-JSON agents: removes comments and trailing commas.
+func finalizeConfig(root *hujson.Value, agent AgentDef) []byte {
+	root.Format()
+	removeTrailingCommas(root)
+
+	if agent.MCPConfigFormat != "jsonc" {
+		// Strict JSON: also remove comments.
+		root.Standardize()
+	}
+
+	return root.Pack()
+}
+
+// removeTrailingCommas walks the JSONC AST and removes trailing commas
+// from objects and arrays. This is necessary because hujson.Format() adds
+// trailing commas (JWCC style), but not all JSONC parsers support them.
+func removeTrailingCommas(v *hujson.Value) {
+	switch vv := v.Value.(type) {
+	case *hujson.Object:
+		for i := range vv.Members {
+			removeTrailingCommas(&vv.Members[i].Name)
+			removeTrailingCommas(&vv.Members[i].Value)
+		}
+		if len(vv.Members) > 0 {
+			vv.Members[len(vv.Members)-1].Value.AfterExtra = nil
+		}
+	case *hujson.Array:
+		for i := range vv.Elements {
+			removeTrailingCommas(&vv.Elements[i])
+		}
+		if len(vv.Elements) > 0 {
+			vv.Elements[len(vv.Elements)-1].AfterExtra = nil
+		}
+	}
+}
+
 // buildAgentMCPConfig translates a registry MCPEntry to the agent-specific JSON
-// format. Returns a raw JSON string suitable for sjson.SetRaw.
+// format. Returns a raw JSON string suitable for use in a JSON Patch value.
 func buildAgentMCPConfig(entry MCPEntry, agent AgentDef) string {
 	isStdio := entry.Command != ""
 
@@ -196,6 +277,7 @@ func buildAgentMCPConfig(entry MCPEntry, agent AgentDef) string {
 
 // buildStdioMCPConfig builds the agent-specific config for a stdio MCP.
 // The command is wrapped with `duckrow env --mcp <name> -- <original-command> [args...]`.
+// Returns indented JSON so that hujson inherits the formatting in the patch.
 func buildStdioMCPConfig(entry MCPEntry, agent AgentDef) string {
 	// Build the duckrow env wrapper args.
 	wrapperArgs := []string{"env", "--mcp", entry.Name, "--"}
@@ -210,7 +292,7 @@ func buildStdioMCPConfig(entry MCPEntry, agent AgentDef) string {
 			"type":    "local",
 			"command": cmdArray,
 		}
-		data, _ := json.Marshal(m)
+		data, _ := json.MarshalIndent(m, "\t\t", "\t")
 		return string(data)
 
 	case "github-copilot":
@@ -220,7 +302,7 @@ func buildStdioMCPConfig(entry MCPEntry, agent AgentDef) string {
 			"command": "duckrow",
 			"args":    wrapperArgs,
 		}
-		data, _ := json.Marshal(m)
+		data, _ := json.MarshalIndent(m, "\t\t", "\t")
 		return string(data)
 
 	default:
@@ -229,12 +311,13 @@ func buildStdioMCPConfig(entry MCPEntry, agent AgentDef) string {
 			"command": "duckrow",
 			"args":    wrapperArgs,
 		}
-		data, _ := json.Marshal(m)
+		data, _ := json.MarshalIndent(m, "\t\t", "\t")
 		return string(data)
 	}
 }
 
 // buildRemoteMCPConfig builds the agent-specific config for a remote MCP.
+// Returns indented JSON so that hujson inherits the formatting in the patch.
 func buildRemoteMCPConfig(entry MCPEntry, agent AgentDef) string {
 	mcpType := entry.Type
 	if mcpType == "" {
@@ -248,7 +331,7 @@ func buildRemoteMCPConfig(entry MCPEntry, agent AgentDef) string {
 			"type": "remote",
 			"url":  entry.URL,
 		}
-		data, _ := json.Marshal(m)
+		data, _ := json.MarshalIndent(m, "\t\t", "\t")
 		return string(data)
 
 	default:
@@ -257,12 +340,12 @@ func buildRemoteMCPConfig(entry MCPEntry, agent AgentDef) string {
 			"type": mcpType,
 			"url":  entry.URL,
 		}
-		data, _ := json.Marshal(m)
+		data, _ := json.MarshalIndent(m, "\t\t", "\t")
 		return string(data)
 	}
 }
 
-// readConfigFile reads a JSON config file and returns its content as a string.
+// readConfigFile reads a config file and returns its content as a string.
 // Returns empty string if the file does not exist.
 func readConfigFile(path string) (string, error) {
 	data, err := os.ReadFile(path)
@@ -275,7 +358,7 @@ func readConfigFile(path string) (string, error) {
 	return string(data), nil
 }
 
-// writeConfigFile writes content to a JSON config file atomically.
+// writeConfigFile writes content to a config file atomically.
 // Creates parent directories if needed.
 func writeConfigFile(path string, content string) error {
 	dir := filepath.Dir(path)
@@ -295,20 +378,20 @@ func writeConfigFile(path string, content string) error {
 	return nil
 }
 
-// escapeJSONKey escapes a key for use with gjson/sjson path syntax.
-// Keys containing dots or special characters need to be escaped.
-func escapeJSONKey(key string) string {
-	// sjson/gjson use dots as path separators. If the key contains dots,
-	// we need to escape them. The sjson convention is to wrap in literal syntax.
-	needsEscape := false
-	for _, c := range key {
-		if c == '.' || c == '*' || c == '?' || c == '#' {
-			needsEscape = true
-			break
+// jsonPointerEscape escapes a string for use as a JSON Pointer token (RFC 6901).
+// The characters '~' and '/' have special meaning and must be escaped.
+func jsonPointerEscape(s string) string {
+	// Per RFC 6901: '~' is escaped as '~0', '/' is escaped as '~1'.
+	result := make([]byte, 0, len(s))
+	for i := 0; i < len(s); i++ {
+		switch s[i] {
+		case '~':
+			result = append(result, '~', '0')
+		case '/':
+			result = append(result, '~', '1')
+		default:
+			result = append(result, s[i])
 		}
 	}
-	if needsEscape {
-		return `\` + key
-	}
-	return key
+	return string(result)
 }
