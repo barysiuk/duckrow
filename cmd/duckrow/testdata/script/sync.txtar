@@ -21,7 +21,7 @@ file-contains myproject/duckrow.lock.json '"commit":'
 
 # Sync with skill already present should skip it
 exec duckrow sync -d myproject
-stdout 'Synced: 0 installed, 1 skipped, 0 errors'
+stdout 'Skills: 0 installed, 1 skipped, 0 errors'
 
 # Delete the skill directory
 exec rm -rf myproject/.agents/skills/test-skill
@@ -32,7 +32,7 @@ dir-not-exists myproject/.agents/skills/test-skill
 # Sync should restore the skill from the lock file
 exec duckrow sync -d myproject
 stdout 'Installed: test-skill'
-stdout 'Synced: 1 installed, 0 skipped, 0 errors'
+stdout 'Skills: 1 installed, 0 skipped, 0 errors'
 
 # Verify skill is restored
 exists myproject/.agents/skills/test-skill/SKILL.MD

@@ -577,23 +577,41 @@ This command enforces the lock file and does not fetch upstream updates.
 Use duckrow skill outdated and duckrow skill update to move forward.`,
 	Args: cobra.NoArgs,
 	RunE: func(cmd *cobra.Command, args []string) error {
-		return runSkillSync(cmd)
+		result, err := runSkillSync(cmd)
+		if err != nil {
+			return err
+		}
+
+		fmt.Fprintf(os.Stdout, "\nSynced: %d installed, %d skipped, %d errors\n",
+			result.installed, result.skipped, result.errors)
+
+		if result.errors > 0 {
+			return fmt.Errorf("%d skill(s) failed to sync", result.errors)
+		}
+		return nil
 	},
+}
+
+// skillSyncResult holds the summary of a skill sync operation.
+type skillSyncResult struct {
+	installed int
+	skipped   int
+	errors    int
 }
 
 // runSkillSync contains the shared sync logic used by both
 // `duckrow skill sync` and the root-level `duckrow sync`.
-func runSkillSync(cmd *cobra.Command) error {
+func runSkillSync(cmd *cobra.Command) (*skillSyncResult, error) {
 	d, err := newDeps()
 	if err != nil {
-		return err
+		return nil, err
 	}
 
 	targetDir, _ := cmd.Flags().GetString("dir")
 	if targetDir == "" {
 		targetDir, err = os.Getwd()
 		if err != nil {
-			return fmt.Errorf("getting current directory: %w", err)
+			return nil, fmt.Errorf("getting current directory: %w", err)
 		}
 	}
 
@@ -609,7 +627,7 @@ func runSkillSync(cmd *cobra.Command) error {
 		}
 		specified, resolveErr := core.ResolveAgentsByNames(d.agents, names)
 		if resolveErr != nil {
-			return resolveErr
+			return nil, resolveErr
 		}
 		targetAgents = core.GetUniversalAgents(d.agents)
 		targetAgents = append(targetAgents, specified...)
@@ -617,31 +635,30 @@ func runSkillSync(cmd *cobra.Command) error {
 
 	lf, err := core.ReadLockFile(targetDir)
 	if err != nil {
-		return fmt.Errorf("reading lock file: %w", err)
+		return nil, fmt.Errorf("reading lock file: %w", err)
 	}
 	if lf == nil {
-		return fmt.Errorf("no duckrow.lock.json found in %s", targetDir)
+		return nil, fmt.Errorf("no duckrow.lock.json found in %s", targetDir)
 	}
 
+	res := &skillSyncResult{}
+
 	if len(lf.Skills) == 0 {
-		fmt.Fprintln(os.Stdout, "Lock file has no skills.")
-		return nil
+		return res, nil
 	}
 
 	cfg, err := d.config.Load()
 	if err != nil {
-		return fmt.Errorf("loading config: %w", err)
+		return nil, fmt.Errorf("loading config: %w", err)
 	}
 
 	installer := core.NewInstaller(d.agents)
-
-	var installed, skipped, errors int
 
 	for _, skill := range lf.Skills {
 		// Check if skill directory already exists.
 		skillDir := filepath.Join(targetDir, ".agents", "skills", skill.Name)
 		if _, statErr := os.Stat(skillDir); statErr == nil {
-			skipped++
+			res.skipped++
 			if dryRun {
 				fmt.Fprintf(os.Stdout, "skip: %s (already installed)\n", skill.Name)
 			}
@@ -650,7 +667,7 @@ func runSkillSync(cmd *cobra.Command) error {
 
 		if dryRun {
 			fmt.Fprintf(os.Stdout, "install: %s (commit %s)\n", skill.Name, core.TruncateCommit(skill.Commit))
-			installed++
+			res.installed++
 			continue
 		}
 
@@ -658,7 +675,7 @@ func runSkillSync(cmd *cobra.Command) error {
 		host, owner, repo, subPath, parseErr := core.ParseLockSource(skill.Source)
 		if parseErr != nil {
 			fmt.Fprintf(os.Stderr, "Error: %s: %v\n", skill.Name, parseErr)
-			errors++
+			res.errors++
 			continue
 		}
 
@@ -683,22 +700,17 @@ func runSkillSync(cmd *cobra.Command) error {
 		})
 		if installErr != nil {
 			fmt.Fprintf(os.Stderr, "Error: %s: %v\n", skill.Name, installErr)
-			errors++
+			res.errors++
 			continue
 		}
 
 		for _, s := range result.InstalledSkills {
 			fmt.Fprintf(os.Stdout, "Installed: %s\n", s.Name)
 		}
-		installed++
+		res.installed++
 	}
 
-	fmt.Fprintf(os.Stdout, "\nSynced: %d installed, %d skipped, %d errors\n", installed, skipped, errors)
-
-	if errors > 0 {
-		return fmt.Errorf("%d skill(s) failed to sync", errors)
-	}
-	return nil
+	return res, nil
 }
 
 func init() {

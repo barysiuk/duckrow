@@ -11,8 +11,8 @@ import (
 
 var registryCmd = &cobra.Command{
 	Use:   "registry",
-	Short: "Manage skill registries",
-	Long:  `Add, list, refresh, and remove private skill registries.`,
+	Short: "Manage registries",
+	Long:  `Add, list, refresh, and remove private registries.`,
 }
 
 var registryAddCmd = &cobra.Command{
@@ -41,7 +41,7 @@ The repository must contain a duckrow.json manifest at its root.`,
 		// Check if registry with same repo already exists in config
 		for _, r := range cfg.Registries {
 			if r.Repo == args[0] {
-				fmt.Fprintf(os.Stdout, "Updated registry: %s (%d skills)\n", manifest.Name, len(manifest.Skills))
+				fmt.Fprintf(os.Stdout, "Updated registry: %s (%s)\n", manifest.Name, registrySummary(manifest))
 				return nil
 			}
 		}
@@ -56,7 +56,7 @@ The repository must contain a duckrow.json manifest at its root.`,
 			return fmt.Errorf("saving config: %w", err)
 		}
 
-		fmt.Fprintf(os.Stdout, "Added registry: %s (%d skills)\n", manifest.Name, len(manifest.Skills))
+		fmt.Fprintf(os.Stdout, "Added registry: %s (%s)\n", manifest.Name, registrySummary(manifest))
 		if manifest.Description != "" {
 			fmt.Fprintf(os.Stdout, "  %s\n", manifest.Description)
 		}
@@ -68,7 +68,7 @@ The repository must contain a duckrow.json manifest at its root.`,
 var registryListCmd = &cobra.Command{
 	Use:   "list",
 	Short: "List configured registries",
-	Long:  `List all configured skill registries and their available skills.`,
+	Long:  `List all configured registries and their available skills and MCPs.`,
 	Args:  cobra.NoArgs,
 	RunE: func(cmd *cobra.Command, args []string) error {
 		d, err := newDeps()
@@ -97,13 +97,32 @@ var registryListCmd = &cobra.Command{
 				continue
 			}
 
-			fmt.Fprintf(os.Stdout, "  %s  %s  (%d skills)\n", reg.Name, reg.Repo, len(manifest.Skills))
+			// Build summary counts.
+			parts := []string{}
+			if len(manifest.Skills) > 0 {
+				parts = append(parts, fmt.Sprintf("%d skills", len(manifest.Skills)))
+			}
+			if len(manifest.MCPs) > 0 {
+				parts = append(parts, fmt.Sprintf("%d MCPs", len(manifest.MCPs)))
+			}
+			summary := "empty"
+			if len(parts) > 0 {
+				summary = strings.Join(parts, ", ")
+			}
+
+			fmt.Fprintf(os.Stdout, "  %s  %s  (%s)\n", reg.Name, reg.Repo, summary)
 
 			if verbose {
 				if len(manifest.Skills) > 0 {
 					fmt.Fprintln(os.Stdout, "    Skills:")
 					for _, s := range manifest.Skills {
 						fmt.Fprintf(os.Stdout, "      - %s: %s\n", s.Name, s.Description)
+					}
+				}
+				if len(manifest.MCPs) > 0 {
+					fmt.Fprintln(os.Stdout, "    MCPs:")
+					for _, m := range manifest.MCPs {
+						fmt.Fprintf(os.Stdout, "      - %s: %s\n", m.Name, m.Description)
 					}
 				}
 			}
@@ -140,7 +159,7 @@ var registryRefreshCmd = &cobra.Command{
 			if err != nil {
 				return err
 			}
-			fmt.Fprintf(os.Stdout, "Refreshed: %s (%d skills)\n", manifest.Name, len(manifest.Skills))
+			fmt.Fprintf(os.Stdout, "Refreshed: %s (%s)\n", manifest.Name, registrySummary(manifest))
 			printManifestWarnings(manifest)
 			return nil
 		}
@@ -157,7 +176,7 @@ var registryRefreshCmd = &cobra.Command{
 				fmt.Fprintf(os.Stderr, "Error refreshing %s: %v\n", reg.Name, err)
 				continue
 			}
-			fmt.Fprintf(os.Stdout, "Refreshed: %s (%d skills)\n", manifest.Name, len(manifest.Skills))
+			fmt.Fprintf(os.Stdout, "Refreshed: %s (%s)\n", manifest.Name, registrySummary(manifest))
 			printManifestWarnings(manifest)
 		}
 		return nil
@@ -254,8 +273,24 @@ func printManifestWarnings(manifest *core.RegistryManifest) {
 	}
 }
 
+// registrySummary returns a human-readable summary of a registry manifest's contents.
+// e.g. "3 skills, 2 MCPs" or "3 skills" or "2 MCPs" or "empty".
+func registrySummary(manifest *core.RegistryManifest) string {
+	var parts []string
+	if len(manifest.Skills) > 0 {
+		parts = append(parts, fmt.Sprintf("%d skills", len(manifest.Skills)))
+	}
+	if len(manifest.MCPs) > 0 {
+		parts = append(parts, fmt.Sprintf("%d MCPs", len(manifest.MCPs)))
+	}
+	if len(parts) == 0 {
+		return "empty"
+	}
+	return strings.Join(parts, ", ")
+}
+
 func init() {
-	registryListCmd.Flags().BoolP("verbose", "v", false, "Show skills in each registry")
+	registryListCmd.Flags().BoolP("verbose", "v", false, "Show skills and MCPs in each registry")
 	registryCmd.AddCommand(registryAddCmd)
 	registryCmd.AddCommand(registryListCmd)
 	registryCmd.AddCommand(registryRefreshCmd)

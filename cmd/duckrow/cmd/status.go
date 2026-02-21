@@ -12,8 +12,8 @@ import (
 
 var statusCmd = &cobra.Command{
 	Use:   "status [path]",
-	Short: "Show installed skills for the current folder",
-	Long: `Show installed skills and tracking status for a folder.
+	Short: "Show installed skills and MCPs for the current folder",
+	Long: `Show installed skills, MCP configurations, and tracking status for a folder.
 If a path is given, shows status for that folder. Otherwise shows status for the current directory.`,
 	Args: cobra.MaximumNArgs(1),
 	RunE: func(cmd *cobra.Command, args []string) error {
@@ -46,8 +46,11 @@ If a path is given, shows status for that folder. Otherwise shows status for the
 		// Check tracking state
 		tracked, _ := fm.IsTracked(absPath)
 
+		// Build MCP description lookup from registries (best-effort).
+		mcpDescriptions := buildMCPDescriptionMap(d)
+
 		// Show folder status with tracking indicator
-		if err := showFolderStatus(scanner, absPath, tracked); err != nil {
+		if err := showFolderStatus(scanner, absPath, tracked, mcpDescriptions); err != nil {
 			return err
 		}
 
@@ -66,7 +69,7 @@ If a path is given, shows status for that folder. Otherwise shows status for the
 	},
 }
 
-func showFolderStatus(scanner *core.Scanner, path string, tracked bool) error {
+func showFolderStatus(scanner *core.Scanner, path string, tracked bool, mcpDescriptions map[string]string) error {
 	trackLabel := "[not tracked]"
 	if tracked {
 		trackLabel = "[tracked]"
@@ -91,7 +94,63 @@ func showFolderStatus(scanner *core.Scanner, path string, tracked bool) error {
 			}
 		}
 	}
+
+	// Show MCPs from the lock file (MCPs are config-only, not on disk).
+	lf, _ := core.ReadLockFile(path)
+	if lf != nil && len(lf.MCPs) > 0 {
+		fmt.Fprintf(os.Stdout, "  MCPs (%d):\n", len(lf.MCPs))
+		for _, m := range lf.MCPs {
+			agentDisplayNames := mcpAgentDisplayNames(m.Agents)
+			desc := mcpDescriptions[m.Name]
+			if desc != "" {
+				fmt.Fprintf(os.Stdout, "    - %-18s %s  [%s]\n", m.Name, desc, agentDisplayNames)
+			} else {
+				fmt.Fprintf(os.Stdout, "    - %-18s [%s]\n", m.Name, agentDisplayNames)
+			}
+		}
+	}
+
 	return nil
+}
+
+// mcpAgentDisplayNames converts agent names to display names for status output.
+func mcpAgentDisplayNames(agentNames []string) string {
+	// Map of agent name -> short display name for status output.
+	displayNames := map[string]string{
+		"cursor":         "Cursor",
+		"claude-code":    "Claude Code",
+		"github-copilot": "Copilot",
+		"opencode":       "OpenCode",
+	}
+	var names []string
+	for _, name := range agentNames {
+		if dn, ok := displayNames[name]; ok {
+			names = append(names, dn)
+		} else {
+			names = append(names, name)
+		}
+	}
+	return strings.Join(names, ", ")
+}
+
+// buildMCPDescriptionMap loads MCP descriptions from configured registries (best-effort).
+// Returns a map of MCP name -> description.
+func buildMCPDescriptionMap(d *deps) map[string]string {
+	descriptions := make(map[string]string)
+
+	cfg, err := d.config.Load()
+	if err != nil || len(cfg.Registries) == 0 {
+		return descriptions
+	}
+
+	rm := core.NewRegistryManager(d.config.RegistriesDir())
+	allMCPs := rm.ListMCPs(cfg.Registries)
+	for _, m := range allMCPs {
+		if m.MCP.Description != "" {
+			descriptions[m.MCP.Name] = m.MCP.Description
+		}
+	}
+	return descriptions
 }
 
 // skillRelPath returns the skill path relative to the folder root,

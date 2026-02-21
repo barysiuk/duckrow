@@ -17,7 +17,7 @@ exists myproject/duckrow.lock.json
 # Dry run with skill present should show skip
 exec duckrow sync -d myproject --dry-run
 stdout 'skip: test-skill \(already installed\)'
-stdout 'Synced: 0 installed, 1 skipped, 0 errors'
+stdout 'Skills: 0 installed, 1 skipped, 0 errors'
 
 # Delete the skill directory
 exec rm -rf myproject/.agents/skills/test-skill
@@ -25,7 +25,7 @@ exec rm -rf myproject/.agents/skills/test-skill
 # Dry run should show install plan
 exec duckrow sync -d myproject --dry-run
 stdout 'install: test-skill \(commit'
-stdout 'Synced: 1 installed, 0 skipped, 0 errors'
+stdout 'Skills: 1 installed, 0 skipped, 0 errors'
 
 # Verify skill was NOT actually installed (dry run)
 dir-not-exists myproject/.agents/skills/test-skill

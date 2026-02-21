@@ -6,8 +6,10 @@ stdout 'remove-folder'
 stdout 'folders'
 stdout 'status'
 stdout 'skill'
+stdout 'mcp'
 stdout 'sync'
 stdout 'registry'
+stdout 'env'
 stdout 'version'
 ! stderr .
 
@@ -24,6 +26,12 @@ exec duckrow skill install --help
 stdout 'source-or-name'
 stdout 'git URL'
 stdout 'registry'
+
+# Test help for mcp subcommand
+exec duckrow mcp --help
+stdout 'install'
+stdout 'uninstall'
+stdout 'sync'
 
 exec duckrow registry --help
 stdout 'add'
