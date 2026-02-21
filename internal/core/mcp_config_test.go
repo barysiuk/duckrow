@@ -1018,3 +1018,180 @@ func TestRemoveTrailingCommas(t *testing.T) {
 		t.Error("content was lost")
 	}
 }
+
+// ---------------------------------------------------------------------------
+// Alternative config path (.jsonc) tests
+// ---------------------------------------------------------------------------
+
+func TestInstallMCPConfig_UsesJsoncWhenPresent(t *testing.T) {
+	projectDir := t.TempDir()
+
+	agent := AgentDef{
+		Name:             "opencode",
+		DisplayName:      "OpenCode",
+		MCPConfigPath:    "opencode.json",
+		MCPConfigPathAlt: "opencode.jsonc",
+		MCPConfigKey:     "mcp",
+		MCPConfigFormat:  "jsonc",
+	}
+
+	// Create opencode.jsonc with existing content.
+	jsoncPath := filepath.Join(projectDir, "opencode.jsonc")
+	existing := `{
+	// My OpenCode config
+	"provider": "anthropic"
+}`
+	if err := os.WriteFile(jsoncPath, []byte(existing), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	entry := MCPEntry{
+		Name:    "test-mcp",
+		Command: "node",
+		Args:    []string{"server.js"},
+	}
+
+	result, err := InstallMCPConfig(entry, MCPInstallOptions{
+		ProjectDir:   projectDir,
+		TargetAgents: []AgentDef{agent},
+	})
+	if err != nil {
+		t.Fatalf("InstallMCPConfig failed: %v", err)
+	}
+
+	// Should have written to the .jsonc file.
+	if len(result.AgentResults) != 1 {
+		t.Fatalf("expected 1 agent result, got %d", len(result.AgentResults))
+	}
+	ar := result.AgentResults[0]
+	if ar.Action != "wrote" {
+		t.Fatalf("expected action 'wrote', got %q: %s", ar.Action, ar.Message)
+	}
+	if ar.FilePath != jsoncPath {
+		t.Errorf("FilePath = %q, want %q", ar.FilePath, jsoncPath)
+	}
+	if ar.ConfigPath != "opencode.jsonc" {
+		t.Errorf("ConfigPath = %q, want %q", ar.ConfigPath, "opencode.jsonc")
+	}
+
+	// Verify the .jsonc file was updated (not a new .json created).
+	data, err := os.ReadFile(jsoncPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	content := string(data)
+	if !strings.Contains(content, "My OpenCode config") {
+		t.Error("comment was lost from .jsonc file")
+	}
+	if !strings.Contains(content, "test-mcp") {
+		t.Error("MCP entry not written to .jsonc file")
+	}
+
+	// Verify opencode.json was NOT created.
+	jsonPath := filepath.Join(projectDir, "opencode.json")
+	if _, err := os.Stat(jsonPath); err == nil {
+		t.Error("opencode.json was created — should use .jsonc when it exists")
+	}
+}
+
+func TestInstallMCPConfig_FallsBackToJson(t *testing.T) {
+	projectDir := t.TempDir()
+
+	agent := AgentDef{
+		Name:             "opencode",
+		DisplayName:      "OpenCode",
+		MCPConfigPath:    "opencode.json",
+		MCPConfigPathAlt: "opencode.jsonc",
+		MCPConfigKey:     "mcp",
+		MCPConfigFormat:  "jsonc",
+	}
+
+	// No .jsonc file exists — should create opencode.json.
+	entry := MCPEntry{
+		Name:    "test-mcp",
+		Command: "node",
+		Args:    []string{"server.js"},
+	}
+
+	result, err := InstallMCPConfig(entry, MCPInstallOptions{
+		ProjectDir:   projectDir,
+		TargetAgents: []AgentDef{agent},
+	})
+	if err != nil {
+		t.Fatalf("InstallMCPConfig failed: %v", err)
+	}
+
+	ar := result.AgentResults[0]
+	if ar.Action != "wrote" {
+		t.Fatalf("expected action 'wrote', got %q: %s", ar.Action, ar.Message)
+	}
+	if ar.ConfigPath != "opencode.json" {
+		t.Errorf("ConfigPath = %q, want %q", ar.ConfigPath, "opencode.json")
+	}
+
+	// Verify opencode.json was created.
+	jsonPath := filepath.Join(projectDir, "opencode.json")
+	data, err := os.ReadFile(jsonPath)
+	if err != nil {
+		t.Fatalf("opencode.json not created: %v", err)
+	}
+	if !strings.Contains(string(data), "test-mcp") {
+		t.Error("MCP entry not written to opencode.json")
+	}
+}
+
+func TestUninstallMCPConfig_UsesJsoncWhenPresent(t *testing.T) {
+	projectDir := t.TempDir()
+
+	agent := AgentDef{
+		Name:             "opencode",
+		DisplayName:      "OpenCode",
+		MCPConfigPath:    "opencode.json",
+		MCPConfigPathAlt: "opencode.jsonc",
+		MCPConfigKey:     "mcp",
+		MCPConfigFormat:  "jsonc",
+	}
+
+	// Create opencode.jsonc with an existing MCP entry.
+	jsoncPath := filepath.Join(projectDir, "opencode.jsonc")
+	existing := `{
+	// My config
+	"mcp": {
+		"test-mcp": {
+			"command": "duckrow",
+			"args": ["env", "--mcp", "test-mcp", "--", "node", "server.js"]
+		}
+	}
+}`
+	if err := os.WriteFile(jsoncPath, []byte(existing), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	result, err := UninstallMCPConfig("test-mcp", []AgentDef{agent}, MCPUninstallOptions{
+		ProjectDir: projectDir,
+	})
+	if err != nil {
+		t.Fatalf("UninstallMCPConfig failed: %v", err)
+	}
+
+	ar := result.AgentResults[0]
+	if ar.Action != "removed" {
+		t.Fatalf("expected action 'removed', got %q: %s", ar.Action, ar.Message)
+	}
+	if ar.FilePath != jsoncPath {
+		t.Errorf("FilePath = %q, want %q", ar.FilePath, jsoncPath)
+	}
+
+	// Verify comment was preserved.
+	data, err := os.ReadFile(jsoncPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	content := string(data)
+	if !strings.Contains(content, "My config") {
+		t.Error("comment was lost from .jsonc file after uninstall")
+	}
+	if strings.Contains(content, "test-mcp") {
+		t.Error("MCP entry was not removed from .jsonc file")
+	}
+}

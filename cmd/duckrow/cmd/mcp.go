@@ -117,14 +117,14 @@ Examples:
 		for _, ar := range result.AgentResults {
 			switch ar.Action {
 			case "wrote":
-				fmt.Fprintf(os.Stdout, "  + %-24s (%s)\n", ar.Agent.MCPConfigPath, ar.Agent.DisplayName)
+				fmt.Fprintf(os.Stdout, "  + %-24s (%s)\n", ar.ConfigPath, ar.Agent.DisplayName)
 				installedAgentNames = append(installedAgentNames, ar.Agent.Name)
 			case "skipped":
-				fmt.Fprintf(os.Stdout, "  ! %-24s %q %s\n", ar.Agent.MCPConfigPath, mcpName, ar.Message)
+				fmt.Fprintf(os.Stdout, "  ! %-24s %q %s\n", ar.ConfigPath, mcpName, ar.Message)
 				// Still count as targeted for lock file.
 				installedAgentNames = append(installedAgentNames, ar.Agent.Name)
 			case "error":
-				fmt.Fprintf(os.Stderr, "  x %-24s error: %s\n", ar.Agent.MCPConfigPath, ar.Message)
+				fmt.Fprintf(os.Stderr, "  x %-24s error: %s\n", ar.ConfigPath, ar.Message)
 			}
 		}
 
@@ -233,11 +233,11 @@ Example:
 		for _, ar := range result.AgentResults {
 			switch ar.Action {
 			case "removed":
-				fmt.Fprintf(os.Stdout, "  - %-24s (%s)\n", ar.Agent.MCPConfigPath, ar.Agent.DisplayName)
+				fmt.Fprintf(os.Stdout, "  - %-24s (%s)\n", ar.ConfigPath, ar.Agent.DisplayName)
 			case "skipped":
-				fmt.Fprintf(os.Stdout, "  . %-24s %s\n", ar.Agent.MCPConfigPath, ar.Message)
+				fmt.Fprintf(os.Stdout, "  . %-24s %s\n", ar.ConfigPath, ar.Message)
 			case "error":
-				fmt.Fprintf(os.Stderr, "  x %-24s error: %s\n", ar.Agent.MCPConfigPath, ar.Message)
+				fmt.Fprintf(os.Stderr, "  x %-24s error: %s\n", ar.ConfigPath, ar.Message)
 			}
 		}
 

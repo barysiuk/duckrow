@@ -662,7 +662,8 @@ func (m installModel) viewMCPAgentSelect() string {
 		}
 
 		line := prefix + check + " " + ab.agent.DisplayName
-		configHint := " (" + ab.agent.MCPConfigPath + ")"
+		resolvedPath := core.ResolveMCPConfigPathRel(ab.agent, m.activeFolder)
+		configHint := " (" + resolvedPath + ")"
 		if i == m.mcpAgentCursor {
 			b.WriteString(selectedItemStyle.Render(line))
 			b.WriteString(mutedStyle.Render(configHint))
@@ -733,7 +734,7 @@ func (m installModel) viewMCPPreview() string {
 	// Target config files.
 	b.WriteString("  Will write to:\n")
 	for _, agent := range m.mcpTargetAgents {
-		configPath := agent.MCPConfigPath
+		configPath := core.ResolveMCPConfigPathRel(agent, m.activeFolder)
 		b.WriteString("    " + normalItemStyle.Render(configPath) + "  " + mutedStyle.Render("("+agent.DisplayName+")"))
 		b.WriteString("\n")
 	}

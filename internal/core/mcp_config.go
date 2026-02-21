@@ -23,10 +23,11 @@ type MCPInstallResult struct {
 
 // MCPAgentResult is the per-agent outcome of an MCP install or uninstall.
 type MCPAgentResult struct {
-	Agent    AgentDef
-	FilePath string // Absolute path to the config file
-	Action   string // "wrote", "skipped", "error"
-	Message  string // Human-readable detail (e.g. "already exists, use --force")
+	Agent      AgentDef
+	FilePath   string // Absolute path to the config file
+	ConfigPath string // Project-relative config path (for display, e.g. "opencode.jsonc")
+	Action     string // "wrote", "skipped", "error"
+	Message    string // Human-readable detail (e.g. "already exists, use --force")
 }
 
 // MCPUninstallOptions configures an MCP uninstallation.
@@ -93,9 +94,11 @@ func UninstallMCPConfig(mcpName string, agents []AgentDef, opts MCPUninstallOpti
 // installMCPForAgent writes a single MCP entry into one agent's config file.
 func installMCPForAgent(entry MCPEntry, agent AgentDef, opts MCPInstallOptions) MCPAgentResult {
 	configPath := ResolveMCPConfigPath(agent, opts.ProjectDir)
+	relPath, _ := filepath.Rel(opts.ProjectDir, configPath)
 	ar := MCPAgentResult{
-		Agent:    agent,
-		FilePath: configPath,
+		Agent:      agent,
+		FilePath:   configPath,
+		ConfigPath: relPath,
 	}
 
 	// Read existing config file content (or start with empty object).
@@ -170,9 +173,11 @@ func installMCPForAgent(entry MCPEntry, agent AgentDef, opts MCPInstallOptions) 
 // uninstallMCPForAgent removes a single MCP entry from one agent's config file.
 func uninstallMCPForAgent(mcpName string, agent AgentDef, opts MCPUninstallOptions) MCPAgentResult {
 	configPath := ResolveMCPConfigPath(agent, opts.ProjectDir)
+	relPath, _ := filepath.Rel(opts.ProjectDir, configPath)
 	ar := MCPAgentResult{
-		Agent:    agent,
-		FilePath: configPath,
+		Agent:      agent,
+		FilePath:   configPath,
+		ConfigPath: relPath,
 	}
 
 	// Read existing config file.

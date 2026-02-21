@@ -340,6 +340,113 @@ func TestResolveMCPConfigPath_Empty(t *testing.T) {
 	}
 }
 
+func TestResolveMCPConfigPath_AltExists(t *testing.T) {
+	dir := t.TempDir()
+
+	// Create the alt file (opencode.jsonc).
+	altPath := filepath.Join(dir, "opencode.jsonc")
+	if err := os.WriteFile(altPath, []byte("{}"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	agent := AgentDef{
+		Name:             "opencode",
+		MCPConfigPath:    "opencode.json",
+		MCPConfigPathAlt: "opencode.jsonc",
+	}
+
+	got := ResolveMCPConfigPath(agent, dir)
+	if got != altPath {
+		t.Errorf("ResolveMCPConfigPath = %q, want %q (alt path)", got, altPath)
+	}
+}
+
+func TestResolveMCPConfigPath_AltNotExists(t *testing.T) {
+	dir := t.TempDir()
+
+	// No opencode.jsonc on disk — should fall back to primary.
+	agent := AgentDef{
+		Name:             "opencode",
+		MCPConfigPath:    "opencode.json",
+		MCPConfigPathAlt: "opencode.jsonc",
+	}
+
+	got := ResolveMCPConfigPath(agent, dir)
+	want := filepath.Join(dir, "opencode.json")
+	if got != want {
+		t.Errorf("ResolveMCPConfigPath = %q, want %q (primary path)", got, want)
+	}
+}
+
+func TestResolveMCPConfigPath_AltPreferredOverPrimary(t *testing.T) {
+	dir := t.TempDir()
+
+	// Both files exist — alt should win.
+	if err := os.WriteFile(filepath.Join(dir, "opencode.json"), []byte("{}"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(dir, "opencode.jsonc"), []byte("{}"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	agent := AgentDef{
+		Name:             "opencode",
+		MCPConfigPath:    "opencode.json",
+		MCPConfigPathAlt: "opencode.jsonc",
+	}
+
+	got := ResolveMCPConfigPath(agent, dir)
+	want := filepath.Join(dir, "opencode.jsonc")
+	if got != want {
+		t.Errorf("ResolveMCPConfigPath = %q, want %q (alt preferred)", got, want)
+	}
+}
+
+func TestResolveMCPConfigPathRel(t *testing.T) {
+	dir := t.TempDir()
+
+	agent := AgentDef{
+		Name:             "opencode",
+		MCPConfigPath:    "opencode.json",
+		MCPConfigPathAlt: "opencode.jsonc",
+	}
+
+	// Alt not on disk — returns primary.
+	got := ResolveMCPConfigPathRel(agent, dir)
+	if got != "opencode.json" {
+		t.Errorf("ResolveMCPConfigPathRel = %q, want %q", got, "opencode.json")
+	}
+
+	// Create alt file — returns alt.
+	if err := os.WriteFile(filepath.Join(dir, "opencode.jsonc"), []byte("{}"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	got = ResolveMCPConfigPathRel(agent, dir)
+	if got != "opencode.jsonc" {
+		t.Errorf("ResolveMCPConfigPathRel = %q, want %q", got, "opencode.jsonc")
+	}
+}
+
+func TestResolveMCPConfigPathRel_NoAlt(t *testing.T) {
+	agent := AgentDef{
+		Name:          "cursor",
+		MCPConfigPath: ".cursor/mcp.json",
+	}
+
+	got := ResolveMCPConfigPathRel(agent, "/projects/myapp")
+	if got != ".cursor/mcp.json" {
+		t.Errorf("ResolveMCPConfigPathRel = %q, want %q", got, ".cursor/mcp.json")
+	}
+}
+
+func TestResolveMCPConfigPathRel_Empty(t *testing.T) {
+	agent := AgentDef{Name: "codex"}
+	got := ResolveMCPConfigPathRel(agent, "/projects/myapp")
+	if got != "" {
+		t.Errorf("ResolveMCPConfigPathRel = %q, want empty", got)
+	}
+}
+
 func TestLoadAgents_MCPFields(t *testing.T) {
 	agents, err := LoadAgents()
 	if err != nil {
@@ -348,10 +455,11 @@ func TestLoadAgents_MCPFields(t *testing.T) {
 
 	// Verify specific agents have the expected MCP fields.
 	mcpExpected := map[string]struct {
-		configPath string
-		configKey  string
+		configPath    string
+		configPathAlt string
+		configKey     string
 	}{
-		"opencode":       {configPath: "opencode.json", configKey: "mcp"},
+		"opencode":       {configPath: "opencode.json", configPathAlt: "opencode.jsonc", configKey: "mcp"},
 		"claude-code":    {configPath: ".mcp.json", configKey: "mcpServers"},
 		"cursor":         {configPath: ".cursor/mcp.json", configKey: "mcpServers"},
 		"github-copilot": {configPath: ".vscode/mcp.json", configKey: "servers"},
@@ -361,6 +469,9 @@ func TestLoadAgents_MCPFields(t *testing.T) {
 		if expected, ok := mcpExpected[a.Name]; ok {
 			if a.MCPConfigPath != expected.configPath {
 				t.Errorf("agent %q: MCPConfigPath = %q, want %q", a.Name, a.MCPConfigPath, expected.configPath)
+			}
+			if a.MCPConfigPathAlt != expected.configPathAlt {
+				t.Errorf("agent %q: MCPConfigPathAlt = %q, want %q", a.Name, a.MCPConfigPathAlt, expected.configPathAlt)
 			}
 			if a.MCPConfigKey != expected.configKey {
 				t.Errorf("agent %q: MCPConfigKey = %q, want %q", a.Name, a.MCPConfigKey, expected.configKey)

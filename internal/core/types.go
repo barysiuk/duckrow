@@ -86,16 +86,17 @@ type SkillMetadataDetails struct {
 
 // AgentDef defines an AI coding agent and its skill directory conventions.
 type AgentDef struct {
-	Name            string   `json:"name"`
-	DisplayName     string   `json:"displayName"`
-	SkillsDir       string   `json:"skillsDir"`                 // Project-relative skill directory (e.g. ".cursor/skills")
-	AltSkillsDirs   []string `json:"altSkillsDirs,omitempty"`   // Additional native skill directories the agent reads from
-	GlobalSkillsDir string   `json:"globalSkillsDir"`           // Global skill directory (e.g. "~/.cursor/skills")
-	DetectPaths     []string `json:"detectPaths"`               // Paths to check for agent presence
-	Universal       bool     `json:"universal"`                 // If true, uses .agents/skills as skillsDir
-	MCPConfigPath   string   `json:"mcpConfigPath,omitempty"`   // Project-relative MCP config file (e.g. ".cursor/mcp.json")
-	MCPConfigKey    string   `json:"mcpConfigKey,omitempty"`    // Top-level JSON key in the config file (e.g. "mcpServers")
-	MCPConfigFormat string   `json:"mcpConfigFormat,omitempty"` // "jsonc" or "" (strict JSON); controls comment preservation
+	Name             string   `json:"name"`
+	DisplayName      string   `json:"displayName"`
+	SkillsDir        string   `json:"skillsDir"`                  // Project-relative skill directory (e.g. ".cursor/skills")
+	AltSkillsDirs    []string `json:"altSkillsDirs,omitempty"`    // Additional native skill directories the agent reads from
+	GlobalSkillsDir  string   `json:"globalSkillsDir"`            // Global skill directory (e.g. "~/.cursor/skills")
+	DetectPaths      []string `json:"detectPaths"`                // Paths to check for agent presence
+	Universal        bool     `json:"universal"`                  // If true, uses .agents/skills as skillsDir
+	MCPConfigPath    string   `json:"mcpConfigPath,omitempty"`    // Project-relative MCP config file (e.g. ".cursor/mcp.json")
+	MCPConfigPathAlt string   `json:"mcpConfigPathAlt,omitempty"` // Alternative config path checked first (e.g. "opencode.jsonc")
+	MCPConfigKey     string   `json:"mcpConfigKey,omitempty"`     // Top-level JSON key in the config file (e.g. "mcpServers")
+	MCPConfigFormat  string   `json:"mcpConfigFormat,omitempty"`  // "jsonc" or "" (strict JSON); controls comment preservation
 }
 
 // ParsedSource represents a parsed skill source string.

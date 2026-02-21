@@ -599,7 +599,7 @@ func (m folderModel) removeSelectedMCP(app *App) tea.Cmd {
 	for _, agentName := range mcp.locked.Agents {
 		for _, agent := range app.agents {
 			if agent.Name == agentName && agent.MCPConfigPath != "" {
-				configFiles = append(configFiles, agent.MCPConfigPath)
+				configFiles = append(configFiles, core.ResolveMCPConfigPathRel(agent, folderPath))
 			}
 		}
 	}

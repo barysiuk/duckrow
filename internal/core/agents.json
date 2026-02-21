@@ -8,6 +8,7 @@
     "detectPaths": ["$XDG_CONFIG/opencode"],
     "universal": true,
     "mcpConfigPath": "opencode.json",
+    "mcpConfigPathAlt": "opencode.jsonc",
     "mcpConfigKey": "mcp",
     "mcpConfigFormat": "jsonc"
   },
