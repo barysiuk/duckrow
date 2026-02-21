@@ -319,3 +319,240 @@ func TestEnsureGitignore_SkipsIfAlreadyPresent(t *testing.T) {
 		t.Errorf(".env.duckrow appears %d times, want 1", count)
 	}
 }
+
+// ---------------------------------------------------------------------------
+// ResolveEnvWithSource tests
+// ---------------------------------------------------------------------------
+
+func TestResolveEnvWithSource_ProcessEnv(t *testing.T) {
+	projectDir := t.TempDir()
+	globalDir := t.TempDir()
+
+	t.Setenv("TEST_SRC_VAR", "from-process")
+
+	resolver := NewEnvResolver(projectDir, globalDir)
+	results := resolver.ResolveEnvWithSource([]string{"TEST_SRC_VAR"})
+
+	if len(results) != 1 {
+		t.Fatalf("len(results) = %d, want 1", len(results))
+	}
+	if results[0].Source != EnvSourceProcess {
+		t.Errorf("source = %q, want %q", results[0].Source, EnvSourceProcess)
+	}
+	if results[0].Value != "from-process" {
+		t.Errorf("value = %q, want \"from-process\"", results[0].Value)
+	}
+}
+
+func TestResolveEnvWithSource_ProjectSource(t *testing.T) {
+	projectDir := t.TempDir()
+	globalDir := t.TempDir()
+
+	envPath := filepath.Join(projectDir, ".env.duckrow")
+	if err := os.WriteFile(envPath, []byte("MY_VAR=project-val\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	resolver := NewEnvResolver(projectDir, globalDir)
+	results := resolver.ResolveEnvWithSource([]string{"MY_VAR"})
+
+	if len(results) != 1 {
+		t.Fatalf("len(results) = %d, want 1", len(results))
+	}
+	if results[0].Source != EnvSourceProject {
+		t.Errorf("source = %q, want %q", results[0].Source, EnvSourceProject)
+	}
+}
+
+func TestResolveEnvWithSource_GlobalSource(t *testing.T) {
+	projectDir := t.TempDir()
+	globalDir := t.TempDir()
+
+	envPath := filepath.Join(globalDir, ".env.duckrow")
+	if err := os.WriteFile(envPath, []byte("MY_VAR=global-val\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	resolver := NewEnvResolver(projectDir, globalDir)
+	results := resolver.ResolveEnvWithSource([]string{"MY_VAR"})
+
+	if len(results) != 1 {
+		t.Fatalf("len(results) = %d, want 1", len(results))
+	}
+	if results[0].Source != EnvSourceGlobal {
+		t.Errorf("source = %q, want %q", results[0].Source, EnvSourceGlobal)
+	}
+}
+
+func TestResolveEnvWithSource_MissingVar(t *testing.T) {
+	resolver := NewEnvResolver(t.TempDir(), t.TempDir())
+	results := resolver.ResolveEnvWithSource([]string{"DOES_NOT_EXIST"})
+
+	if len(results) != 1 {
+		t.Fatalf("len(results) = %d, want 1", len(results))
+	}
+	if results[0].Source != "" {
+		t.Errorf("source = %q, want empty", results[0].Source)
+	}
+	if results[0].Value != "" {
+		t.Errorf("value = %q, want empty", results[0].Value)
+	}
+}
+
+func TestResolveEnvWithSource_Precedence(t *testing.T) {
+	projectDir := t.TempDir()
+	globalDir := t.TempDir()
+
+	// Project and global both have the var — project should win.
+	if err := os.WriteFile(filepath.Join(projectDir, ".env.duckrow"), []byte("VAR=proj\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(globalDir, ".env.duckrow"), []byte("VAR=glob\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	resolver := NewEnvResolver(projectDir, globalDir)
+	results := resolver.ResolveEnvWithSource([]string{"VAR"})
+
+	if results[0].Source != EnvSourceProject {
+		t.Errorf("source = %q, want %q", results[0].Source, EnvSourceProject)
+	}
+	if results[0].Value != "proj" {
+		t.Errorf("value = %q, want \"proj\"", results[0].Value)
+	}
+}
+
+func TestResolveEnvWithSource_Empty(t *testing.T) {
+	resolver := NewEnvResolver(t.TempDir(), t.TempDir())
+	results := resolver.ResolveEnvWithSource(nil)
+	if results != nil {
+		t.Errorf("results = %v, want nil", results)
+	}
+}
+
+// ---------------------------------------------------------------------------
+// WriteEnvVar tests
+// ---------------------------------------------------------------------------
+
+func TestWriteEnvVar_CreatesNewFile(t *testing.T) {
+	dir := t.TempDir()
+
+	if err := WriteEnvVar(dir, "API_KEY", "secret123"); err != nil {
+		t.Fatal(err)
+	}
+
+	data, err := os.ReadFile(filepath.Join(dir, ".env.duckrow"))
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	if string(data) != "API_KEY=secret123\n" {
+		t.Errorf("content = %q, want \"API_KEY=secret123\\n\"", string(data))
+	}
+}
+
+func TestWriteEnvVar_AppendsToExisting(t *testing.T) {
+	dir := t.TempDir()
+	envPath := filepath.Join(dir, ".env.duckrow")
+	if err := os.WriteFile(envPath, []byte("EXISTING=val\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	if err := WriteEnvVar(dir, "NEW_VAR", "new_val"); err != nil {
+		t.Fatal(err)
+	}
+
+	data, err := os.ReadFile(envPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	content := string(data)
+	if !strings.Contains(content, "EXISTING=val") {
+		t.Error("existing content was lost")
+	}
+	if !strings.Contains(content, "NEW_VAR=new_val") {
+		t.Error("new var was not appended")
+	}
+}
+
+func TestWriteEnvVar_UpdatesExistingVar(t *testing.T) {
+	dir := t.TempDir()
+	envPath := filepath.Join(dir, ".env.duckrow")
+	if err := os.WriteFile(envPath, []byte("API_KEY=old_value\nOTHER=keep\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	if err := WriteEnvVar(dir, "API_KEY", "new_value"); err != nil {
+		t.Fatal(err)
+	}
+
+	data, err := os.ReadFile(envPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	content := string(data)
+	if !strings.Contains(content, "API_KEY=new_value") {
+		t.Errorf("API_KEY not updated: %q", content)
+	}
+	if strings.Contains(content, "old_value") {
+		t.Errorf("old value still present: %q", content)
+	}
+	if !strings.Contains(content, "OTHER=keep") {
+		t.Error("OTHER was lost")
+	}
+}
+
+func TestWriteEnvVar_QuotesValueWithSpaces(t *testing.T) {
+	dir := t.TempDir()
+
+	if err := WriteEnvVar(dir, "DB_URL", "postgres://host/my db"); err != nil {
+		t.Fatal(err)
+	}
+
+	data, err := os.ReadFile(filepath.Join(dir, ".env.duckrow"))
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	if !strings.Contains(string(data), `DB_URL="postgres://host/my db"`) {
+		t.Errorf("value not quoted: %q", string(data))
+	}
+}
+
+func TestWriteEnvVar_CreatesParentDir(t *testing.T) {
+	dir := filepath.Join(t.TempDir(), "subdir", "nested")
+
+	if err := WriteEnvVar(dir, "KEY", "val"); err != nil {
+		t.Fatal(err)
+	}
+
+	data, err := os.ReadFile(filepath.Join(dir, ".env.duckrow"))
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	if string(data) != "KEY=val\n" {
+		t.Errorf("content = %q, want \"KEY=val\\n\"", string(data))
+	}
+}
+
+func TestWriteEnvVar_FilePermissions(t *testing.T) {
+	dir := t.TempDir()
+
+	if err := WriteEnvVar(dir, "SECRET", "value"); err != nil {
+		t.Fatal(err)
+	}
+
+	info, err := os.Stat(filepath.Join(dir, ".env.duckrow"))
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	// File should be created with 0600 (owner read/write only).
+	perm := info.Mode().Perm()
+	if perm != 0o600 {
+		t.Errorf("permissions = %o, want 600", perm)
+	}
+}

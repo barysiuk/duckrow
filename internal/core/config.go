@@ -36,6 +36,16 @@ func NewConfigManagerWithDir(dir string) *ConfigManager {
 	return &ConfigManager{configDir: dir}
 }
 
+// GlobalConfigDir returns the global config directory path (~/.duckrow/).
+// Returns an empty string if the home directory cannot be determined.
+func GlobalConfigDir() string {
+	home, err := os.UserHomeDir()
+	if err != nil {
+		return ""
+	}
+	return filepath.Join(home, configDirName)
+}
+
 // ConfigDir returns the configuration directory path.
 func (cm *ConfigManager) ConfigDir() string {
 	return cm.configDir

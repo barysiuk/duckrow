@@ -75,9 +75,11 @@ type App struct {
 	cfg            *core.Config
 	folderStatus   []core.FolderStatus
 	registrySkills []core.RegistrySkillInfo
+	registryMCPs   []core.RegistryMCPInfo
 
 	// Active folder's computed data.
 	activeFolderStatus *core.FolderStatus
+	activeFolderMCPs   []mcpItem // Installed MCPs for the active folder
 
 	// Registry commit map: source -> commit (built from registry manifests).
 	registryCommits map[string]string
@@ -146,6 +148,7 @@ type loadedDataMsg struct {
 	cfg             *core.Config
 	folderStatus    []core.FolderStatus
 	registrySkills  []core.RegistrySkillInfo
+	registryMCPs    []core.RegistryMCPInfo
 	registryCommits map[string]string // source -> commit from registries
 	err             error
 }
@@ -177,6 +180,8 @@ type bulkUpdateDoneMsg struct {
 // registryRefreshDoneMsg is sent when the async registry refresh completes.
 type registryRefreshDoneMsg struct {
 	registryCommits map[string]string // source -> latest commit
+	registrySkills  []core.RegistrySkillInfo
+	registryMCPs    []core.RegistryMCPInfo
 }
 
 // startRegistryRefreshMsg triggers the async registry refresh and shows the spinner.
@@ -225,6 +230,7 @@ func (a App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		a.cfg = msg.cfg
 		a.folderStatus = msg.folderStatus
 		a.registrySkills = msg.registrySkills
+		a.registryMCPs = msg.registryMCPs
 		a.registryCommits = msg.registryCommits
 		a.refreshActiveFolder()
 		a.pushDataToSubModels()
@@ -258,6 +264,18 @@ func (a App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		a.activeView = viewFolder
 		return a, tea.Batch(cmd, a.loadDataCmd)
 
+	case mcpInstallDoneMsg:
+		a.install.setInstalling(false)
+		if msg.err != nil {
+			var cmd tea.Cmd
+			a.toast, cmd = a.toast.show(fmt.Sprintf("Error: %v", msg.err), toastError)
+			return a, tea.Batch(cmd, a.loadDataCmd)
+		}
+		var cmd tea.Cmd
+		a.toast, cmd = a.toast.show(fmt.Sprintf("Installed MCP %s", msg.mcpName), toastSuccess)
+		a.activeView = viewFolder
+		return a, tea.Batch(cmd, a.loadDataCmd)
+
 	case updateDoneMsg:
 		if msg.err != nil {
 			var cmd tea.Cmd
@@ -286,6 +304,8 @@ func (a App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case registryRefreshDoneMsg:
 		a.refreshingRegistries = false
 		a.registryCommits = msg.registryCommits
+		a.registrySkills = msg.registrySkills
+		a.registryMCPs = msg.registryMCPs
 		a.refreshActiveFolder()
 		a.pushDataToSubModels()
 		return a, nil
@@ -503,8 +523,8 @@ func (a App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			if a.isListFiltering() {
 				break
 			}
-			// Don't intercept esc during agent selection — let install model handle it.
-			if a.activeView == viewInstallPicker && a.install.isSelectingAgents() {
+			// Don't intercept esc during agent selection or MCP phases — let install model handle it.
+			if a.activeView == viewInstallPicker && (a.install.isSelectingAgents() || a.install.isMCPPhase()) {
 				break
 			}
 			if a.activeView != viewFolder {
@@ -521,8 +541,9 @@ func (a App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				a.picker = a.picker.activate(a.activeFolder, a.folderStatus)
 				return a, nil
 			case key.Matches(msg, keys.Install):
-				if len(a.registrySkills) > 0 {
+				if len(a.registrySkills) > 0 || len(a.registryMCPs) > 0 {
 					a.activeView = viewInstallPicker
+					a.install = a.install.setMCPData(a.registryMCPs, a.activeFolderMCPs)
 					a.install = a.install.activate(a.activeFolder, a.registrySkills, a.activeFolderStatus, a.agents)
 				}
 				return a, nil
@@ -651,8 +672,12 @@ func (a App) renderHeader() string {
 	case viewInstallPicker:
 		if a.install.isSelectingAgents() {
 			hints = headerHintStyle.Render("Select Agents")
+		} else if a.install.phase == installPhaseEnvEntry {
+			hints = headerHintStyle.Render("Configure Env Vars")
+		} else if a.install.isMCPPhase() {
+			hints = headerHintStyle.Render("Install MCP")
 		} else {
-			hints = headerHintStyle.Render("Install Skill")
+			hints = headerHintStyle.Render("Install")
 		}
 	case viewSettings:
 		hints = headerHintStyle.Render("Settings")
@@ -695,6 +720,10 @@ func (a App) renderHelpBar() string {
 	case viewInstallPicker:
 		if a.install.isSelectingAgents() {
 			km = agentSelectHelpKeyMap{}
+		} else if a.install.phase == installPhaseMCPPreview {
+			km = mcpPreviewHelpKeyMap{hasEnvVars: len(a.install.mcpEnvStatus) > 0}
+		} else if a.install.phase == installPhaseEnvEntry {
+			km = envEntryHelpKeyMap{}
 		} else {
 			km = installHelpKeyMap{}
 		}
@@ -761,6 +790,7 @@ func (a App) loadDataCmd() tea.Msg {
 	}
 
 	regSkills := a.registry.ListSkills(cfg.Registries)
+	regMCPs := a.registry.ListMCPs(cfg.Registries)
 
 	// Build registry commit map for update detection.
 	registryCommits := core.BuildRegistryCommitMap(cfg.Registries, a.registry)
@@ -769,6 +799,7 @@ func (a App) loadDataCmd() tea.Msg {
 		cfg:             cfg,
 		folderStatus:    statuses,
 		registrySkills:  regSkills,
+		registryMCPs:    regMCPs,
 		registryCommits: registryCommits,
 	}
 }
@@ -777,6 +808,7 @@ func (a *App) refreshActiveFolder() {
 	a.isTracked = false
 	a.activeFolderStatus = nil
 	a.updateInfo = nil
+	a.activeFolderMCPs = nil
 
 	for i := range a.folderStatus {
 		if a.folderStatus[i].Folder.Path == a.activeFolder {
@@ -799,10 +831,27 @@ func (a *App) refreshActiveFolder() {
 		a.activeFolderStatus = status
 	}
 
+	// Load MCPs from lock file for the active folder.
+	lf, lfErr := core.ReadLockFile(a.activeFolder)
+	if lfErr == nil && lf != nil {
+		// Build description lookup from registry MCPs.
+		mcpDescriptions := make(map[string]string)
+		for _, rm := range a.registryMCPs {
+			mcpDescriptions[rm.MCP.Name] = rm.MCP.Description
+		}
+
+		a.activeFolderMCPs = make([]mcpItem, len(lf.MCPs))
+		for i, locked := range lf.MCPs {
+			a.activeFolderMCPs[i] = mcpItem{
+				locked: locked,
+				desc:   mcpDescriptions[locked.Name],
+			}
+		}
+	}
+
 	// Compute update info by comparing lock file commits against registry commits.
 	if len(a.registryCommits) > 0 {
-		lf, err := core.ReadLockFile(a.activeFolder)
-		if err == nil && lf != nil {
+		if lfErr == nil && lf != nil {
 			pathIndex := core.BuildPathIndex(a.registryCommits)
 			a.updateInfo = make(map[string]core.UpdateInfo)
 			for _, skill := range lf.Skills {
@@ -823,7 +872,7 @@ func (a *App) refreshActiveFolder() {
 }
 
 func (a *App) pushDataToSubModels() {
-	a.folder = a.folder.setData(a.activeFolderStatus, a.isTracked, a.registrySkills, a.updateInfo)
+	a.folder = a.folder.setData(a.activeFolderStatus, a.isTracked, a.registrySkills, a.registryMCPs, a.updateInfo, a.activeFolderMCPs)
 	a.settings = a.settings.setData(a.cfg)
 }
 
@@ -894,7 +943,8 @@ func (a *App) reloadConfig() tea.Cmd {
 }
 
 // refreshRegistriesCmd refreshes all registries (network call), hydrates
-// unpinned skill commits, and returns the updated commit map.
+// unpinned skill commits, and returns the updated commit map plus refreshed
+// skill and MCP lists from the updated manifests.
 // This runs asynchronously — the TUI remains responsive while it executes.
 func (a App) refreshRegistriesCmd() tea.Msg {
 	cfg, err := a.config.Load()
@@ -913,7 +963,17 @@ func (a App) refreshRegistriesCmd() tea.Msg {
 	}
 
 	registryCommits := core.BuildRegistryCommitMap(cfg.Registries, a.registry)
-	return registryRefreshDoneMsg{registryCommits: registryCommits}
+
+	// Re-list skills and MCPs from the refreshed manifests so the TUI
+	// picks up any new entries that were added since the initial load.
+	regSkills := a.registry.ListSkills(cfg.Registries)
+	regMCPs := a.registry.ListMCPs(cfg.Registries)
+
+	return registryRefreshDoneMsg{
+		registryCommits: registryCommits,
+		registrySkills:  regSkills,
+		registryMCPs:    regMCPs,
+	}
 }
 
 // clampHeight truncates content to at most maxLines lines.

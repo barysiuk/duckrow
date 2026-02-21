@@ -23,6 +23,8 @@ type keyMap struct {
 	ToggleAll    key.Binding
 	Update       key.Binding
 	UpdateAll    key.Binding
+	Configure    key.Binding
+	Tab          key.Binding
 }
 
 var keys = keyMap{
@@ -102,6 +104,14 @@ var keys = keyMap{
 		key.WithKeys("U"),
 		key.WithHelp("U", "update all"),
 	),
+	Configure: key.NewBinding(
+		key.WithKeys("c"),
+		key.WithHelp("c", "configure env vars"),
+	),
+	Tab: key.NewBinding(
+		key.WithKeys("tab"),
+		key.WithHelp("tab", "switch save location"),
+	),
 }
 
 // ---------------------------------------------------------------------------
@@ -175,6 +185,37 @@ func (k agentSelectHelpKeyMap) ShortHelp() []key.Binding {
 }
 
 func (k agentSelectHelpKeyMap) FullHelp() [][]key.Binding {
+	return [][]key.Binding{k.ShortHelp()}
+}
+
+// mcpPreviewHelpKeyMap is shown in the MCP preview/confirmation phase.
+type mcpPreviewHelpKeyMap struct {
+	hasEnvVars bool
+}
+
+func (k mcpPreviewHelpKeyMap) ShortHelp() []key.Binding {
+	bindings := []key.Binding{keys.Enter}
+	if k.hasEnvVars {
+		bindings = append(bindings, keys.Configure)
+	}
+	bindings = append(bindings, keys.Back)
+	return bindings
+}
+
+func (k mcpPreviewHelpKeyMap) FullHelp() [][]key.Binding {
+	return [][]key.Binding{k.ShortHelp()}
+}
+
+// envEntryHelpKeyMap is shown during the env var entry flow.
+type envEntryHelpKeyMap struct{}
+
+func (k envEntryHelpKeyMap) ShortHelp() []key.Binding {
+	return []key.Binding{
+		keys.Enter, keys.Tab, keys.Back,
+	}
+}
+
+func (k envEntryHelpKeyMap) FullHelp() [][]key.Binding {
 	return [][]key.Binding{k.ShortHelp()}
 }
 
