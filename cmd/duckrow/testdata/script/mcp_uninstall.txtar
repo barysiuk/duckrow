@@ -1,0 +1,69 @@
+# Test MCP uninstall command
+
+# Create a project directory
+mkdir myproject
+
+# Create a registry repo with MCP entries
+setup-mcp-registry mcp-registry my-mcps my-db:psql:DB_HOST simple-mcp:echo
+
+# Add the registry
+exec duckrow registry add mcp-registry
+stdout 'Added registry: my-mcps'
+
+# Install MCPs first
+exec duckrow mcp install my-db -d myproject
+stdout 'MCP "my-db" installed successfully'
+
+exec duckrow mcp install simple-mcp -d myproject
+stdout 'MCP "simple-mcp" installed successfully'
+
+# Verify both are installed
+file-contains myproject/duckrow.lock.json '"name": "my-db"'
+file-contains myproject/duckrow.lock.json '"name": "simple-mcp"'
+file-contains myproject/.cursor/mcp.json 'my-db'
+file-contains myproject/.cursor/mcp.json 'simple-mcp'
+
+# Uninstall one MCP
+exec duckrow mcp uninstall my-db -d myproject
+stdout 'Removing MCP "my-db"'
+stdout 'MCP "my-db" removed'
+stdout 'Updated duckrow.lock.json'
+
+# Verify it was removed from lock file
+! file-contains myproject/duckrow.lock.json '"name": "my-db"'
+file-contains myproject/duckrow.lock.json '"name": "simple-mcp"'
+
+# Verify it was removed from agent config
+! file-contains myproject/.cursor/mcp.json 'my-db'
+file-contains myproject/.cursor/mcp.json 'simple-mcp'
+
+# Uninstall the second MCP
+exec duckrow mcp uninstall simple-mcp -d myproject
+stdout 'MCP "simple-mcp" removed'
+
+# Verify lock file no longer has any MCPs
+! file-contains myproject/duckrow.lock.json '"name": "simple-mcp"'
+! file-contains myproject/.cursor/mcp.json 'simple-mcp'
+
+# Test: Uninstall MCP not in lock file fails
+! exec duckrow mcp uninstall nonexistent -d myproject
+stderr 'not found in lock file'
+
+# Test: Uninstall without lock file fails
+mkdir nolock-project
+! exec duckrow mcp uninstall my-db -d nolock-project
+stderr 'no duckrow.lock.json found'
+
+# Test: Uninstall with --no-lock flag (doesn't update lock file)
+mkdir nolock-test
+exec duckrow mcp install my-db -d nolock-test
+exists nolock-test/duckrow.lock.json
+file-contains nolock-test/duckrow.lock.json '"name": "my-db"'
+exec duckrow mcp uninstall my-db -d nolock-test --no-lock
+stdout 'MCP "my-db" removed'
+# Lock file should still have the entry
+file-contains nolock-test/duckrow.lock.json '"name": "my-db"'
+
+# Test: No args shows error
+! exec duckrow mcp uninstall
+stderr 'accepts 1 arg'

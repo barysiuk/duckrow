@@ -1,0 +1,64 @@
+# Test MCP install command
+
+# Create a project directory
+mkdir myproject
+
+# Create a registry repo with MCP entries
+setup-mcp-registry mcp-registry my-mcps my-db:psql:DB_HOST,DB_USER simple-mcp:echo
+
+# Add the registry
+exec duckrow registry add mcp-registry
+stdout 'Added registry: my-mcps'
+
+# Install an MCP by name
+exec duckrow mcp install my-db -d myproject
+stdout 'Installing MCP "my-db"'
+stdout 'from registry "my-mcps"'
+stdout 'MCP "my-db" installed successfully'
+
+# Verify lock file was created with MCP entry
+exists myproject/duckrow.lock.json
+file-contains myproject/duckrow.lock.json '"name": "my-db"'
+file-contains myproject/duckrow.lock.json '"registry": "my-mcps"'
+file-contains myproject/duckrow.lock.json 'DB_HOST'
+file-contains myproject/duckrow.lock.json 'DB_USER'
+
+# Verify agent config files were created
+# At least one of these should exist (depends on which agents are MCP-capable)
+# Using Cursor's .cursor/mcp.json as the reference since it's always present
+exists myproject/.cursor/mcp.json
+file-contains myproject/.cursor/mcp.json 'my-db'
+file-contains myproject/.cursor/mcp.json 'duckrow'
+file-contains myproject/.cursor/mcp.json 'env'
+
+# Test: Install a second MCP
+exec duckrow mcp install simple-mcp -d myproject
+stdout 'Installing MCP "simple-mcp"'
+stdout 'MCP "simple-mcp" installed successfully'
+
+# Verify both MCPs are in lock file
+file-contains myproject/duckrow.lock.json '"name": "my-db"'
+file-contains myproject/duckrow.lock.json '"name": "simple-mcp"'
+
+# Test: Install with --no-lock flag (should not update lock file)
+mkdir nolock-project
+exec duckrow mcp install simple-mcp -d nolock-project --no-lock
+stdout 'MCP "simple-mcp" installed successfully'
+! exists nolock-project/duckrow.lock.json
+
+# Test: Install with --force flag (overwrites existing)
+exec duckrow mcp install my-db -d myproject --force
+stdout 'MCP "my-db" installed successfully'
+
+# Test: Install nonexistent MCP fails
+! exec duckrow mcp install nonexistent -d myproject
+stderr 'not found'
+
+# Test: Install with --registry flag
+exec duckrow mcp install my-db -d myproject --registry my-mcps --force
+stdout 'Installing MCP "my-db"'
+stdout 'from registry "my-mcps"'
+
+# Test: No args shows error
+! exec duckrow mcp install
+stderr 'accepts 1 arg'

@@ -60,6 +60,16 @@ func TestScript(t *testing.T) {
 			// (preserving any registries from prior 'duckrow registry add' calls).
 			// Usage: setup-registry-config <override-key> <override-url>
 			"setup-registry-config": cmdSetupRegistryConfig,
+
+			// setup-mcp-registry creates a git repo with a duckrow.json containing MCP entries.
+			// Usage: setup-mcp-registry <dir> <registry-name> <mcp-name:command> [mcp-name:command...]
+			// Each MCP entry is specified as "name:command" (e.g., "my-db:psql").
+			// Optional env vars can be added as "name:command:ENV_VAR1,ENV_VAR2".
+			"setup-mcp-registry": cmdSetupMCPRegistry,
+
+			// write-env-file writes key=value pairs to a .env.duckrow file.
+			// Usage: write-env-file <dir> <key>=<value> [key=value...]
+			"write-env-file": cmdWriteEnvFile,
 		},
 	})
 }
@@ -321,4 +331,167 @@ func cmdSetupRegistryConfig(ts *testscript.TestScript, neg bool, args []string) 
 	if err := os.WriteFile(configPath, data, 0o644); err != nil {
 		ts.Fatalf("writing config: %v", err)
 	}
+}
+
+// cmdSetupMCPRegistry creates a local git repo with a duckrow.json manifest containing MCP entries.
+// Usage: setup-mcp-registry <dir> <registry-name> <mcp-spec> [mcp-spec...]
+// Each mcp-spec is "name:command" or "name:command:ENV1,ENV2" for required env vars.
+func cmdSetupMCPRegistry(ts *testscript.TestScript, neg bool, args []string) {
+	if neg {
+		ts.Fatalf("setup-mcp-registry does not support negation")
+	}
+	if len(args) < 3 {
+		ts.Fatalf("usage: setup-mcp-registry <dir> <registry-name> <mcp-spec> [mcp-spec...]")
+	}
+
+	dir := ts.MkAbs(args[0])
+	registryName := args[1]
+	mcpSpecs := args[2:]
+
+	if err := os.MkdirAll(dir, 0o755); err != nil {
+		ts.Fatalf("creating dir: %v", err)
+	}
+
+	// Build manifest with MCPs
+	type mcpEntry struct {
+		Name        string            `json:"name"`
+		Description string            `json:"description,omitempty"`
+		Command     string            `json:"command"`
+		Args        []string          `json:"args,omitempty"`
+		Env         map[string]string `json:"env,omitempty"`
+	}
+	type manifest struct {
+		Name        string     `json:"name"`
+		Description string     `json:"description,omitempty"`
+		Skills      []struct{} `json:"skills"`
+		MCPs        []mcpEntry `json:"mcps"`
+	}
+
+	m := manifest{
+		Name:        registryName,
+		Description: registryName + " registry",
+		Skills:      []struct{}{},
+	}
+
+	for _, spec := range mcpSpecs {
+		parts := splitN(spec, ":", 3)
+		if len(parts) < 2 {
+			ts.Fatalf("invalid mcp-spec %q: expected name:command[:ENV1,ENV2]", spec)
+		}
+		name := parts[0]
+		command := parts[1]
+
+		entry := mcpEntry{
+			Name:        name,
+			Description: name + " MCP server",
+			Command:     command,
+		}
+
+		// Parse env vars if present
+		if len(parts) == 3 && parts[2] != "" {
+			envVars := splitN(parts[2], ",", -1)
+			entry.Env = make(map[string]string)
+			for _, v := range envVars {
+				entry.Env[v] = "$" + v
+			}
+		}
+
+		m.MCPs = append(m.MCPs, entry)
+	}
+
+	data, err := json.MarshalIndent(m, "", "  ")
+	if err != nil {
+		ts.Fatalf("marshaling manifest: %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(dir, "duckrow.json"), data, 0o644); err != nil {
+		ts.Fatalf("writing manifest: %v", err)
+	}
+
+	// Initialize git repo
+	gitEnv := append(os.Environ(),
+		"GIT_AUTHOR_NAME=Test",
+		"GIT_AUTHOR_EMAIL=test@test.com",
+		"GIT_COMMITTER_NAME=Test",
+		"GIT_COMMITTER_EMAIL=test@test.com",
+	)
+
+	runGit := func(gitArgs ...string) {
+		c := exec.Command("git", gitArgs...)
+		c.Dir = dir
+		c.Env = gitEnv
+		out, err := c.CombinedOutput()
+		if err != nil {
+			ts.Fatalf("git %v: %v\n%s", gitArgs, err, out)
+		}
+	}
+
+	runGit("init")
+	runGit("checkout", "-b", "main")
+	runGit("add", ".")
+	runGit("commit", "-m", "initial")
+}
+
+// cmdWriteEnvFile writes key=value pairs to a .env.duckrow file.
+// Usage: write-env-file <dir> <key>=<value> [key=value...]
+func cmdWriteEnvFile(ts *testscript.TestScript, neg bool, args []string) {
+	if neg {
+		ts.Fatalf("write-env-file does not support negation")
+	}
+	if len(args) < 2 {
+		ts.Fatalf("usage: write-env-file <dir> <key>=<value> [key=value...]")
+	}
+
+	dir := ts.MkAbs(args[0])
+	pairs := args[1:]
+
+	envPath := filepath.Join(dir, ".env.duckrow")
+
+	var content string
+	for _, pair := range pairs {
+		content += pair + "\n"
+	}
+
+	if err := os.WriteFile(envPath, []byte(content), 0o644); err != nil {
+		ts.Fatalf("writing env file: %v", err)
+	}
+}
+
+// splitN is a helper that splits a string by sep into at most n parts.
+// If n < 0, returns all parts.
+func splitN(s, sep string, n int) []string {
+	if n < 0 {
+		// Split all
+		var parts []string
+		for {
+			idx := indexOf(s, sep)
+			if idx < 0 {
+				parts = append(parts, s)
+				break
+			}
+			parts = append(parts, s[:idx])
+			s = s[idx+len(sep):]
+		}
+		return parts
+	}
+
+	var parts []string
+	for i := 0; i < n-1; i++ {
+		idx := indexOf(s, sep)
+		if idx < 0 {
+			break
+		}
+		parts = append(parts, s[:idx])
+		s = s[idx+len(sep):]
+	}
+	parts = append(parts, s)
+	return parts
+}
+
+func indexOf(s, substr string) int {
+	for i := 0; i <= len(s)-len(substr); i++ {
+		if s[i:i+len(substr)] == substr {
+			return i
+		}
+	}
+	return -1
 }
