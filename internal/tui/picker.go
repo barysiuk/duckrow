@@ -87,7 +87,7 @@ func (m pickerModel) update(msg tea.Msg, app *App) (pickerModel, tea.Cmd) {
 			}
 			return m, nil
 
-		case key.Matches(msg, keys.AddFolder):
+		case key.Matches(msg, keys.Bookmark):
 			return m, m.addCurrentDir(app)
 
 		case key.Matches(msg, keys.Delete):
@@ -109,8 +109,8 @@ func (m pickerModel) view() string {
 
 	if len(m.folders) == 0 {
 		return sectionHeader +
-			mutedStyle.Render("  No folders tracked yet.") + "\n" +
-			mutedStyle.Render("  Press [a] to add the current directory.")
+			mutedStyle.Render("  No bookmarks yet.") + "\n" +
+			mutedStyle.Render("  Press [b] to bookmark the current directory.")
 	}
 
 	// 2. Measure chrome, size list to fill remaining space.

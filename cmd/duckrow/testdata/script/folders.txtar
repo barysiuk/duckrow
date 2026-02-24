@@ -1,8 +1,8 @@
-# Test listing tracked folders
+# Test listing bookmarks
 
 # No folders initially
 exec duckrow folders
-stdout 'No tracked folders'
+stdout 'No bookmarks'
 ! stderr .
 
 # Add some folders
@@ -13,6 +13,6 @@ exec duckrow add project-b
 
 # List should show both
 exec duckrow folders
-stdout 'Tracked folders \(2\)'
+stdout 'Bookmarks \(2\)'
 stdout 'project-a'
 stdout 'project-b'

@@ -22,11 +22,11 @@ setup-registry-config test-owner/another-skill another-skill
 
 # Phase 2: Add folder to tracking
 exec duckrow add myproject
-stdout 'Added folder'
+stdout 'Bookmarked'
 
 # Phase 3: List folders
 exec duckrow folders
-stdout 'Tracked folders \(1\)'
+stdout 'Bookmarks \(1\)'
 stdout 'myproject'
 
 # Phase 4: Status before install
@@ -77,10 +77,10 @@ stdout 'Skills: none installed'
 
 # Phase 14: Remove folder from tracking
 exec duckrow remove-folder myproject
-stdout 'Removed folder'
+stdout 'Removed bookmark'
 
 exec duckrow folders
-stdout 'No tracked folders'
+stdout 'No bookmarks'
 
 -- code-review-skill --
 ---

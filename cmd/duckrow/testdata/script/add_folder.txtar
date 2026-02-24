@@ -1,14 +1,14 @@
-# Test adding folders to the tracked list
+# Test adding folders to the bookmarks list
 
 # Add current directory (default)
 exec duckrow add
-stdout 'Added folder'
+stdout 'Bookmarked'
 ! stderr .
 
 # Add a specific directory
 mkdir myproject
 exec duckrow add myproject
-stdout 'Added folder'
+stdout 'Bookmarked'
 
 # Adding the same folder again should fail
 ! exec duckrow add myproject

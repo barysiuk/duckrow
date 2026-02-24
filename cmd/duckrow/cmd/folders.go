@@ -10,8 +10,8 @@ import (
 
 var foldersCmd = &cobra.Command{
 	Use:   "folders",
-	Short: "List all tracked folders",
-	Long:  `List all project folders currently tracked by DuckRow.`,
+	Short: "List all bookmarks",
+	Long:  `List all project folders currently bookmarked by DuckRow.`,
 	Args:  cobra.NoArgs,
 	RunE: func(cmd *cobra.Command, args []string) error {
 		d, err := newDeps()
@@ -26,11 +26,11 @@ var foldersCmd = &cobra.Command{
 		}
 
 		if len(folders) == 0 {
-			fmt.Fprintln(os.Stdout, "No tracked folders. Use 'duckrow add' to add one.")
+			fmt.Fprintln(os.Stdout, "No bookmarks. Use 'duckrow add' to add one.")
 			return nil
 		}
 
-		fmt.Fprintf(os.Stdout, "Tracked folders (%d):\n", len(folders))
+		fmt.Fprintf(os.Stdout, "Bookmarks (%d):\n", len(folders))
 		for _, f := range folders {
 			fmt.Fprintf(os.Stdout, "  %s\n", f.Path)
 		}

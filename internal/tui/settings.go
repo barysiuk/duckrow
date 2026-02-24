@@ -323,11 +323,11 @@ func (m settingsModel) view() string {
 	b.WriteString("\n\n")
 
 	// Folders section.
-	b.WriteString(renderSectionHeader("FOLDERS", m.width))
+	b.WriteString(renderSectionHeader("BOOKMARKS", m.width))
 	b.WriteString("\n")
 
 	if len(m.cfg.Folders) == 0 {
-		b.WriteString(mutedStyle.Render("    No folders tracked"))
+		b.WriteString(mutedStyle.Render("    No bookmarks"))
 		b.WriteString("\n")
 	}
 
@@ -347,7 +347,7 @@ func (m settingsModel) view() string {
 	}
 
 	b.WriteString("\n")
-	b.WriteString(mutedStyle.Render("    To add a directory, launch ") + normalItemStyle.Render("duckrow") + mutedStyle.Render(" in that folder and press [a]"))
+	b.WriteString(mutedStyle.Render("    To add a directory, launch ") + normalItemStyle.Render("duckrow") + mutedStyle.Render(" in that folder and press [b]"))
 	b.WriteString("\n")
 
 	return b.String()

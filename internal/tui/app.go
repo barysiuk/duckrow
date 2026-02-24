@@ -536,7 +536,7 @@ func (a App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		// View-switching keys (only from folder view, and not while filtering).
 		if a.activeView == viewFolder && !a.folder.list.SettingFilter() {
 			switch {
-			case key.Matches(msg, keys.ChangeFolder):
+			case key.Matches(msg, keys.Bookmarks):
 				a.activeView = viewFolderPicker
 				a.picker = a.picker.activate(a.activeFolder, a.folderStatus)
 				return a, nil
@@ -549,11 +549,6 @@ func (a App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				return a, nil
 			case key.Matches(msg, keys.Settings):
 				a.activeView = viewSettings
-				return a, nil
-			case key.Matches(msg, keys.AddFolder):
-				if !a.isTracked {
-					return a, a.addActiveFolder()
-				}
 				return a, nil
 			}
 		}
@@ -666,7 +661,7 @@ func (a App) renderHeader() string {
 	var hints string
 	switch a.activeView {
 	case viewFolder:
-		hints = headerHintStyle.Render("[c] change  [s] settings")
+		hints = headerHintStyle.Render("[b] bookmarks  [s] settings")
 	case viewFolderPicker:
 		hints = headerHintStyle.Render("Select Folder")
 	case viewInstallPicker:
@@ -714,7 +709,7 @@ func (a App) renderHelpBar() string {
 
 	switch a.activeView {
 	case viewFolder:
-		km = folderHelpKeyMap{isTracked: a.isTracked, updatesAvailable: len(a.updateInfo) > 0}
+		km = folderHelpKeyMap{updatesAvailable: len(a.updateInfo) > 0}
 	case viewFolderPicker:
 		km = pickerHelpKeyMap{}
 	case viewInstallPicker:
@@ -925,17 +920,6 @@ func (a *App) setActiveFolder(path string) {
 	a.activeFolder = path
 	a.refreshActiveFolder()
 	a.pushDataToSubModels()
-}
-
-func (a *App) addActiveFolder() tea.Cmd {
-	path := a.activeFolder
-	return func() tea.Msg {
-		fm := a.folders
-		if err := fm.Add(path); err != nil {
-			return errMsg{err: err}
-		}
-		return a.loadDataCmd()
-	}
 }
 
 func (a *App) reloadConfig() tea.Cmd {

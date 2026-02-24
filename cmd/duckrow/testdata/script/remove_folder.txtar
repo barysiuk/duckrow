@@ -1,4 +1,4 @@
-# Test removing folders from the tracked list
+# Test removing folders from the bookmarks list
 
 # Setup: add a folder first
 mkdir project-a
@@ -6,12 +6,12 @@ exec duckrow add project-a
 
 # Remove it
 exec duckrow remove-folder project-a
-stdout 'Removed folder'
+stdout 'Removed bookmark'
 ! stderr .
 
 # Verify it's gone
 exec duckrow folders
-stdout 'No tracked folders'
+stdout 'No bookmarks'
 
 # Removing a folder that isn't tracked should fail
 ! exec duckrow remove-folder /some/random/path

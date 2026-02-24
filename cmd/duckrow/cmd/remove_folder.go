@@ -10,8 +10,8 @@ import (
 
 var removeFolderCmd = &cobra.Command{
 	Use:   "remove-folder <path>",
-	Short: "Remove a folder from the tracked list",
-	Long:  `Remove a project folder from DuckRow's tracked list. Does not delete any files on disk.`,
+	Short: "Remove a bookmark",
+	Long:  `Remove a project folder from DuckRow's bookmarks. Does not delete any files on disk.`,
 	Args:  cobra.ExactArgs(1),
 	RunE: func(cmd *cobra.Command, args []string) error {
 		d, err := newDeps()
@@ -25,7 +25,7 @@ var removeFolderCmd = &cobra.Command{
 			return err
 		}
 
-		fmt.Fprintf(os.Stdout, "Removed folder: %s\n", args[0])
+		fmt.Fprintf(os.Stdout, "Removed bookmark: %s\n", args[0])
 		return nil
 	},
 }

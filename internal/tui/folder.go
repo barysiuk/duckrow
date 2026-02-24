@@ -235,8 +235,8 @@ func (m folderModel) view() string {
 	// 1. Render fixed chrome parts.
 	var banner string
 	if !m.isTracked {
-		banner = warningStyle.Render("  This folder is not tracked.") +
-			"  " + mutedStyle.Render("Press [a] to add it.") + "\n\n"
+		banner = warningStyle.Render("  This folder is not bookmarked.") +
+			"  " + mutedStyle.Render("Open bookmarks [b] to add it.") + "\n\n"
 	}
 
 	skillCount := len(m.status.Skills)

@@ -11,8 +11,8 @@ import (
 
 var addCmd = &cobra.Command{
 	Use:   "add [path]",
-	Short: "Add a folder to the tracked list",
-	Long:  `Add a project folder to DuckRow's tracked list. Defaults to the current directory if no path is given.`,
+	Short: "Bookmark a folder",
+	Long:  `Add a project folder to DuckRow's bookmarks. Defaults to the current directory if no path is given.`,
 	Args:  cobra.MaximumNArgs(1),
 	RunE: func(cmd *cobra.Command, args []string) error {
 		d, err := newDeps()
@@ -39,7 +39,7 @@ var addCmd = &cobra.Command{
 			displayPath, _ = filepath.Abs(displayPath)
 		}
 
-		fmt.Fprintf(os.Stdout, "Added folder: %s\n", displayPath)
+		fmt.Fprintf(os.Stdout, "Bookmarked: %s\n", displayPath)
 		return nil
 	},
 }
