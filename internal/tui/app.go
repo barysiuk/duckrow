@@ -47,6 +47,9 @@ type App struct {
 	height     int
 	ready      bool
 
+	// Version string (e.g. "0.3.0", "dev").
+	version string
+
 	// Active folder context.
 	cwd          string // Directory where duckrow was launched
 	activeFolder string // Currently viewed folder path
@@ -102,7 +105,7 @@ type App struct {
 }
 
 // NewApp creates a new App model with the given core dependencies.
-func NewApp(config *core.ConfigManager, agents []core.AgentDef) App {
+func NewApp(config *core.ConfigManager, agents []core.AgentDef, version string) App {
 	scanner := core.NewScanner(agents)
 	foldersManager := core.NewFolderManager(config)
 	registryMgr := core.NewRegistryManager(config.RegistriesDir())
@@ -120,6 +123,7 @@ func NewApp(config *core.ConfigManager, agents []core.AgentDef) App {
 	return App{
 		config:         config,
 		agents:         agents,
+		version:        version,
 		scanner:        scanner,
 		folders:        foldersManager,
 		registry:       registryMgr,
@@ -1004,7 +1008,7 @@ func (a *App) refreshActiveFolder() {
 
 func (a *App) pushDataToSubModels() {
 	a.folder = a.folder.setData(a.activeFolderStatus, a.isTracked, a.registrySkills, a.registryMCPs, a.updateInfo, a.activeFolderMCPs)
-	a.settings = a.settings.setData(a.cfg)
+	a.settings = a.settings.setData(a.cfg, a.version)
 
 	// Re-activate bookmarks if we're currently viewing them so the list
 	// reflects adds/removes immediately.
