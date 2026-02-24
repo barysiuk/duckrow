@@ -550,7 +550,7 @@ func (rm *RegistryManager) HydrateRegistryCommits(registries []Registry, overrid
 				cloneURL = override
 			}
 
-			tmpDir, cloneErr := cloneRepo(cloneURL, key.ref)
+			tmpDir, cloneErr := cloneRepo(cloneURL, key.ref, false)
 			if cloneErr != nil {
 				continue // best-effort: skip repos that fail to clone
 			}

@@ -76,7 +76,7 @@ func (inst *Installer) InstallFromSource(source *ParsedSource, opts InstallOptio
 		if opts.Commit != "" {
 			tmpDir, err = cloneRepoAtCommit(source.CloneURL, opts.Commit)
 		} else {
-			tmpDir, err = cloneRepo(source.CloneURL, source.Ref)
+			tmpDir, err = cloneRepo(source.CloneURL, source.Ref, false)
 		}
 		if err != nil {
 			return nil, fmt.Errorf("cloning repository: %w", err)
@@ -225,13 +225,20 @@ func (inst *Installer) installSkill(skill DiscoveredSkill, agents []AgentDef, op
 
 // cloneRepo clones a git repository to a temporary directory.
 // On failure it returns a *CloneError with classified diagnostics.
-func cloneRepo(url string, ref string) (string, error) {
+// cloneRepo clones a git repository into a temporary directory.
+// When shallow is true, it uses --depth 1 for a fast shallow clone (suitable
+// when the full commit history is not needed). When shallow is false, it clones
+// the full history so that git log can accurately resolve per-path commits.
+func cloneRepo(url string, ref string, shallow bool) (string, error) {
 	tmpDir, err := os.MkdirTemp("", "duckrow-clone-*")
 	if err != nil {
 		return "", fmt.Errorf("creating temp dir: %w", err)
 	}
 
-	args := []string{"clone", "--depth", "1"}
+	args := []string{"clone"}
+	if shallow {
+		args = append(args, "--depth", "1")
+	}
 	if ref != "" {
 		args = append(args, "--branch", ref)
 	}

@@ -450,7 +450,7 @@ func CheckForUpdates(lf *LockFile, overrides map[string]string, registryCommits 
 			cloneURL = override
 		}
 
-		tmpDir, cloneErr := cloneRepo(cloneURL, key.ref)
+		tmpDir, cloneErr := cloneRepo(cloneURL, key.ref, false)
 		if cloneErr != nil {
 			// Can't clone — mark all skills as no-update.
 			for _, ps := range skills {
