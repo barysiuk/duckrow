@@ -4,27 +4,31 @@ import "github.com/charmbracelet/bubbles/key"
 
 // keyMap defines the keybindings for the TUI.
 type keyMap struct {
-	Quit         key.Binding
-	Help         key.Binding
-	Up           key.Binding
-	Down         key.Binding
-	Enter        key.Binding
-	Back         key.Binding
-	ChangeFolder key.Binding
-	Install      key.Binding
-	Settings     key.Binding
-	AddFolder    key.Binding
-	Delete       key.Binding
-	Refresh      key.Binding
-	Filter       key.Binding
-	Edit         key.Binding
-	Retry        key.Binding
-	Toggle       key.Binding
-	ToggleAll    key.Binding
-	Update       key.Binding
-	UpdateAll    key.Binding
-	Configure    key.Binding
-	Tab          key.Binding
+	Quit            key.Binding
+	Help            key.Binding
+	Up              key.Binding
+	Down            key.Binding
+	Enter           key.Binding
+	Next            key.Binding
+	Confirm         key.Binding
+	Back            key.Binding
+	Bookmarks       key.Binding
+	Install         key.Binding
+	Settings        key.Binding
+	Bookmark        key.Binding
+	Delete          key.Binding
+	Refresh         key.Binding
+	Filter          key.Binding
+	Edit            key.Binding
+	Retry           key.Binding
+	Toggle          key.Binding
+	ToggleAll       key.Binding
+	Update          key.Binding
+	UpdateAll       key.Binding
+	Configure       key.Binding
+	Tab             key.Binding
+	ShiftTab        key.Binding
+	TabSaveLocation key.Binding
 }
 
 var keys = keyMap{
@@ -38,23 +42,31 @@ var keys = keyMap{
 	),
 	Up: key.NewBinding(
 		key.WithKeys("up", "k"),
-		key.WithHelp("k/up", "up"),
+		key.WithHelp("↑/k", "up"),
 	),
 	Down: key.NewBinding(
 		key.WithKeys("down", "j"),
-		key.WithHelp("j/down", "down"),
+		key.WithHelp("↓/j", "down"),
 	),
 	Enter: key.NewBinding(
 		key.WithKeys("enter"),
 		key.WithHelp("enter", "select"),
 	),
+	Next: key.NewBinding(
+		key.WithKeys("enter"),
+		key.WithHelp("enter", "next"),
+	),
+	Confirm: key.NewBinding(
+		key.WithKeys("enter"),
+		key.WithHelp("enter", "confirm"),
+	),
 	Back: key.NewBinding(
 		key.WithKeys("esc"),
 		key.WithHelp("esc", "back"),
 	),
-	ChangeFolder: key.NewBinding(
-		key.WithKeys("c"),
-		key.WithHelp("c", "change folder"),
+	Bookmarks: key.NewBinding(
+		key.WithKeys("b"),
+		key.WithHelp("b", "bookmarks"),
 	),
 	Install: key.NewBinding(
 		key.WithKeys("i"),
@@ -64,9 +76,9 @@ var keys = keyMap{
 		key.WithKeys("s"),
 		key.WithHelp("s", "settings"),
 	),
-	AddFolder: key.NewBinding(
-		key.WithKeys("a"),
-		key.WithHelp("a", "add folder"),
+	Bookmark: key.NewBinding(
+		key.WithKeys("b"),
+		key.WithHelp("b", "bookmark"),
 	),
 	Delete: key.NewBinding(
 		key.WithKeys("d", "delete"),
@@ -110,6 +122,14 @@ var keys = keyMap{
 	),
 	Tab: key.NewBinding(
 		key.WithKeys("tab"),
+		key.WithHelp("tab", "next tab"),
+	),
+	ShiftTab: key.NewBinding(
+		key.WithKeys("shift+tab"),
+		key.WithHelp("shift+tab", "prev tab"),
+	),
+	TabSaveLocation: key.NewBinding(
+		key.WithKeys("tab"),
 		key.WithHelp("tab", "switch save location"),
 	),
 }
@@ -121,25 +141,21 @@ var keys = keyMap{
 
 // folderHelpKeyMap is shown in the folder view.
 type folderHelpKeyMap struct {
-	isTracked        bool
 	updatesAvailable bool
 }
 
 func (k folderHelpKeyMap) ShortHelp() []key.Binding {
 	bindings := []key.Binding{
 		keys.Up, keys.Down, keys.Enter,
-		keys.Filter,
+		keys.Filter, keys.Tab,
 	}
 	if k.updatesAvailable {
 		bindings = append(bindings, keys.Update, keys.UpdateAll)
 	}
 	bindings = append(bindings,
 		keys.Delete, keys.Refresh,
-		keys.Install, keys.ChangeFolder, keys.Settings, keys.Quit,
+		keys.Install, keys.Bookmarks, keys.Settings, keys.Quit,
 	)
-	if !k.isTracked {
-		bindings = append([]key.Binding{keys.AddFolder}, bindings...)
-	}
 	return bindings
 }
 
@@ -147,17 +163,17 @@ func (k folderHelpKeyMap) FullHelp() [][]key.Binding {
 	return [][]key.Binding{k.ShortHelp()}
 }
 
-// pickerHelpKeyMap is shown in the folder picker.
-type pickerHelpKeyMap struct{}
+// bookmarksHelpKeyMap is shown in the bookmarks view.
+type bookmarksHelpKeyMap struct{}
 
-func (k pickerHelpKeyMap) ShortHelp() []key.Binding {
+func (k bookmarksHelpKeyMap) ShortHelp() []key.Binding {
 	return []key.Binding{
 		keys.Up, keys.Down, keys.Enter, keys.Filter,
-		keys.AddFolder, keys.Delete, keys.Back,
+		keys.Bookmark, keys.Delete, keys.Back,
 	}
 }
 
-func (k pickerHelpKeyMap) FullHelp() [][]key.Binding {
+func (k bookmarksHelpKeyMap) FullHelp() [][]key.Binding {
 	return [][]key.Binding{k.ShortHelp()}
 }
 
@@ -171,51 +187,6 @@ func (k installHelpKeyMap) ShortHelp() []key.Binding {
 }
 
 func (k installHelpKeyMap) FullHelp() [][]key.Binding {
-	return [][]key.Binding{k.ShortHelp()}
-}
-
-// agentSelectHelpKeyMap is shown in the agent selection phase.
-type agentSelectHelpKeyMap struct{}
-
-func (k agentSelectHelpKeyMap) ShortHelp() []key.Binding {
-	return []key.Binding{
-		keys.Up, keys.Down, keys.Toggle, keys.ToggleAll,
-		keys.Enter, keys.Back,
-	}
-}
-
-func (k agentSelectHelpKeyMap) FullHelp() [][]key.Binding {
-	return [][]key.Binding{k.ShortHelp()}
-}
-
-// mcpPreviewHelpKeyMap is shown in the MCP preview/confirmation phase.
-type mcpPreviewHelpKeyMap struct {
-	hasEnvVars bool
-}
-
-func (k mcpPreviewHelpKeyMap) ShortHelp() []key.Binding {
-	bindings := []key.Binding{keys.Enter}
-	if k.hasEnvVars {
-		bindings = append(bindings, keys.Configure)
-	}
-	bindings = append(bindings, keys.Back)
-	return bindings
-}
-
-func (k mcpPreviewHelpKeyMap) FullHelp() [][]key.Binding {
-	return [][]key.Binding{k.ShortHelp()}
-}
-
-// envEntryHelpKeyMap is shown during the env var entry flow.
-type envEntryHelpKeyMap struct{}
-
-func (k envEntryHelpKeyMap) ShortHelp() []key.Binding {
-	return []key.Binding{
-		keys.Enter, keys.Tab, keys.Back,
-	}
-}
-
-func (k envEntryHelpKeyMap) FullHelp() [][]key.Binding {
 	return [][]key.Binding{k.ShortHelp()}
 }
 
@@ -267,5 +238,18 @@ func (k cloneErrorHelpKeyMap) ShortHelp() []key.Binding {
 }
 
 func (k cloneErrorHelpKeyMap) FullHelp() [][]key.Binding {
+	return [][]key.Binding{k.ShortHelp()}
+}
+
+// wizardHelpKeyMap is shown for wizard overlays.
+type wizardHelpKeyMap struct{}
+
+func (k wizardHelpKeyMap) ShortHelp() []key.Binding {
+	return []key.Binding{
+		keys.Enter, keys.Back,
+	}
+}
+
+func (k wizardHelpKeyMap) FullHelp() [][]key.Binding {
 	return [][]key.Binding{k.ShortHelp()}
 }

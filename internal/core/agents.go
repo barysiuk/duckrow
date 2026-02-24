@@ -52,6 +52,45 @@ func DetectAgentsInFolder(agents []AgentDef, folderPath string) []AgentDef {
 	return detected
 }
 
+// agentConfigSignals maps agent names to the project-relative files or
+// directories whose presence indicates the user actively uses that agent in
+// a folder.  This is intentionally separate from DetectPaths (system-wide
+// install) and SkillsDir (managed by duckrow).
+var agentConfigSignals = map[string][]string{
+	"opencode":       {"opencode.json", "opencode.jsonc"},
+	"claude-code":    {"CLAUDE.md", ".claude"},
+	"cursor":         {".cursor"},
+	"codex":          {"codex.md"},
+	"gemini-cli":     {"GEMINI.md"},
+	"github-copilot": {".github/copilot-instructions.md"},
+	"goose":          {".goose"},
+	"windsurf":       {".windsurf"},
+	"cline":          {".cline", ".clinerules"},
+}
+
+// DetectActiveAgents returns display names of agents that have their own
+// configuration present in folderPath.  Unlike DetectAgents /
+// DetectAgentsInFolder this does NOT check duckrow-managed skill directories
+// or global install paths — it only looks for config artifacts that the agent
+// itself creates, so it reflects tools the user actually uses.
+func DetectActiveAgents(agents []AgentDef, folderPath string) []string {
+	var names []string
+	for _, agent := range agents {
+		signals, ok := agentConfigSignals[agent.Name]
+		if !ok {
+			continue
+		}
+		for _, sig := range signals {
+			p := filepath.Join(folderPath, sig)
+			if fileExists(p) || dirExists(p) {
+				names = append(names, agent.DisplayName)
+				break
+			}
+		}
+	}
+	return names
+}
+
 // GetUniversalAgents returns agents that use .agents/skills as their project skill directory.
 func GetUniversalAgents(agents []AgentDef) []AgentDef {
 	var universal []AgentDef

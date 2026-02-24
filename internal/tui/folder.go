@@ -15,22 +15,27 @@ import (
 	"github.com/barysiuk/duckrow/internal/core"
 )
 
-// folderSection tracks which section of the folder view has focus.
-type folderSection int
+// folderTab identifies which tab is active in the folder view.
+type folderTab int
 
 const (
-	folderSectionSkills folderSection = iota
-	folderSectionMCPs
+	folderTabSkills folderTab = iota
+	folderTabMCPs
 )
 
-// folderModel is the main folder view showing installed skills
-// and MCPs for the active folder.
+// folderModel is the main folder view showing installed skills and MCPs
+// for the active folder, organized into tabs.
 type folderModel struct {
 	width  int
 	height int
 
-	// Bubbles list for installed skills.
-	list list.Model
+	// Tabs.
+	activeTab folderTab
+	tabs      tabsModel
+
+	// Bubbles lists — one per tab.
+	skillsList list.Model
+	mcpsList   list.Model
 
 	// Data (pushed from App).
 	status     *core.FolderStatus
@@ -44,12 +49,19 @@ type folderModel struct {
 	updateCount int // Number of skills with updates available
 
 	// MCP data from lock file.
-	mcps      []mcpItem
-	mcpCursor int           // Cursor position within MCP list
-	section   folderSection // Which section has focus
+	mcps []mcpItem
 }
 
 func newFolderModel() folderModel {
+	return folderModel{
+		tabs:       newTabsModel([]tabDef{{label: "Skills"}, {label: "MCPs"}}),
+		skillsList: newFolderList(),
+		mcpsList:   newFolderList(),
+	}
+}
+
+// newFolderList creates a bubbles list configured for the folder view.
+func newFolderList() list.Model {
 	d := newSkillDelegate()
 	l := list.New(nil, d, 0, 0)
 	l.SetShowTitle(false)
@@ -58,18 +70,15 @@ func newFolderModel() folderModel {
 	l.SetFilteringEnabled(true)
 	l.DisableQuitKeybindings()
 	l.SetShowPagination(false)
-
-	return folderModel{
-		list: l,
-	}
+	return l
 }
 
 func (m folderModel) setSize(width, height int) folderModel {
 	m.width = width
 	m.height = height
-	// List sizing happens dynamically in view() via render-then-measure.
-	// We store dimensions here so view() can compute the list height.
-	m.list.SetSize(width, max(1, height))
+	// Actual list height is calculated dynamically in view().
+	m.skillsList.SetSize(width, max(1, height))
+	m.mcpsList.SetSize(width, max(1, height))
 	return m
 }
 
@@ -90,44 +99,87 @@ func (m folderModel) setData(status *core.FolderStatus, isTracked bool, regSkill
 		}
 	}
 
-	// Convert skills to list items.
+	// Populate skills list.
 	if status != nil {
-		items := skillsToItems(status.Skills, updateInfo)
-		m.list.SetItems(items)
+		m.skillsList.SetItems(skillsToItems(status.Skills, updateInfo))
 	} else {
-		m.list.SetItems(nil)
+		m.skillsList.SetItems(nil)
 	}
 
-	// Reset section/cursor if MCPs changed.
-	if m.section == folderSectionMCPs && m.mcpCursor >= len(m.mcps) {
-		if len(m.mcps) > 0 {
-			m.mcpCursor = len(m.mcps) - 1
-		} else {
-			m.section = folderSectionSkills
-			m.mcpCursor = 0
-		}
-	}
+	// Populate MCPs list.
+	m.mcpsList.SetItems(mcpsToItems(mcps))
+
+	// Update tab labels with counts.
+	m.tabs = m.updateTabLabels()
 
 	return m
 }
 
+// updateTabLabels builds tab labels with item counts and update indicators.
+func (m folderModel) updateTabLabels() tabsModel {
+	skillCount := 0
+	if m.status != nil {
+		skillCount = len(m.status.Skills)
+	}
+
+	skillTab := tabDef{label: fmt.Sprintf("Skills (%d)", skillCount)}
+	if m.updateCount > 0 {
+		skillTab.extra = fmt.Sprintf(" ↓%d", m.updateCount)
+	}
+
+	mcpTab := tabDef{label: fmt.Sprintf("MCPs (%d)", len(m.mcps))}
+
+	return m.tabs.setTabs([]tabDef{skillTab, mcpTab})
+}
+
+// activeList returns a pointer to the currently active list model.
+func (m *folderModel) activeList() *list.Model {
+	switch m.activeTab {
+	case folderTabMCPs:
+		return &m.mcpsList
+	default:
+		return &m.skillsList
+	}
+}
+
+// isFiltering returns true if the active list is in filter mode.
+func (m folderModel) isFiltering() bool {
+	switch m.activeTab {
+	case folderTabMCPs:
+		return m.mcpsList.SettingFilter()
+	default:
+		return m.skillsList.SettingFilter()
+	}
+}
+
 func (m folderModel) update(msg tea.Msg, app *App) (folderModel, tea.Cmd) {
 	switch msg := msg.(type) {
+	case tabActiveMsg:
+		m.activeTab = folderTab(msg)
+		return m, nil
+
 	case tea.KeyMsg:
-		// Don't intercept keys while filtering.
-		if m.list.SettingFilter() {
+		// Try tab switching first (blocked during filter mode).
+		tabs, cmd, consumed := m.tabs.update(msg, m.isFiltering())
+		m.tabs = tabs
+		if consumed {
+			return m, cmd
+		}
+
+		// Don't intercept action keys while filtering.
+		if m.isFiltering() {
 			break
 		}
 
 		switch {
 		case key.Matches(msg, keys.Delete):
-			if m.section == folderSectionMCPs {
+			if m.activeTab == folderTabMCPs {
 				return m, m.removeSelectedMCP(app)
 			}
 			return m, m.removeSelectedSkill(app)
 
 		case key.Matches(msg, keys.Update):
-			if m.section == folderSectionSkills {
+			if m.activeTab == folderTabSkills {
 				return m, m.updateSelectedSkill(app)
 			}
 			return m, nil
@@ -139,62 +191,23 @@ func (m folderModel) update(msg tea.Msg, app *App) (folderModel, tea.Cmd) {
 			return m, m.refreshWithRegistries(app)
 
 		case key.Matches(msg, keys.Enter):
-			if m.section == folderSectionSkills {
-				// Open SKILL.md preview for the selected skill.
+			if m.activeTab == folderTabSkills {
 				return m, m.openPreview(app)
 			}
 			return m, nil
-
-		case key.Matches(msg, keys.Down):
-			// Handle cross-section navigation: skills -> MCPs.
-			if m.section == folderSectionSkills && len(m.mcps) > 0 {
-				skillCount := len(m.list.Items())
-				if skillCount == 0 || m.list.Index() >= skillCount-1 {
-					// At the bottom of skills — move to MCP section.
-					m.section = folderSectionMCPs
-					m.mcpCursor = 0
-					return m, nil
-				}
-			}
-			if m.section == folderSectionMCPs {
-				if m.mcpCursor < len(m.mcps)-1 {
-					m.mcpCursor++
-				}
-				return m, nil
-			}
-
-		case key.Matches(msg, keys.Up):
-			// Handle cross-section navigation: MCPs -> skills.
-			if m.section == folderSectionMCPs {
-				if m.mcpCursor > 0 {
-					m.mcpCursor--
-				} else {
-					// At the top of MCPs — move back to skills section.
-					m.section = folderSectionSkills
-					skillCount := len(m.list.Items())
-					if skillCount > 0 {
-						m.list.Select(skillCount - 1)
-					}
-					return m, nil
-				}
-				return m, nil
-			}
 		}
 	}
 
-	// Only forward to the list when skills section is active.
-	if m.section == folderSectionSkills {
-		var cmd tea.Cmd
-		m.list, cmd = m.list.Update(msg)
-		return m, cmd
-	}
-
-	return m, nil
+	// Forward to the active list.
+	var cmd tea.Cmd
+	al := m.activeList()
+	*al, cmd = al.Update(msg)
+	return m, cmd
 }
 
 // openPreview reads the selected skill's SKILL.md and triggers the preview overlay.
 func (m folderModel) openPreview(app *App) tea.Cmd {
-	item := m.list.SelectedItem()
+	item := m.skillsList.SelectedItem()
 	if item == nil {
 		return nil
 	}
@@ -230,145 +243,74 @@ func (m folderModel) view() string {
 		return errorStyle.Render(fmt.Sprintf("  Error scanning: %v", m.status.Error))
 	}
 
-	// --- Render-then-measure: render all fixed chrome first, measure, size the list. ---
+	// --- Render-then-measure: render fixed chrome first, measure, size list. ---
 
 	// 1. Render fixed chrome parts.
-	var banner string
-	if !m.isTracked {
-		banner = warningStyle.Render("  This folder is not tracked.") +
-			"  " + mutedStyle.Render("Press [a] to add it.") + "\n\n"
-	}
-
-	skillCount := len(m.status.Skills)
-	var sectionHeader string
-	if skillCount == 0 {
-		sectionHeader = renderSectionHeader("SKILLS", m.width) + "\n"
-	} else if m.updateCount > 0 {
-		label := fmt.Sprintf("SKILLS (%d installed, ", skillCount)
-		updateLabel := fmt.Sprintf("%d updates available", m.updateCount)
-		closing := ")"
-		sectionHeader = renderSectionHeaderWithUpdate(label, updateLabel, closing, m.width) + "\n"
-	} else {
-		sectionHeader = renderSectionHeader(fmt.Sprintf("SKILLS (%d installed)", skillCount), m.width) + "\n"
-	}
-
-	// MCP section header and items.
-	mcpCount := len(m.mcps)
-	var mcpBlock string
-	var mcpHeaderLabel string
-	if mcpCount == 0 {
-		mcpHeaderLabel = "MCPS"
-	} else {
-		mcpHeaderLabel = fmt.Sprintf("MCPS (%d installed)", mcpCount)
-	}
-	mcpHeader := "\n\n" + renderSectionHeader(mcpHeaderLabel, m.width) + "\n"
-	if mcpCount > 0 {
-		var mcpLines strings.Builder
-		mcpLines.WriteString(mcpHeader)
-		for i, mcp := range m.mcps {
-			isSelected := m.section == folderSectionMCPs && i == m.mcpCursor
-			mcpLines.WriteString(m.renderMCPRow(mcp, isSelected))
-		}
-		mcpBlock = mcpLines.String()
-	} else {
-		mcpBlock = mcpHeader + "\n" + mutedStyle.Render("  No MCPs installed")
-	}
+	tabBar := m.tabs.view() + "\n"
 
 	// Build footer: optional update prefix + registry status.
 	var parts []string
 	if m.updateCount > 0 {
 		parts = append(parts,
 			warningStyle.Render(fmt.Sprintf("%d updates available", m.updateCount))+
-				"  "+headerHintStyle.Render("[u] Update"))
+				"  "+mutedStyle.Render("[u] Update"))
 	}
 
 	if m.availCount > 0 {
 		parts = append(parts,
 			mutedStyle.Render(fmt.Sprintf("%d available from registries", m.availCount))+
-				"  "+headerHintStyle.Render("[i] Install"))
+				"  "+mutedStyle.Render("[i] Install"))
 	} else if len(m.regSkills) == 0 && len(m.regMCPs) == 0 {
 		parts = append(parts,
 			mutedStyle.Render("No registries configured.")+
-				"  "+headerHintStyle.Render("[s] Settings to add"))
+				"  "+mutedStyle.Render("[s] Settings to add"))
 	} else {
 		parts = append(parts,
 			mutedStyle.Render("All registry items installed"))
 	}
 
 	footer := "  " + strings.Join(parts, "  |  ")
-	// Blank line padding between list and footer message.
 	footerBlock := "\n\n" + footer
 
 	// 2. Measure chrome height.
-	chromeH := lipgloss.Height(banner) + lipgloss.Height(sectionHeader) + lipgloss.Height(mcpBlock) + lipgloss.Height(footerBlock)
+	chromeH := lipgloss.Height(tabBar) + lipgloss.Height(footerBlock)
 
-	// 3. Size the list to fit its content, capped by available space.
-	//    DefaultDelegate: Height()=2 (title+desc), Spacing()=1.
-	//    The list calculates PerPage = availHeight / (Height+Spacing) using
-	//    integer division. It also internally subtracts chrome from the height
-	//    we give it (e.g. title/filter bar = 1 even when empty). We add that
-	//    back so the items-per-page calculation comes out right.
-	if skillCount > 0 {
-		maxH := m.height - chromeH
-		if maxH < 1 {
-			maxH = 1
+	// 3. Size and render the active list.
+	listH := max(1, m.height-chromeH)
+
+	var listView string
+	switch m.activeTab {
+	case folderTabSkills:
+		if len(m.skillsList.Items()) == 0 {
+			listView = "\n" + mutedStyle.Render("  No skills installed")
+		} else {
+			m.skillsList.SetSize(m.width, listH)
+			listView = m.skillsList.View()
 		}
-		itemSlot := 3 // Height(2) + Spacing(1)
-		// +1 compensates for the list's internal title/filter bar line
-		// (lipgloss.Height("") == 1, so it always steals 1 line).
-		listH := skillCount*itemSlot + 1
-		if listH > maxH {
-			listH = maxH
+	case folderTabMCPs:
+		if len(m.mcpsList.Items()) == 0 {
+			listView = "\n" + mutedStyle.Render("  No MCPs installed")
+		} else {
+			m.mcpsList.SetSize(m.width, listH)
+			listView = m.mcpsList.View()
 		}
-		m.list.SetSize(m.width, listH)
 	}
 
-	// 4. Assemble.
-	var b strings.Builder
-	b.WriteString(banner)
-	b.WriteString(sectionHeader)
-
-	if skillCount == 0 {
-		b.WriteString("\n" + mutedStyle.Render("  No skills installed"))
-	} else {
-		b.WriteString(m.list.View())
+	// 4. Assemble: pin footer to the bottom of the content area.
+	//    The list fills the middle; compute any gap between list + footer and total height.
+	rendered := tabBar + listView + footerBlock
+	renderedH := lipgloss.Height(rendered)
+	if renderedH < m.height {
+		// Insert blank lines between list and footer so footer sits at the bottom.
+		gap := strings.Repeat("\n", m.height-renderedH)
+		rendered = tabBar + listView + gap + footerBlock
 	}
 
-	b.WriteString(mcpBlock)
-	b.WriteString(footerBlock)
-
-	return b.String()
-}
-
-// renderMCPRow renders a single MCP row in the folder view.
-func (m folderModel) renderMCPRow(mcp mcpItem, selected bool) string {
-	indicator := "    "
-	if selected {
-		indicator = "  > "
-	}
-
-	name := mcp.locked.Name
-	var parts []string
-	if selected {
-		parts = append(parts, selectedItemStyle.Render(name))
-	} else {
-		parts = append(parts, normalItemStyle.Render(name))
-	}
-
-	if mcp.desc != "" {
-		parts = append(parts, mutedStyle.Render(mcp.desc))
-	}
-
-	// Show agent names.
-	if len(mcp.locked.Agents) > 0 {
-		parts = append(parts, badgeStyle.Render(strings.Join(mcp.locked.Agents, ", ")))
-	}
-
-	return indicator + strings.Join(parts, "  ") + "\n"
+	return rendered
 }
 
 func (m folderModel) removeSelectedSkill(app *App) tea.Cmd {
-	item := m.list.SelectedItem()
+	item := m.skillsList.SelectedItem()
 	if item == nil || m.status == nil {
 		return nil
 	}
@@ -409,7 +351,7 @@ func (m folderModel) updateSelectedSkill(app *App) tea.Cmd {
 		return nil
 	}
 
-	item := m.list.SelectedItem()
+	item := m.skillsList.SelectedItem()
 	if item == nil || m.status == nil {
 		return nil
 	}
@@ -587,11 +529,16 @@ func executeSkillUpdate(app *App, ui core.UpdateInfo, folderPath string, cfg *co
 // removeSelectedMCP shows a confirmation dialog for the selected MCP.
 // The confirmation message lists the agent config files that will be modified.
 func (m folderModel) removeSelectedMCP(app *App) tea.Cmd {
-	if m.mcpCursor < 0 || m.mcpCursor >= len(m.mcps) || m.status == nil {
+	item := m.mcpsList.SelectedItem()
+	if item == nil || m.status == nil {
 		return nil
 	}
 
-	mcp := m.mcps[m.mcpCursor]
+	mcp, ok := item.(mcpItem)
+	if !ok {
+		return nil
+	}
+
 	folderPath := app.activeFolder
 
 	// Build list of agent config files that will be modified.

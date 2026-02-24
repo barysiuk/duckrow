@@ -1,0 +1,18 @@
+# Test listing bookmarks
+
+# No folders initially
+exec duckrow bookmark list
+stdout 'No bookmarks'
+! stderr .
+
+# Add some folders
+mkdir project-a
+mkdir project-b
+exec duckrow bookmark add project-a
+exec duckrow bookmark add project-b
+
+# List should show both
+exec duckrow bookmark list
+stdout 'Bookmarks \(2\)'
+stdout 'project-a'
+stdout 'project-b'

@@ -29,8 +29,8 @@ One binary, no dependencies. Works with any git host. Has a nice intuitive TUI.
 # Install
 brew install barysiuk/tap/duckrow
 
-# Add a project
-duckrow add ~/code/my-app
+# Bookmark a project
+duckrow bookmark add ~/code/my-app
 
 # Install a skill
 duckrow install acme/skills -d ~/code/my-app
@@ -50,7 +50,7 @@ Run `duckrow` to launch the terminal UI. Browse installed skills and MCP configs
   <img src="docs/images/duckrow_tui.png" alt="duckrow TUI screenshot" width="800" />
 </p>
 
-Key actions: navigate with `j`/`k`, preview a skill with `enter`, install with `i`, remove with `d`, update with `u`/`U`, refresh registries with `r`, switch folders with `c`, and open settings with `s`. Press `?` for the full keybinding reference.
+Key actions: navigate with `j`/`k`, preview a skill with `enter`, install with `i`, remove with `d`, update with `u`/`U`, refresh registries with `r`, switch folders with `b` (bookmarks), and open settings with `s`. Press `?` for the full keybinding reference.
 
 The TUI shows both installed skills and installed MCPs in the folder view. The install picker lists all registry skills and MCPs not yet installed in the current folder, with a multi-step workflow for MCP installs that handles agent selection and env var setup.
 
@@ -63,8 +63,8 @@ See [docs/tui.md](docs/tui.md) for the full TUI reference.
 Every action in the TUI also works as a direct command — useful for scripting, CI, or when you already know what you need.
 
 ```
-$ duckrow add .
-Added folder: /Users/me/code/my-app
+$ duckrow bookmark add .
+Bookmarked: /Users/me/code/my-app
 
 $ duckrow install vercel/agents -d . --skill code-review
 Installed: code-review
@@ -121,12 +121,12 @@ Agents with an MCP Config path support `duckrow mcp install` — duckrow writes 
 
 For the full command reference with all flags and examples, see [docs/cli_reference.md](docs/cli_reference.md).
 
-### Folder Management
+### Bookmarks
 
 ```
-duckrow add [path]              Add a folder to the tracked list (default: current dir)
-duckrow remove-folder <path>    Remove a folder from the tracked list
-duckrow folders                 List all tracked folders
+duckrow bookmark add [path]     Bookmark a folder (default: current dir)
+duckrow bookmark remove <path>  Remove a bookmark
+duckrow bookmark list           List all bookmarks
 ```
 
 ### Skills
@@ -135,7 +135,7 @@ duckrow folders                 List all tracked folders
 duckrow install [source]        Install skill(s) from a source or registry
 duckrow uninstall <skill-name>  Remove an installed skill
 duckrow uninstall-all           Remove all installed skills
-duckrow status [path]           Show skills and MCPs for tracked folders
+duckrow status [path]           Show skills and MCPs for a folder
 duckrow sync                    Install skills and MCPs from lock file at pinned versions
 duckrow outdated                Show skills with available updates
 duckrow update [skill-name]     Update skill(s) to the available commit
@@ -181,17 +181,17 @@ duckrow install --skill go-review             # Install from configured registri
 | `--agents` | | Comma-separated agent names for symlinks |
 | `--no-lock` | | Skip writing to the lock file |
 
-## Folders
+## Bookmarks
 
-Folders are bookmarks for your projects. Add any directory on your system and duckrow will track which skills and agents are active there. This gives you a single view across your entire file system — no matter how many repos you work in.
+Bookmarks are project folders you want to manage with duckrow. Add any directory on your system and duckrow will keep track of which skills and agents are active there. This gives you a single view across your entire file system — no matter how many repos you work in.
 
 ```bash
-duckrow add ~/code/frontend
-duckrow add ~/code/backend
-duckrow add ~/code/infra
+duckrow bookmark add ~/code/frontend
+duckrow bookmark add ~/code/backend
+duckrow bookmark add ~/code/infra
 ```
 
-Once tracked, you can check the state of every project at a glance with `duckrow status`, or switch between them in the TUI with a single keystroke. When your team approves a new skill, you can install it across multiple projects from one place instead of repeating the work in each repo.
+Once bookmarked, you can check the state of every project at a glance with `duckrow status`, or switch between them in the TUI with a single keystroke. When your team approves a new skill, you can install it across multiple projects from one place instead of repeating the work in each repo.
 
 ## Private Registries
 

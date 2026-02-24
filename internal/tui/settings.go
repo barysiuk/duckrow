@@ -5,7 +5,6 @@ import (
 	"strings"
 
 	"github.com/charmbracelet/bubbles/key"
-	"github.com/charmbracelet/bubbles/textinput"
 	tea "github.com/charmbracelet/bubbletea"
 
 	"github.com/barysiuk/duckrow/internal/core"
@@ -17,8 +16,10 @@ type settingsSection int
 const (
 	settingsRegistries settingsSection = iota
 	settingsAddRegistry
-	settingsFolders
 )
+
+// openRegistryWizardMsg is sent when the user selects "+ Add Registry".
+type openRegistryWizardMsg struct{}
 
 // settingsModel is the settings/configuration screen.
 type settingsModel struct {
@@ -29,23 +30,12 @@ type settingsModel struct {
 	section settingsSection
 	cursor  int // Cursor within the current section.
 
-	// Input mode for adding registry.
-	inputMode    bool
-	inputSection settingsSection // Which section triggered the input.
-	textInput    textinput.Model
-
 	// Data.
 	cfg *core.Config
 }
 
 func newSettingsModel() settingsModel {
-	ti := textinput.New()
-	ti.Placeholder = "Enter URL..."
-	ti.CharLimit = 256
-
-	return settingsModel{
-		textInput: ti,
-	}
+	return settingsModel{}
 }
 
 func (m settingsModel) setSize(width, height int) settingsModel {
@@ -59,10 +49,6 @@ func (m settingsModel) setData(cfg *core.Config) settingsModel {
 	return m
 }
 
-func (m settingsModel) inputFocused() bool {
-	return m.inputMode
-}
-
 func (m settingsModel) update(msg tea.Msg, app *App) (settingsModel, tea.Cmd) {
 	if m.cfg == nil {
 		return m, nil
@@ -70,33 +56,6 @@ func (m settingsModel) update(msg tea.Msg, app *App) (settingsModel, tea.Cmd) {
 
 	switch msg := msg.(type) {
 	case tea.KeyMsg:
-		// Input mode handling.
-		if m.inputMode {
-			switch {
-			case key.Matches(msg, keys.Back):
-				m.inputMode = false
-				m.textInput.Blur()
-				m.textInput.SetValue("")
-				return m, nil
-			case key.Matches(msg, keys.Enter):
-				value := m.textInput.Value()
-				m.inputMode = false
-				m.textInput.Blur()
-				m.textInput.SetValue("")
-				if value != "" {
-					submitCmd := m.handleInputSubmit(value, app)
-					var toastCmd tea.Cmd
-					app.toast, toastCmd = app.toast.show("Adding registry...", toastLoading)
-					return m, tea.Batch(submitCmd, toastCmd)
-				}
-				return m, nil
-			default:
-				var cmd tea.Cmd
-				m.textInput, cmd = m.textInput.Update(msg)
-				return m, cmd
-			}
-		}
-
 		switch {
 		case key.Matches(msg, keys.Up):
 			m = m.moveCursorUp()
@@ -115,10 +74,9 @@ func (m settingsModel) update(msg tea.Msg, app *App) (settingsModel, tea.Cmd) {
 		case key.Matches(msg, keys.Refresh):
 			if m.section == settingsRegistries && len(m.cfg.Registries) > 0 {
 				refreshCmd := m.refreshSelectedRegistry(app)
-				regName := m.cfg.Registries[m.cursor].Name
-				var toastCmd tea.Cmd
-				app.toast, toastCmd = app.toast.show("Refreshing "+regName+"...", toastLoading)
-				return m, tea.Batch(refreshCmd, toastCmd)
+				var taskCmd tea.Cmd
+				app.statusBar, taskCmd = app.statusBar.update(taskStartedMsg{})
+				return m, tea.Batch(refreshCmd, taskCmd)
 			}
 			return m, nil
 		}
@@ -138,13 +96,6 @@ func (m settingsModel) moveCursorUp() settingsModel {
 			m.section = settingsRegistries
 			m.cursor = len(m.cfg.Registries) - 1
 		}
-	case settingsFolders:
-		if m.cursor > 0 {
-			m.cursor--
-		} else {
-			m.section = settingsAddRegistry
-			m.cursor = 0
-		}
 	}
 	return m
 }
@@ -159,14 +110,7 @@ func (m settingsModel) moveCursorDown() settingsModel {
 			m.cursor = 0
 		}
 	case settingsAddRegistry:
-		if len(m.cfg.Folders) > 0 {
-			m.section = settingsFolders
-			m.cursor = 0
-		}
-	case settingsFolders:
-		if m.cursor < len(m.cfg.Folders)-1 {
-			m.cursor++
-		}
+		// No more sections below.
 	}
 	return m
 }
@@ -174,49 +118,10 @@ func (m settingsModel) moveCursorDown() settingsModel {
 func (m settingsModel) handleEnter(app *App) (settingsModel, tea.Cmd) {
 	switch m.section {
 	case settingsAddRegistry:
-		m.inputMode = true
-		m.inputSection = settingsAddRegistry
-		m.textInput.Placeholder = "Git repository URL..."
-		m.textInput.Focus()
-		return m, m.textInput.Cursor.BlinkCmd()
+		// Open the registry wizard overlay.
+		return m, func() tea.Msg { return openRegistryWizardMsg{} }
 	}
 	return m, nil
-}
-
-func (m settingsModel) handleInputSubmit(value string, app *App) tea.Cmd {
-	switch m.inputSection {
-	case settingsAddRegistry:
-		return func() tea.Msg {
-			regMgr := core.NewRegistryManager(app.config.RegistriesDir())
-			manifest, err := regMgr.Add(value)
-			if err != nil {
-				// Return registryAddDoneMsg so app.go can detect clone errors
-				// and show the clone error overlay instead of a generic banner.
-				return registryAddDoneMsg{url: value, err: fmt.Errorf("adding registry: %w", err)}
-			}
-
-			// Save registry to config (skip if same repo already exists).
-			cfg, err := app.config.Load()
-			if err != nil {
-				return registryAddDoneMsg{url: value, err: err}
-			}
-			for _, r := range cfg.Registries {
-				if r.Repo == value {
-					// Same repo already registered — just report success.
-					return registryAddDoneMsg{url: value, name: manifest.Name, warnings: manifest.Warnings}
-				}
-			}
-			cfg.Registries = append(cfg.Registries, core.Registry{
-				Name: manifest.Name,
-				Repo: value,
-			})
-			if err := app.config.Save(cfg); err != nil {
-				return registryAddDoneMsg{url: value, err: err}
-			}
-			return registryAddDoneMsg{url: value, name: manifest.Name, warnings: manifest.Warnings}
-		}
-	}
-	return nil
 }
 
 func (m settingsModel) handleDelete(app *App) (settingsModel, tea.Cmd) {
@@ -246,22 +151,6 @@ func (m settingsModel) handleDelete(app *App) (settingsModel, tea.Cmd) {
 			}
 			app.confirm = app.confirm.show(
 				fmt.Sprintf("Remove registry %s?", reg.Name),
-				deleteCmd,
-			)
-			return m, nil
-		}
-
-	case settingsFolders:
-		if m.cursor < len(m.cfg.Folders) {
-			folder := m.cfg.Folders[m.cursor]
-			deleteCmd := func() tea.Msg {
-				if err := app.folders.Remove(folder.Path); err != nil {
-					return errMsg{err: err}
-				}
-				return app.reloadConfig()()
-			}
-			app.confirm = app.confirm.show(
-				fmt.Sprintf("Remove folder %s?", shortenPath(folder.Path)),
 				deleteCmd,
 			)
 			return m, nil
@@ -304,50 +193,18 @@ func (m settingsModel) view() string {
 	}
 
 	for i, reg := range m.cfg.Registries {
-		isSelected := !m.inputMode && m.section == settingsRegistries && i == m.cursor
+		isSelected := m.section == settingsRegistries && i == m.cursor
 		b.WriteString(m.renderRegistryRow(reg, isSelected))
 	}
 
-	// Add Registry action (or inline input).
+	// Add Registry action.
 	b.WriteString("\n")
-	if m.inputMode && m.inputSection == settingsAddRegistry {
-		b.WriteString("  " + m.textInput.View())
+	isAddReg := m.section == settingsAddRegistry
+	if isAddReg {
+		b.WriteString(selectedItemStyle.Render("  + Add Registry"))
 	} else {
-		isAddReg := !m.inputMode && m.section == settingsAddRegistry
-		if isAddReg {
-			b.WriteString(selectedItemStyle.Render("  + Add Registry"))
-		} else {
-			b.WriteString(mutedStyle.Render("  + Add Registry"))
-		}
+		b.WriteString(mutedStyle.Render("  + Add Registry"))
 	}
-	b.WriteString("\n\n")
-
-	// Folders section.
-	b.WriteString(renderSectionHeader("FOLDERS", m.width))
-	b.WriteString("\n")
-
-	if len(m.cfg.Folders) == 0 {
-		b.WriteString(mutedStyle.Render("    No folders tracked"))
-		b.WriteString("\n")
-	}
-
-	for i, folder := range m.cfg.Folders {
-		isSelected := !m.inputMode && m.section == settingsFolders && i == m.cursor
-		indicator := "    "
-		if isSelected {
-			indicator = "  > "
-		}
-		path := shortenPath(folder.Path)
-		if isSelected {
-			b.WriteString(indicator + selectedItemStyle.Render(path))
-		} else {
-			b.WriteString(indicator + normalItemStyle.Render(path))
-		}
-		b.WriteString("\n")
-	}
-
-	b.WriteString("\n")
-	b.WriteString(mutedStyle.Render("    To add a directory, launch ") + normalItemStyle.Render("duckrow") + mutedStyle.Render(" in that folder and press [a]"))
 	b.WriteString("\n")
 
 	return b.String()

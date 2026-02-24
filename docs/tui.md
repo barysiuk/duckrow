@@ -13,7 +13,7 @@ The TUI has several views you navigate between:
 | View | Purpose | Enter via |
 |------|---------|-----------|
 | **Folder** | Main view — shows installed skills and MCPs for the active folder | Default on launch |
-| **Folder Picker** | Switch between tracked folders | `c` from folder view |
+| **Bookmarks** | Switch between bookmarked folders | `b` from folder view |
 | **Install** | Browse and install registry skills and MCPs | `i` from folder view |
 | **Settings** | Manage registries | `s` from folder view |
 | **Preview** | Read a skill's SKILL.md content | `enter` on a skill |
@@ -34,21 +34,21 @@ The folder view has two sections: **Skills** (top) and **MCPs** (bottom). Use `j
 | `U` | Update all | Only shown when any skill has an update |
 | `r` | Refresh | Refreshes registries and reloads data |
 | `i` | Install | Opens install picker (requires configured registries) |
-| `c` | Change folder | Opens folder picker |
+| `c` | Change folder | Opens bookmarks view |
 | `s` | Settings | Opens registry management |
-| `a` | Add folder | Track the active folder (shown when folder is untracked) |
+| `a` | Add folder | Bookmark the active folder (shown when folder is not bookmarked) |
 | `q` | Quit | `ctrl+c` also works |
 | `?` | Help | Toggle keybinding reference |
 
-### Folder Picker
+### Bookmarks
 
 | Key | Action |
 |-----|--------|
 | `j` / `k` | Move up/down |
 | `enter` | Select folder |
 | `/` | Filter folders |
-| `a` | Add folder |
-| `d` | Remove folder from tracking |
+| `a` | Bookmark folder |
+| `d` | Remove bookmark |
 | `esc` | Back to folder view |
 
 ### Install Picker

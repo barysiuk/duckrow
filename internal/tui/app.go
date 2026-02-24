@@ -21,12 +21,15 @@ import (
 type appView int
 
 const (
-	viewFolder        appView = iota // Main folder view (default)
-	viewFolderPicker                 // Folder picker overlay
-	viewInstallPicker                // Install skill picker overlay
-	viewSettings                     // Settings overlay
-	viewSkillPreview                 // SKILL.md preview overlay
-	viewCloneError                   // Clone error overlay
+	viewFolder         appView = iota // Main folder view (default)
+	viewBookmarks                     // Bookmarks view (full-screen)
+	viewInstallPicker                 // Install skill/MCP picker overlay
+	viewSettings                      // Settings overlay
+	viewSkillPreview                  // SKILL.md preview overlay
+	viewCloneError                    // Clone error overlay
+	viewRegistryWizard                // Registry add wizard overlay
+	viewSkillWizard                   // Skill install wizard overlay
+	viewMCPWizard                     // MCP install wizard overlay
 )
 
 // App is the root Bubbletea model for DuckRow.
@@ -50,11 +53,15 @@ type App struct {
 	isTracked    bool   // Whether activeFolder is in the tracked list
 
 	// Sub-models.
-	folder     folderModel
-	picker     pickerModel
-	install    installModel
-	settings   settingsModel
-	cloneError cloneErrorModel
+	folder      folderModel
+	bookmarks   bookmarksModel
+	install     installModel
+	settings    settingsModel
+	cloneError  cloneErrorModel
+	sidebar     sidebarModel
+	regWizard   registryWizardModel
+	skillWizard skillWizardModel
+	mcpWizard   mcpWizardModel
 
 	// View the user was on before clone error overlay opened (for going back).
 	previousView appView
@@ -87,14 +94,8 @@ type App struct {
 	// Update info for the active folder's skills: skill name -> update info.
 	updateInfo map[string]core.UpdateInfo
 
-	// Whether registries are being refreshed asynchronously.
-	refreshingRegistries bool
-
-	// Spinner for async registry refresh indicator in the header.
-	refreshSpinner spinner.Model
-
-	// Toast notifications (replaces old statusText/err banner).
-	toast toastModel
+	// Status bar (replaces toast + refresh spinner).
+	statusBar statusBarModel
 
 	// Confirmation dialog (replaces help bar when active).
 	confirm confirmModel
@@ -109,14 +110,9 @@ func NewApp(config *core.ConfigManager, agents []core.AgentDef) App {
 	cwd, _ := os.Getwd()
 
 	h := help.New()
-	h.ShortSeparator = "  |  "
+	h.ShortSeparator = " · "
 
 	s := spinner.New(
-		spinner.WithSpinner(spinner.Dot),
-		spinner.WithStyle(spinnerStyle),
-	)
-
-	rs := spinner.New(
 		spinner.WithSpinner(spinner.Dot),
 		spinner.WithStyle(spinnerStyle),
 	)
@@ -130,14 +126,17 @@ func NewApp(config *core.ConfigManager, agents []core.AgentDef) App {
 		cwd:            cwd,
 		activeFolder:   cwd,
 		folder:         newFolderModel(),
-		picker:         newPickerModel(),
+		bookmarks:      newBookmarksModel(),
 		install:        newInstallModel(),
 		settings:       newSettingsModel(),
 		cloneError:     newCloneErrorModel(),
+		sidebar:        newSidebarModel(),
+		regWizard:      newRegistryWizardModel(),
+		skillWizard:    newSkillWizardModel(),
+		mcpWizard:      newMCPWizardModel(),
 		help:           h,
 		previewSpinner: s,
-		refreshSpinner: rs,
-		toast:          newToastModel(),
+		statusBar:      newStatusBarModel(),
 		confirm:        newConfirmModel(),
 	}
 }
@@ -224,7 +223,7 @@ func (a App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case loadedDataMsg:
 		if msg.err != nil {
 			var cmd tea.Cmd
-			a.toast, cmd = a.toast.show(fmt.Sprintf("Error: %v", msg.err), toastError)
+			a.statusBar, cmd = a.statusBar.showMsg(fmt.Sprintf("Error: %v", msg.err), statusError)
 			return a, cmd
 		}
 		a.cfg = msg.cfg
@@ -240,8 +239,21 @@ func (a App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 		return a, nil
 
+	case bookmarkAddedMsg:
+		var cmd tea.Cmd
+		a.statusBar, cmd = a.statusBar.showMsg(fmt.Sprintf("Bookmarked %s", shortenPath(msg.path)), statusSuccess)
+		return a, tea.Batch(cmd, a.loadDataCmd)
+
+	case bookmarkRemovedMsg:
+		var cmd tea.Cmd
+		a.statusBar, cmd = a.statusBar.showMsg(fmt.Sprintf("Removed %s", shortenPath(msg.path)), statusSuccess)
+		return a, tea.Batch(cmd, a.loadDataCmd)
+
 	case installDoneMsg:
-		a.install.setInstalling(false)
+		// Route to skill wizard if active.
+		if a.activeView == viewSkillWizard {
+			a.skillWizard, _ = a.skillWizard.update(msg, &a)
+		}
 		if msg.err != nil {
 			// Check if this is a clone error — if so, show the clone error overlay.
 			if ce, ok := core.IsCloneError(msg.err); ok {
@@ -249,90 +261,177 @@ func (a App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				a.activeView = viewCloneError
 				a.cloneError = a.cloneError.activateForInstall(
 					ce,
-					a.install.selectedSkillInfo(),
-					a.install.activeFolder,
-					a.install.selectedTargetAgents(),
+					a.skillWizard.selectedSkillInfo(),
+					a.skillWizard.activeFolder,
+					a.skillWizard.selectedTargetAgents(),
 				)
 				return a, nil
 			}
 			var cmd tea.Cmd
-			a.toast, cmd = a.toast.show(fmt.Sprintf("Error: %v", msg.err), toastError)
+			a.statusBar, cmd = a.statusBar.showMsg(fmt.Sprintf("Error: %v", msg.err), statusError)
+			a.activeView = viewFolder
 			return a, tea.Batch(cmd, a.loadDataCmd)
 		}
 		var cmd tea.Cmd
-		a.toast, cmd = a.toast.show(fmt.Sprintf("Installed %s", msg.skillName), toastSuccess)
+		a.statusBar, cmd = a.statusBar.showMsg(fmt.Sprintf("Installed %s", msg.skillName), statusSuccess)
 		a.activeView = viewFolder
 		return a, tea.Batch(cmd, a.loadDataCmd)
 
 	case mcpInstallDoneMsg:
-		a.install.setInstalling(false)
+		// Route to MCP wizard if active.
+		if a.activeView == viewMCPWizard {
+			a.mcpWizard, _ = a.mcpWizard.update(msg, &a)
+		}
 		if msg.err != nil {
 			var cmd tea.Cmd
-			a.toast, cmd = a.toast.show(fmt.Sprintf("Error: %v", msg.err), toastError)
+			a.statusBar, cmd = a.statusBar.showMsg(fmt.Sprintf("Error: %v", msg.err), statusError)
+			a.activeView = viewFolder
 			return a, tea.Batch(cmd, a.loadDataCmd)
 		}
 		var cmd tea.Cmd
-		a.toast, cmd = a.toast.show(fmt.Sprintf("Installed MCP %s", msg.mcpName), toastSuccess)
+		a.statusBar, cmd = a.statusBar.showMsg(fmt.Sprintf("Installed MCP %s", msg.mcpName), statusSuccess)
 		a.activeView = viewFolder
 		return a, tea.Batch(cmd, a.loadDataCmd)
 
 	case updateDoneMsg:
 		if msg.err != nil {
 			var cmd tea.Cmd
-			a.toast, cmd = a.toast.show(fmt.Sprintf("Error updating %s: %v", msg.skillName, msg.err), toastError)
+			a.statusBar, cmd = a.statusBar.showMsg(fmt.Sprintf("Error updating %s: %v", msg.skillName, msg.err), statusError)
 			return a, tea.Batch(cmd, a.loadDataCmd)
 		}
 		var cmd tea.Cmd
-		a.toast, cmd = a.toast.show(fmt.Sprintf("Updated %s", msg.skillName), toastSuccess)
+		a.statusBar, cmd = a.statusBar.showMsg(fmt.Sprintf("Updated %s", msg.skillName), statusSuccess)
 		return a, tea.Batch(cmd, a.loadDataCmd)
 
 	case bulkUpdateDoneMsg:
 		var cmd tea.Cmd
 		if msg.errors > 0 {
-			a.toast, cmd = a.toast.show(
-				fmt.Sprintf("Updated %d skills, %d errors", msg.updated, msg.errors), toastWarning)
+			a.statusBar, cmd = a.statusBar.showMsg(
+				fmt.Sprintf("Updated %d skills, %d errors", msg.updated, msg.errors), statusWarning)
 		} else {
-			a.toast, cmd = a.toast.show(
-				fmt.Sprintf("Updated %d skills", msg.updated), toastSuccess)
+			a.statusBar, cmd = a.statusBar.showMsg(
+				fmt.Sprintf("Updated %d skills", msg.updated), statusSuccess)
 		}
 		return a, tea.Batch(cmd, a.loadDataCmd)
 
 	case startRegistryRefreshMsg:
-		a.refreshingRegistries = true
-		return a, tea.Batch(a.refreshSpinner.Tick, a.refreshRegistriesCmd)
+		var cmd tea.Cmd
+		a.statusBar, cmd = a.statusBar.update(taskStartedMsg{})
+		return a, tea.Batch(cmd, a.refreshRegistriesCmd)
 
 	case registryRefreshDoneMsg:
-		a.refreshingRegistries = false
+		var cmd tea.Cmd
+		a.statusBar, cmd = a.statusBar.update(taskDoneMsg{})
 		a.registryCommits = msg.registryCommits
 		a.registrySkills = msg.registrySkills
 		a.registryMCPs = msg.registryMCPs
 		a.refreshActiveFolder()
 		a.pushDataToSubModels()
-		return a, nil
+		return a, cmd
 
 	case registryAddDoneMsg:
+		// If the registry wizard is active, route to it — but intercept
+		// clone errors so the structured cloneErrorModel overlay is shown
+		// instead of a flat error string.
+		if a.activeView == viewRegistryWizard {
+			if msg.err != nil {
+				if ce, ok := core.IsCloneError(msg.err); ok {
+					a.previousView = viewRegistryWizard
+					a.activeView = viewCloneError
+					a.cloneError = a.cloneError.activateForRegistryAdd(ce, msg.url)
+					return a, nil
+				}
+			}
+			var cmd tea.Cmd
+			a.regWizard, cmd = a.regWizard.update(msg, &a)
+			return a, cmd
+		}
+
+		// Non-wizard path: registry refresh from settings.
+		// Close the task counter that was started in settings (refresh).
+		var taskCmd tea.Cmd
+		a.statusBar, taskCmd = a.statusBar.update(taskDoneMsg{})
+
 		if msg.err != nil {
 			// Check if this is a clone error.
 			if ce, ok := core.IsCloneError(msg.err); ok {
 				a.previousView = a.activeView
 				a.activeView = viewCloneError
 				a.cloneError = a.cloneError.activateForRegistryAdd(ce, msg.url)
-				return a, nil
+				return a, taskCmd
 			}
 			var cmd tea.Cmd
-			a.toast, cmd = a.toast.show(fmt.Sprintf("Error: %v", msg.err), toastError)
-			return a, tea.Batch(cmd, a.loadDataCmd)
+			a.statusBar, cmd = a.statusBar.showMsg(fmt.Sprintf("Error: %v", msg.err), statusError)
+			return a, tea.Batch(taskCmd, cmd, a.loadDataCmd)
 		}
 		var cmd tea.Cmd
 		if len(msg.warnings) > 0 {
-			a.toast, cmd = a.toast.show(
+			a.statusBar, cmd = a.statusBar.showMsg(
 				fmt.Sprintf("Registry %s: %d warning(s)", msg.name, len(msg.warnings)),
-				toastWarning)
+				statusWarning)
 		} else {
-			a.toast, cmd = a.toast.show(fmt.Sprintf("Added registry %s", msg.name), toastSuccess)
+			a.statusBar, cmd = a.statusBar.showMsg(fmt.Sprintf("Added registry %s", msg.name), statusSuccess)
 		}
 		// Reload data and trigger async registry refresh (hydration + commit map rebuild).
-		return a, tea.Batch(cmd, a.loadDataCmd, a.startRegistryRefreshCmd)
+		return a, tea.Batch(taskCmd, cmd, a.loadDataCmd, a.startRegistryRefreshCmd)
+
+	case openRegistryWizardMsg:
+		a.activeView = viewRegistryWizard
+		w, h := a.innerContentSize()
+		a.regWizard = a.regWizard.activate(&a, w, h)
+		return a, nil
+
+	case openSkillWizardMsg:
+		a.activeView = viewSkillWizard
+		w, h := a.innerContentSize()
+		a.skillWizard = a.skillWizard.activate(msg, &a, w, h)
+		// If no non-universal agents, skip straight to install.
+		if len(msg.nonUniversal) == 0 {
+			installCmd := a.skillWizard.startInstall()
+			step := a.skillWizard.wizard.activeStep()
+			if step != nil {
+				if is, ok := step.content.(skillInstallingStepModel); ok {
+					return a, tea.Batch(is.spinner.Tick, installCmd)
+				}
+			}
+			return a, installCmd
+		}
+		return a, nil
+
+	case openMCPWizardMsg:
+		a.activeView = viewMCPWizard
+		w, h := a.innerContentSize()
+		a.mcpWizard = a.mcpWizard.activate(msg, &a, w, h)
+		return a, nil
+
+	case wizardDoneMsg:
+		// Wizard completed — return to appropriate view and reload data.
+		switch a.activeView {
+		case viewRegistryWizard:
+			a.activeView = viewSettings
+			var cmd tea.Cmd
+			a.statusBar, cmd = a.statusBar.showMsg("Registry added", statusSuccess)
+			return a, tea.Batch(cmd, a.loadDataCmd, a.startRegistryRefreshCmd)
+		case viewSkillWizard:
+			a.activeView = viewFolder
+			return a, a.loadDataCmd
+		case viewMCPWizard:
+			a.activeView = viewFolder
+			return a, a.loadDataCmd
+		}
+		return a, nil
+
+	case wizardBackMsg:
+		// Wizard cancelled — return to previous view.
+		switch a.activeView {
+		case viewRegistryWizard:
+			a.activeView = viewSettings
+		case viewSkillWizard:
+			a.activeView = viewInstallPicker
+		case viewMCPWizard:
+			a.activeView = viewInstallPicker
+		}
+		return a, nil
 
 	case cloneRetryResultMsg:
 		// Result from a retry initiated from the clone error overlay.
@@ -348,18 +447,24 @@ func (a App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 		// Full success — dismiss the overlay and reload data.
 		a.cloneError = a.cloneError.handleRetryResult(msg)
-		var toastMsg string
+		var successMsg string
 		switch msg.origin {
 		case retryOriginInstall:
-			toastMsg = fmt.Sprintf("Installed %s", msg.skillName)
+			successMsg = fmt.Sprintf("Installed %s", msg.skillName)
 			a.activeView = viewFolder
 		case retryOriginRegistryAdd:
-			toastMsg = fmt.Sprintf("Added registry %s", msg.registryName)
-			a.activeView = a.previousView
+			successMsg = fmt.Sprintf("Added registry %s", msg.registryName)
+			// If the clone error was opened from the wizard, go to settings
+			// (the wizard is no longer meaningful after a successful retry).
+			if a.previousView == viewRegistryWizard {
+				a.activeView = viewSettings
+			} else {
+				a.activeView = a.previousView
+			}
 		}
 		var cmd tea.Cmd
-		a.toast, cmd = a.toast.show(toastMsg, toastSuccess)
-		return a, tea.Batch(cmd, a.loadDataCmd)
+		a.statusBar, cmd = a.statusBar.showMsg(successMsg, statusSuccess)
+		return a, tea.Batch(cmd, a.loadDataCmd, a.startRegistryRefreshCmd)
 
 	case openPreviewMsg:
 		a.activeView = viewSkillPreview
@@ -407,17 +512,12 @@ func (a App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 	case spinner.TickMsg:
 		// Route spinner ticks to all active consumers.
-		// Multiple spinners can be active simultaneously (e.g. refresh + toast),
+		// Multiple spinners can be active simultaneously (e.g. status bar + preview),
 		// so we collect commands from each and batch them.
 		var cmds []tea.Cmd
-		if a.refreshingRegistries {
+		if a.statusBar.tasksRunning() {
 			var cmd tea.Cmd
-			a.refreshSpinner, cmd = a.refreshSpinner.Update(msg)
-			cmds = append(cmds, cmd)
-		}
-		if a.toast.active && a.toast.kind == toastLoading {
-			var cmd tea.Cmd
-			a.toast, cmd = a.toast.update(msg)
+			a.statusBar, cmd = a.statusBar.update(msg)
 			cmds = append(cmds, cmd)
 		}
 		if a.previewLoading {
@@ -430,24 +530,49 @@ func (a App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			a.cloneError, cmd = a.cloneError.update(msg, &a)
 			cmds = append(cmds, cmd)
 		}
+		if a.activeView == viewRegistryWizard {
+			var cmd tea.Cmd
+			a.regWizard, cmd = a.regWizard.update(msg, &a)
+			cmds = append(cmds, cmd)
+		}
+		if a.activeView == viewSkillWizard && a.skillWizard.isInstalling() {
+			var cmd tea.Cmd
+			a.skillWizard, cmd = a.skillWizard.update(msg, &a)
+			cmds = append(cmds, cmd)
+		}
+		if a.activeView == viewMCPWizard && a.mcpWizard.isInstalling() {
+			var cmd tea.Cmd
+			a.mcpWizard, cmd = a.mcpWizard.update(msg, &a)
+			cmds = append(cmds, cmd)
+		}
 		if len(cmds) > 0 {
 			return a, tea.Batch(cmds...)
 		}
 		// Fall through to delegate section for install spinner, etc.
 
-	case toastDismissMsg:
+	case statusDismissMsg:
 		var cmd tea.Cmd
-		a.toast, cmd = a.toast.update(msg)
+		a.statusBar, cmd = a.statusBar.update(msg)
+		return a, cmd
+
+	case taskStartedMsg:
+		var cmd tea.Cmd
+		a.statusBar, cmd = a.statusBar.update(msg)
+		return a, cmd
+
+	case taskDoneMsg:
+		var cmd tea.Cmd
+		a.statusBar, cmd = a.statusBar.update(msg)
 		return a, cmd
 
 	case statusMsg:
 		var cmd tea.Cmd
-		a.toast, cmd = a.toast.show(msg.text, toastSuccess)
+		a.statusBar, cmd = a.statusBar.showMsg(msg.text, statusSuccess)
 		return a, cmd
 
 	case errMsg:
 		var cmd tea.Cmd
-		a.toast, cmd = a.toast.show(fmt.Sprintf("Error: %v", msg.err), toastError)
+		a.statusBar, cmd = a.statusBar.showMsg(fmt.Sprintf("Error: %v", msg.err), statusError)
 		return a, cmd
 
 	case confirmResultMsg:
@@ -488,21 +613,33 @@ func (a App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				break
 			}
 			if key.Matches(msg, keys.Back) || key.Matches(msg, keys.Quit) {
-				a.activeView = a.previousView
+				// If we came from the wizard, go to settings instead
+				// (the wizard is in a broken clone state).
+				if a.previousView == viewRegistryWizard {
+					a.activeView = viewSettings
+				} else {
+					a.activeView = a.previousView
+				}
 				return a, nil
 			}
 		}
 
 		// Global quit (unless input is focused).
 		if key.Matches(msg, keys.Quit) {
-			if a.activeView == viewSettings && a.settings.inputFocused() {
-				break
+			if a.activeView == viewSkillWizard && a.skillWizard.isInstalling() {
+				break // Don't quit during skill install
 			}
-			if a.activeView == viewInstallPicker && a.install.isInstalling() {
-				break // Don't quit during install
+			if a.activeView == viewMCPWizard && a.mcpWizard.isInstalling() {
+				break // Don't quit during MCP install
 			}
 			if a.activeView == viewCloneError {
 				break // Handled above
+			}
+			if a.activeView == viewRegistryWizard {
+				break // Let the wizard handle q
+			}
+			if a.activeView == viewSkillWizard || a.activeView == viewMCPWizard {
+				break // Don't quit from wizards — use esc to go back
 			}
 			// Don't quit while filtering in any list view.
 			if a.isListFiltering() {
@@ -513,18 +650,18 @@ func (a App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 		// Global back: return to folder view from overlays.
 		if key.Matches(msg, keys.Back) {
-			if a.activeView == viewSettings && a.settings.inputFocused() {
-				break // Let settings handle esc for input
-			}
 			if a.activeView == viewCloneError {
 				break // Handled above
+			}
+			if a.activeView == viewRegistryWizard {
+				break // Let the wizard handle esc
 			}
 			// Don't intercept esc while filtering — let the list handle it.
 			if a.isListFiltering() {
 				break
 			}
-			// Don't intercept esc during agent selection or MCP phases — let install model handle it.
-			if a.activeView == viewInstallPicker && (a.install.isSelectingAgents() || a.install.isMCPPhase()) {
+			// Don't intercept esc in wizard views — let the wizard handle it.
+			if a.activeView == viewSkillWizard || a.activeView == viewMCPWizard {
 				break
 			}
 			if a.activeView != viewFolder {
@@ -534,26 +671,26 @@ func (a App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 
 		// View-switching keys (only from folder view, and not while filtering).
-		if a.activeView == viewFolder && !a.folder.list.SettingFilter() {
+		if a.activeView == viewFolder && !a.folder.isFiltering() {
 			switch {
-			case key.Matches(msg, keys.ChangeFolder):
-				a.activeView = viewFolderPicker
-				a.picker = a.picker.activate(a.activeFolder, a.folderStatus)
+			case key.Matches(msg, keys.Bookmarks):
+				a.activeView = viewBookmarks
+				a.bookmarks = a.bookmarks.activate(a.cwd, a.activeFolder, a.folderStatus, a.agents)
 				return a, nil
 			case key.Matches(msg, keys.Install):
 				if len(a.registrySkills) > 0 || len(a.registryMCPs) > 0 {
 					a.activeView = viewInstallPicker
+					// Map the active folder tab to the install filter.
+					filter := installFilterSkills
+					if a.folder.activeTab == folderTabMCPs {
+						filter = installFilterMCPs
+					}
 					a.install = a.install.setMCPData(a.registryMCPs, a.activeFolderMCPs)
-					a.install = a.install.activate(a.activeFolder, a.registrySkills, a.activeFolderStatus, a.agents)
+					a.install = a.install.activate(filter, a.activeFolder, a.registrySkills, a.activeFolderStatus, a.agents)
 				}
 				return a, nil
 			case key.Matches(msg, keys.Settings):
 				a.activeView = viewSettings
-				return a, nil
-			case key.Matches(msg, keys.AddFolder):
-				if !a.isTracked {
-					return a, a.addActiveFolder()
-				}
 				return a, nil
 			}
 		}
@@ -564,14 +701,20 @@ func (a App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	switch a.activeView {
 	case viewFolder:
 		a.folder, cmd = a.folder.update(msg, &a)
-	case viewFolderPicker:
-		a.picker, cmd = a.picker.update(msg, &a)
+	case viewBookmarks:
+		a.bookmarks, cmd = a.bookmarks.update(msg, &a)
 	case viewInstallPicker:
-		a.install, cmd = a.install.update(msg, &a)
+		a.install, cmd = a.install.update(msg)
 	case viewSettings:
 		a.settings, cmd = a.settings.update(msg, &a)
 	case viewCloneError:
 		a.cloneError, cmd = a.cloneError.update(msg, &a)
+	case viewRegistryWizard:
+		a.regWizard, cmd = a.regWizard.update(msg, &a)
+	case viewSkillWizard:
+		a.skillWizard, cmd = a.skillWizard.update(msg, &a)
+	case viewMCPWizard:
+		a.mcpWizard, cmd = a.mcpWizard.update(msg, &a)
 	}
 
 	return a, cmd
@@ -582,52 +725,27 @@ func (a App) View() string {
 		return "Loading..."
 	}
 
-	// Layout: fixed header + optional status + flex content box + fixed footer.
-	// Header and footer always render. Content box gets whatever remains.
+	// Layout:
+	//   Folder view:  ╭─ duckrow ──╮╭─ ~/path ──────────╮
+	//                 │ sidebar    ││ content            │
+	//                 ╰────────────╯╰────────────────────╯
+	//                 status bar
 	//
-	// Frame sizes are read from contentStyle via GetVerticalFrameSize() etc.
-	// so the layout adapts automatically if contentStyle changes.
+	//   Other views:  ╭─ Title ─────────────────────────╮
+	//                 │ content                         │
+	//                 ╰─────────────────────────────────╯
+	//                 status bar
 
-	// 1. Render fixed chrome (header, help bar / toast).
-	header := a.renderHeader()
-	helpBar := a.renderHelpBar()
+	helpBar := a.statusBar.view(a.renderHelpBar())
+	helpBarH := lipgloss.Height(helpBar)
 
-	// If a toast is active, it replaces the help bar.
-	if a.toast.active {
-		helpBar = a.toast.view()
-	}
-
-	// 2. Measure fixed chrome height.
-	//    JoinVertical adds \n between each block. We always have
-	//    3 blocks (header, styled, helpBar) → 2 separators.
-	separators := 2 // between header/styled and styled/helpBar
-	chromeH := lipgloss.Height(header)
-	chromeH += lipgloss.Height(helpBar)
-	chromeH += separators // \n separators added by JoinVertical
-
-	// 3. Compute content box dimensions from contentStyle's own frame sizes.
-	//    frameV/H = border + padding combined.
-	//    borderV/H = just the border (Width/Height include padding, exclude border).
-	frameV := contentStyle.GetVerticalFrameSize()
-	frameH := contentStyle.GetHorizontalFrameSize()
-	borderV := contentStyle.GetVerticalBorderSize()
-	borderH := contentStyle.GetHorizontalBorderSize()
-
-	// Width/Height for contentStyle include padding but exclude border.
-	innerW := max(0, a.width-borderH)
-	innerH := max(0, a.height-chromeH-borderV)
-
-	// Text area inside the box (after border + padding).
-	textW := max(0, a.width-frameH)
-	textH := max(0, a.height-chromeH-frameV)
-
-	// 4. Render active view content.
+	// Render active view content.
 	content := ""
 	switch a.activeView {
 	case viewFolder:
 		content = a.folder.view()
-	case viewFolderPicker:
-		content = a.picker.view()
+	case viewBookmarks:
+		content = a.bookmarks.view()
 	case viewInstallPicker:
 		content = a.install.view()
 	case viewSettings:
@@ -636,6 +754,12 @@ func (a App) View() string {
 		content = a.renderPreview()
 	case viewCloneError:
 		content = a.cloneError.view()
+	case viewRegistryWizard:
+		content = a.regWizard.view()
+	case viewSkillWizard:
+		content = a.skillWizard.view()
+	case viewMCPWizard:
+		content = a.mcpWizard.view()
 	}
 
 	// If a confirmation dialog is active, overlay it on the content area.
@@ -643,70 +767,79 @@ func (a App) View() string {
 		content = a.confirm.view()
 	}
 
-	// Clamp content to the text area so it can't inflate the box.
-	// clampWidth prevents wrapping; clampHeight prevents overflow.
+	// Determine content panel title.
+	panelTitle := a.contentPanelTitle()
+
+	if a.showSidebar() {
+		// Sidebar layout: content panel + sidebar panel, then status bar below.
+		bodyH := max(0, a.height-helpBarH)
+		contentBoxW := max(0, a.width-sidebarWidth) // sidebar takes sidebarWidth columns
+
+		// Clamp content to the text area inside the panel.
+		textW := max(0, contentBoxW-panelBorderH-panelPadH*2)
+		textH := max(0, bodyH-panelBorderV-panelPadV*2)
+		content = clampWidth(content, textW)
+		content = clampHeight(content, textH)
+
+		contentPanel := renderPanel(panelTitle, content, contentBoxW, bodyH, panelPadH, panelPadV)
+		sidebar := a.sidebar.view()
+
+		body := lipgloss.JoinHorizontal(lipgloss.Top, contentPanel, sidebar)
+		return lipgloss.JoinVertical(lipgloss.Left, body, helpBar)
+	}
+
+	// Non-folder views: full-width content panel + status bar.
+	bodyH := max(0, a.height-helpBarH)
+
+	textW := max(0, a.width-panelBorderH-panelPadH*2)
+	textH := max(0, bodyH-panelBorderV-panelPadV*2)
 	content = clampWidth(content, textW)
 	content = clampHeight(content, textH)
 
-	styled := contentStyle.
-		Width(innerW).
-		Height(innerH).
-		Render(content)
-
-	// 5. Assemble with lipgloss.JoinVertical for clean stacking.
-	parts := []string{header, styled, helpBar}
-
-	return lipgloss.JoinVertical(lipgloss.Left, parts...)
+	styled := renderPanel(panelTitle, content, a.width, bodyH, panelPadH, panelPadV)
+	return lipgloss.JoinVertical(lipgloss.Left, styled, helpBar)
 }
 
-func (a App) renderHeader() string {
-	logo := logoStyle.Render("🐤duckrow")
-	path := headerPathStyle.Render(shortenPath(a.activeFolder))
-
-	var hints string
+// contentPanelTitle returns the title for the content panel border based on the active view.
+func (a App) contentPanelTitle() string {
 	switch a.activeView {
 	case viewFolder:
-		hints = headerHintStyle.Render("[c] change  [s] settings")
-	case viewFolderPicker:
-		hints = headerHintStyle.Render("Select Folder")
+		return shortenPath(a.activeFolder)
+	case viewBookmarks:
+		return "Bookmarks"
 	case viewInstallPicker:
-		if a.install.isSelectingAgents() {
-			hints = headerHintStyle.Render("Select Agents")
-		} else if a.install.phase == installPhaseEnvEntry {
-			hints = headerHintStyle.Render("Configure Env Vars")
-		} else if a.install.isMCPPhase() {
-			hints = headerHintStyle.Render("Install MCP")
-		} else {
-			hints = headerHintStyle.Render("Install")
+		switch a.install.filter {
+		case installFilterMCPs:
+			return "Install MCP"
+		default:
+			return "Install Skill"
 		}
+	case viewSkillWizard:
+		return a.skillWizard.wizard.title
+	case viewMCPWizard:
+		return a.mcpWizard.wizard.title
 	case viewSettings:
-		hints = headerHintStyle.Render("Settings")
+		return "Settings"
 	case viewSkillPreview:
-		hints = headerHintStyle.Render(a.previewTitle)
+		return a.previewTitle
 	case viewCloneError:
 		if a.cloneError.isRetrying() {
-			hints = headerHintStyle.Render("Cloning...")
+			return "Cloning..."
 		} else if a.cloneError.postCloneErr != nil {
-			hints = headerHintStyle.Render("Clone Result")
-		} else {
-			hints = headerHintStyle.Render("Clone Error")
+			return "Clone Result"
 		}
+		return "Clone Error"
+	case viewRegistryWizard:
+		return a.regWizard.wizard.title
 	}
+	return ""
+}
 
-	// Prepend refresh spinner to hints when registries are being refreshed.
-	if a.refreshingRegistries {
-		refreshIndicator := a.refreshSpinner.View() + mutedStyle.Render("refreshing") + "  "
-		hints = refreshIndicator + hints
-	}
-
-	// Indent 1 char to align with content box's left border.
-	indent := " "
-	left := lipgloss.JoinHorizontal(lipgloss.Top, indent, logo, " ", path)
-	gap := a.width - lipgloss.Width(left) - lipgloss.Width(hints) - 1
-	if gap < 1 {
-		gap = 1
-	}
-	return left + strings.Repeat(" ", gap) + hints
+// showSidebar returns true if the sidebar should be visible.
+// It requires the folder view AND enough terminal width so the content
+// panel retains at least minContentWidth columns.
+func (a App) showSidebar() bool {
+	return a.activeView == viewFolder && a.width-sidebarWidth >= minContentWidth
 }
 
 func (a App) renderHelpBar() string {
@@ -714,25 +847,23 @@ func (a App) renderHelpBar() string {
 
 	switch a.activeView {
 	case viewFolder:
-		km = folderHelpKeyMap{isTracked: a.isTracked, updatesAvailable: len(a.updateInfo) > 0}
-	case viewFolderPicker:
-		km = pickerHelpKeyMap{}
+		km = folderHelpKeyMap{updatesAvailable: len(a.updateInfo) > 0}
+	case viewBookmarks:
+		km = bookmarksHelpKeyMap{}
 	case viewInstallPicker:
-		if a.install.isSelectingAgents() {
-			km = agentSelectHelpKeyMap{}
-		} else if a.install.phase == installPhaseMCPPreview {
-			km = mcpPreviewHelpKeyMap{hasEnvVars: len(a.install.mcpEnvStatus) > 0}
-		} else if a.install.phase == installPhaseEnvEntry {
-			km = envEntryHelpKeyMap{}
-		} else {
-			km = installHelpKeyMap{}
-		}
+		km = installHelpKeyMap{}
+	case viewSkillWizard:
+		km = a.skillWizard.currentHelpKeyMap()
+	case viewMCPWizard:
+		km = a.mcpWizard.currentHelpKeyMap()
 	case viewSettings:
 		km = settingsHelpKeyMap{}
 	case viewSkillPreview:
 		km = previewHelpKeyMap{}
 	case viewCloneError:
 		km = cloneErrorHelpKeyMap{editing: a.cloneError.editing, retrying: a.cloneError.isRetrying()}
+	case viewRegistryWizard:
+		km = wizardHelpKeyMap{}
 	}
 
 	// Indent 1 char to align with content box's left border.
@@ -760,9 +891,9 @@ func (a App) renderPreview() string {
 func (a App) isListFiltering() bool {
 	switch a.activeView {
 	case viewFolder:
-		return a.folder.list.SettingFilter()
-	case viewFolderPicker:
-		return a.picker.list.SettingFilter()
+		return a.folder.isFiltering()
+	case viewBookmarks:
+		return a.bookmarks.list.SettingFilter()
 	case viewInstallPicker:
 		return a.install.list.SettingFilter()
 	}
@@ -874,6 +1005,17 @@ func (a *App) refreshActiveFolder() {
 func (a *App) pushDataToSubModels() {
 	a.folder = a.folder.setData(a.activeFolderStatus, a.isTracked, a.registrySkills, a.registryMCPs, a.updateInfo, a.activeFolderMCPs)
 	a.settings = a.settings.setData(a.cfg)
+
+	// Re-activate bookmarks if we're currently viewing them so the list
+	// reflects adds/removes immediately.
+	if a.activeView == viewBookmarks {
+		a.bookmarks = a.bookmarks.activate(a.cwd, a.activeFolder, a.folderStatus, a.agents)
+	}
+
+	// Sidebar shows the active folder, bookmark status, and agents whose own
+	// config files are present (not just duckrow-managed skill dirs).
+	sidebarAgents := core.DetectActiveAgents(a.agents, a.activeFolder)
+	a.sidebar = a.sidebar.setData(a.activeFolder, a.isTracked, sidebarAgents)
 }
 
 func (a *App) propagateSize() {
@@ -881,11 +1023,23 @@ func (a *App) propagateSize() {
 	// innerContentSize returns the text content area (after border + padding).
 	// Sub-models render into this space.
 	a.folder = a.folder.setSize(w, h)
-	a.picker = a.picker.setSize(w, h)
+	a.bookmarks = a.bookmarks.setSize(w, h)
 	a.install = a.install.setSize(w, h)
 	a.settings = a.settings.setSize(w, h)
 	a.cloneError = a.cloneError.setSize(w, h)
 	a.confirm = a.confirm.setSize(w, h)
+	a.statusBar.width = a.width
+
+	// Wizard gets the same inner content area as other views.
+	a.regWizard = a.regWizard.setSize(w, h)
+	a.skillWizard = a.skillWizard.setSize(w, h)
+	a.mcpWizard = a.mcpWizard.setSize(w, h)
+
+	// Sidebar height: same as the body area (total height minus status bar).
+	helpBar := a.statusBar.view(a.renderHelpBar())
+	helpBarH := lipgloss.Height(helpBar)
+	sidebarH := max(0, a.height-helpBarH)
+	a.sidebar = a.sidebar.setSize(sidebarH)
 
 	// Update preview viewport if active.
 	if a.activeView == viewSkillPreview {
@@ -895,28 +1049,41 @@ func (a *App) propagateSize() {
 }
 
 // innerContentSize computes the text content area available to sub-models.
-// This is the space inside contentStyle after border AND padding are removed.
-// Frame sizes are read from contentStyle itself via GetVerticalFrameSize() etc.
-// so this adapts automatically if contentStyle changes.
+// This is the space inside the content panel after border AND padding are removed.
+//
+// Layout (folder view):
+//
+//	╭─ duckrow ──╮╭─ ~/path ──────╮
+//	│ sidebar    ││ content       │
+//	╰────────────╯╰────────────────╯
+//	status bar
+//
+// Layout (other views):
+//
+//	╭─ Title ──────────────────────╮
+//	│ content                     │
+//	╰──────────────────────────────╯
+//	status bar
 func (a App) innerContentSize() (width, height int) {
-	// Measure actual rendered chrome heights.
-	header := a.renderHeader()
-	helpBar := a.renderHelpBar()
+	// Help/status bar height.
+	helpBar := a.statusBar.view(a.renderHelpBar())
+	helpBarH := lipgloss.Height(helpBar)
 
-	// JoinVertical adds \n between blocks. Always 3 blocks
-	// (header, styled, helpBar) → 2 separators.
-	// Toast replaces the help bar in-place, so no extra block is needed.
-	separators := 2
-	chromeH := lipgloss.Height(header)
-	chromeH += lipgloss.Height(helpBar)
-	chromeH += separators
+	// Panel frame = border + padding.
+	frameH := panelBorderH + panelPadH*2
+	frameV := panelBorderV + panelPadV*2
 
-	// Frame = border + padding. Subtract the full frame to get the text area.
-	frameV := contentStyle.GetVerticalFrameSize()
-	frameH := contentStyle.GetHorizontalFrameSize()
+	bodyH := max(0, a.height-helpBarH)
 
-	width = max(0, a.width-frameH)
-	height = max(0, a.height-chromeH-frameV)
+	if a.showSidebar() {
+		// Folder view with sidebar: sidebar panel takes sidebarWidth columns.
+		contentBoxW := max(0, a.width-sidebarWidth)
+		width = max(0, contentBoxW-frameH)
+	} else {
+		width = max(0, a.width-frameH)
+	}
+
+	height = max(0, bodyH-frameV)
 
 	return width, height
 }
@@ -925,17 +1092,6 @@ func (a *App) setActiveFolder(path string) {
 	a.activeFolder = path
 	a.refreshActiveFolder()
 	a.pushDataToSubModels()
-}
-
-func (a *App) addActiveFolder() tea.Cmd {
-	path := a.activeFolder
-	return func() tea.Msg {
-		fm := a.folders
-		if err := fm.Add(path); err != nil {
-			return errMsg{err: err}
-		}
-		return a.loadDataCmd()
-	}
 }
 
 func (a *App) reloadConfig() tea.Cmd {

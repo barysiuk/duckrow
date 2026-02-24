@@ -6,18 +6,18 @@ exec duckrow status myproject
 stdout 'Folder: .*myproject \[not tracked\]'
 stdout 'Skills: none installed'
 stdout 'This folder is not tracked by DuckRow'
-stdout 'To add it, run: duckrow add myproject'
+stdout 'To add it, run: duckrow bookmark add myproject'
 ! stdout 'Agents:'
 
 # Status with no args defaults to current directory (which is untracked)
 exec duckrow status
 stdout '\[not tracked\]'
 stdout 'Skills: none installed'
-stdout 'To add it, run: duckrow add \.'
+stdout 'To add it, run: duckrow bookmark add \.'
 ! stdout 'Agents:'
 
 # Add a folder and check status shows [tracked]
-exec duckrow add myproject
+exec duckrow bookmark add myproject
 exec duckrow status myproject
 stdout 'Folder: .*myproject \[tracked\]'
 stdout 'Skills: none installed'

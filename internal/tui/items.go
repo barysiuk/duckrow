@@ -24,7 +24,7 @@ type skillItem struct {
 
 func (i skillItem) Title() string {
 	if i.hasUpdate {
-		return i.skill.Name + " " + warningStyle.Render("(update available)")
+		return i.skill.Name + "  " + warningStyle.Render("↓")
 	}
 	return i.skill.Name
 }
@@ -163,30 +163,18 @@ func registrySkillsToItems(available []core.RegistrySkillInfo) []list.Item {
 	return items
 }
 
-// registryItemsToList converts registry skills and MCPs to list items, inserting
-// separator items between different registries, and within each registry between
-// "Skills" and "MCPs" sub-sections.
-func registryItemsToList(skills []core.RegistrySkillInfo, mcps []core.RegistryMCPInfo) []list.Item {
+// registryMCPsToItems converts registry MCPs to list items, inserting
+// separator items between different registries.
+// Groups by RegistryRepo (unique) but displays RegistryName.
+func registryMCPsToItems(available []core.RegistryMCPInfo) []list.Item {
 	// Group by registry repo URL, preserving order.
 	type group struct {
-		name   string
-		skills []core.RegistrySkillInfo
-		mcps   []core.RegistryMCPInfo
+		name string
+		mcps []core.RegistryMCPInfo
 	}
 	groupMap := make(map[string]*group)
 	var order []string
-
-	for _, s := range skills {
-		g, ok := groupMap[s.RegistryRepo]
-		if !ok {
-			g = &group{name: s.RegistryName}
-			groupMap[s.RegistryRepo] = g
-			order = append(order, s.RegistryRepo)
-		}
-		g.skills = append(g.skills, s)
-	}
-
-	for _, m := range mcps {
+	for _, m := range available {
 		g, ok := groupMap[m.RegistryRepo]
 		if !ok {
 			g = &group{name: m.RegistryName}
@@ -200,25 +188,8 @@ func registryItemsToList(skills []core.RegistrySkillInfo, mcps []core.RegistryMC
 	for _, repoURL := range order {
 		g := groupMap[repoURL]
 		items = append(items, registrySeparatorItem{registryName: g.name})
-
-		if len(g.skills) > 0 && len(g.mcps) > 0 {
-			// Both types: add sub-section headers.
-			items = append(items, registrySeparatorItem{registryName: "Skills"})
-			for _, skill := range g.skills {
-				items = append(items, registrySkillItem{info: skill})
-			}
-			items = append(items, registrySeparatorItem{registryName: "MCPs"})
-			for _, mcp := range g.mcps {
-				items = append(items, registryMCPItem{info: mcp})
-			}
-		} else if len(g.skills) > 0 {
-			for _, skill := range g.skills {
-				items = append(items, registrySkillItem{info: skill})
-			}
-		} else if len(g.mcps) > 0 {
-			for _, mcp := range g.mcps {
-				items = append(items, registryMCPItem{info: mcp})
-			}
+		for _, mcp := range g.mcps {
+			items = append(items, registryMCPItem{info: mcp})
 		}
 	}
 	return items
@@ -229,9 +200,36 @@ func registryItemsToList(skills []core.RegistrySkillInfo, mcps []core.RegistryMC
 // ---------------------------------------------------------------------------
 
 // mcpItem represents an installed MCP for display in the folder view.
+// Implements list.DefaultItem (Title + Description + FilterValue).
 type mcpItem struct {
 	locked core.LockedMCP
 	desc   string // Description from registry, if available
+}
+
+func (i mcpItem) Title() string       { return i.locked.Name }
+func (i mcpItem) FilterValue() string { return i.locked.Name }
+
+func (i mcpItem) Description() string {
+	parts := []string{}
+	if i.desc != "" {
+		parts = append(parts, i.desc)
+	}
+	if len(i.locked.Agents) > 0 {
+		parts = append(parts, strings.Join(i.locked.Agents, ", "))
+	}
+	if len(parts) == 0 {
+		return "MCP server"
+	}
+	return strings.Join(parts, " · ")
+}
+
+// mcpsToItems converts a slice of mcpItem to list items.
+func mcpsToItems(mcps []mcpItem) []list.Item {
+	items := make([]list.Item, len(mcps))
+	for i, m := range mcps {
+		items[i] = m
+	}
+	return items
 }
 
 // registryMCPItem wraps a RegistryMCPInfo for the install picker list.
@@ -245,10 +243,13 @@ func (i registryMCPItem) FilterValue() string { return i.info.MCP.Name }
 // Folder items (folder picker)
 // ---------------------------------------------------------------------------
 
-// folderItem wraps a FolderStatus for the folder picker list.
+// folderItem wraps a FolderStatus for the bookmarks list.
 type folderItem struct {
-	status   core.FolderStatus
-	isActive bool
+	status    core.FolderStatus
+	isActive  bool     // this folder is currently being viewed
+	isCurrent bool     // synthetic entry for the cwd (not bookmarked)
+	agents    []string // display names from DetectActiveAgents
+	installed int      // skills + MCPs managed by duckrow (from lock file)
 }
 
 func (i folderItem) FilterValue() string { return i.status.Folder.Path }
@@ -274,16 +275,17 @@ func (d folderDelegate) Render(w io.Writer, m list.Model, index int, item list.I
 	}
 
 	path := shortenPath(fi.status.Folder.Path)
-	skillCount := len(fi.status.Skills)
-	badge := badgeStyle.Render(fmt.Sprintf(" %d skills", skillCount))
+	badge := badgeStyle.Render(fmt.Sprintf(" %d installed", fi.installed))
 
 	agents := ""
-	if len(fi.status.Agents) > 0 {
-		agents = "  " + mutedStyle.Render(strings.Join(fi.status.Agents, ", "))
+	if len(fi.agents) > 0 {
+		agents = "  " + mutedStyle.Render(strings.Join(fi.agents, ", "))
 	}
 
 	active := ""
-	if fi.isActive {
+	if fi.isCurrent {
+		active = "  " + mutedStyle.Render("(current, not bookmarked)")
+	} else if fi.isActive {
 		active = "  " + installedStyle.Render("(active)")
 	}
 
@@ -295,12 +297,21 @@ func (d folderDelegate) Render(w io.Writer, m list.Model, index int, item list.I
 }
 
 // foldersToItems converts folder statuses to list items.
-func foldersToItems(folders []core.FolderStatus, activeFolder string) []list.Item {
+// It calls DetectActiveAgents per folder so the bookmark list shows
+// agents based on config artifacts, not duckrow-managed skill directories.
+// The installed count comes from the lock file (skills + MCPs managed by duckrow).
+func foldersToItems(folders []core.FolderStatus, activeFolder string, agents []core.AgentDef) []list.Item {
 	items := make([]list.Item, len(folders))
 	for i, fs := range folders {
+		var installed int
+		if lf, err := core.ReadLockFile(fs.Folder.Path); err == nil && lf != nil {
+			installed = len(lf.Skills) + len(lf.MCPs)
+		}
 		items[i] = folderItem{
-			status:   fs,
-			isActive: fs.Folder.Path == activeFolder,
+			status:    fs,
+			isActive:  fs.Folder.Path == activeFolder,
+			agents:    core.DetectActiveAgents(agents, fs.Folder.Path),
+			installed: installed,
 		}
 	}
 	return items
