@@ -12,7 +12,7 @@ setup-config-override test-owner/test-repo skill-source
 mkdir myproject
 exec duckrow skill install https://github.com/test-owner/test-repo -d myproject
 stdout 'Installed: my-skill'
-exists myproject/.agents/skills/my-skill/SKILL.MD
+exists myproject/.agents/skills/my-skill/SKILL.md
 
 # Uninstall the skill
 exec duckrow skill uninstall my-skill -d myproject

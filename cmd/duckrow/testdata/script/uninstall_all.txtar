@@ -17,8 +17,8 @@ setup-registry-config test-owner/source-b source-b
 mkdir myproject
 exec duckrow skill install https://github.com/test-owner/source-a -d myproject
 exec duckrow skill install https://github.com/test-owner/source-b -d myproject
-exists myproject/.agents/skills/alpha/SKILL.MD
-exists myproject/.agents/skills/beta/SKILL.MD
+exists myproject/.agents/skills/alpha/SKILL.md
+exists myproject/.agents/skills/beta/SKILL.md
 
 # Uninstall all
 exec duckrow skill uninstall --all -d myproject

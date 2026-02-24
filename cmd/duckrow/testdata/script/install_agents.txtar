@@ -30,7 +30,7 @@ dir-not-exists myproject/.cursor/skills/agent-test
 # Install with multiple --agents (cursor,claude-code)
 exec duckrow skill install https://github.com/test-owner/test-repo -d myproject --agents=cursor,claude-code
 stdout 'Installed: agent-test'
-exists myproject/.agents/skills/agent-test/SKILL.MD
+exists myproject/.agents/skills/agent-test/SKILL.md
 exists myproject/.cursor/skills/agent-test
 is-symlink myproject/.cursor/skills/agent-test
 exists myproject/.claude/skills/agent-test
@@ -48,7 +48,7 @@ dir-not-exists myproject/.claude/skills/agent-test
 # Install with default (no --agents flag, non-interactive = universal only)
 exec duckrow skill install https://github.com/test-owner/test-repo -d myproject
 stdout 'Installed: agent-test'
-exists myproject/.agents/skills/agent-test/SKILL.MD
+exists myproject/.agents/skills/agent-test/SKILL.md
 dir-not-exists myproject/.cursor/skills
 dir-not-exists myproject/.claude/skills
 
