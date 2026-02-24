@@ -296,13 +296,17 @@ func (m folderModel) view() string {
 		}
 	}
 
-	// 4. Assemble.
-	var b strings.Builder
-	b.WriteString(tabBar)
-	b.WriteString(listView)
-	b.WriteString(footerBlock)
+	// 4. Assemble: pin footer to the bottom of the content area.
+	//    The list fills the middle; compute any gap between list + footer and total height.
+	rendered := tabBar + listView + footerBlock
+	renderedH := lipgloss.Height(rendered)
+	if renderedH < m.height {
+		// Insert blank lines between list and footer so footer sits at the bottom.
+		gap := strings.Repeat("\n", m.height-renderedH)
+		rendered = tabBar + listView + gap + footerBlock
+	}
 
-	return b.String()
+	return rendered
 }
 
 func (m folderModel) removeSelectedSkill(app *App) tea.Cmd {
