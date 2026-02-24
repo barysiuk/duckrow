@@ -15,8 +15,16 @@ import (
 	"github.com/barysiuk/duckrow/internal/core"
 )
 
+// folderSection tracks which section of the folder view has focus.
+type folderSection int
+
+const (
+	folderSectionSkills folderSection = iota
+	folderSectionMCPs
+)
+
 // folderModel is the main folder view showing installed skills
-// for the active folder.
+// and MCPs for the active folder.
 type folderModel struct {
 	width  int
 	height int
@@ -28,11 +36,17 @@ type folderModel struct {
 	status     *core.FolderStatus
 	isTracked  bool
 	regSkills  []core.RegistrySkillInfo
-	availCount int // Number of registry skills NOT installed
+	regMCPs    []core.RegistryMCPInfo
+	availCount int // Number of registry items (skills + MCPs) NOT installed
 
 	// Update info: skill name -> update info.
 	updateInfo  map[string]core.UpdateInfo
 	updateCount int // Number of skills with updates available
+
+	// MCP data from lock file.
+	mcps      []mcpItem
+	mcpCursor int           // Cursor position within MCP list
+	section   folderSection // Which section has focus
 }
 
 func newFolderModel() folderModel {
@@ -59,12 +73,14 @@ func (m folderModel) setSize(width, height int) folderModel {
 	return m
 }
 
-func (m folderModel) setData(status *core.FolderStatus, isTracked bool, regSkills []core.RegistrySkillInfo, updateInfo map[string]core.UpdateInfo) folderModel {
+func (m folderModel) setData(status *core.FolderStatus, isTracked bool, regSkills []core.RegistrySkillInfo, regMCPs []core.RegistryMCPInfo, updateInfo map[string]core.UpdateInfo, mcps []mcpItem) folderModel {
 	m.status = status
 	m.isTracked = isTracked
 	m.regSkills = regSkills
+	m.regMCPs = regMCPs
 	m.availCount = m.countAvailable()
 	m.updateInfo = updateInfo
+	m.mcps = mcps
 
 	// Count skills with updates.
 	m.updateCount = 0
@@ -82,6 +98,16 @@ func (m folderModel) setData(status *core.FolderStatus, isTracked bool, regSkill
 		m.list.SetItems(nil)
 	}
 
+	// Reset section/cursor if MCPs changed.
+	if m.section == folderSectionMCPs && m.mcpCursor >= len(m.mcps) {
+		if len(m.mcps) > 0 {
+			m.mcpCursor = len(m.mcps) - 1
+		} else {
+			m.section = folderSectionSkills
+			m.mcpCursor = 0
+		}
+	}
+
 	return m
 }
 
@@ -95,10 +121,16 @@ func (m folderModel) update(msg tea.Msg, app *App) (folderModel, tea.Cmd) {
 
 		switch {
 		case key.Matches(msg, keys.Delete):
+			if m.section == folderSectionMCPs {
+				return m, m.removeSelectedMCP(app)
+			}
 			return m, m.removeSelectedSkill(app)
 
 		case key.Matches(msg, keys.Update):
-			return m, m.updateSelectedSkill(app)
+			if m.section == folderSectionSkills {
+				return m, m.updateSelectedSkill(app)
+			}
+			return m, nil
 
 		case key.Matches(msg, keys.UpdateAll):
 			return m, m.updateAllSkills(app)
@@ -107,15 +139,57 @@ func (m folderModel) update(msg tea.Msg, app *App) (folderModel, tea.Cmd) {
 			return m, m.refreshWithRegistries(app)
 
 		case key.Matches(msg, keys.Enter):
-			// Open SKILL.md preview for the selected skill.
-			return m, m.openPreview(app)
+			if m.section == folderSectionSkills {
+				// Open SKILL.md preview for the selected skill.
+				return m, m.openPreview(app)
+			}
+			return m, nil
+
+		case key.Matches(msg, keys.Down):
+			// Handle cross-section navigation: skills -> MCPs.
+			if m.section == folderSectionSkills && len(m.mcps) > 0 {
+				skillCount := len(m.list.Items())
+				if skillCount == 0 || m.list.Index() >= skillCount-1 {
+					// At the bottom of skills — move to MCP section.
+					m.section = folderSectionMCPs
+					m.mcpCursor = 0
+					return m, nil
+				}
+			}
+			if m.section == folderSectionMCPs {
+				if m.mcpCursor < len(m.mcps)-1 {
+					m.mcpCursor++
+				}
+				return m, nil
+			}
+
+		case key.Matches(msg, keys.Up):
+			// Handle cross-section navigation: MCPs -> skills.
+			if m.section == folderSectionMCPs {
+				if m.mcpCursor > 0 {
+					m.mcpCursor--
+				} else {
+					// At the top of MCPs — move back to skills section.
+					m.section = folderSectionSkills
+					skillCount := len(m.list.Items())
+					if skillCount > 0 {
+						m.list.Select(skillCount - 1)
+					}
+					return m, nil
+				}
+				return m, nil
+			}
 		}
 	}
 
-	// Forward all other messages to the list (handles j/k, filtering, etc.)
-	var cmd tea.Cmd
-	m.list, cmd = m.list.Update(msg)
-	return m, cmd
+	// Only forward to the list when skills section is active.
+	if m.section == folderSectionSkills {
+		var cmd tea.Cmd
+		m.list, cmd = m.list.Update(msg)
+		return m, cmd
+	}
+
+	return m, nil
 }
 
 // openPreview reads the selected skill's SKILL.md and triggers the preview overlay.
@@ -178,6 +252,28 @@ func (m folderModel) view() string {
 		sectionHeader = renderSectionHeader(fmt.Sprintf("SKILLS (%d installed)", skillCount), m.width) + "\n"
 	}
 
+	// MCP section header and items.
+	mcpCount := len(m.mcps)
+	var mcpBlock string
+	var mcpHeaderLabel string
+	if mcpCount == 0 {
+		mcpHeaderLabel = "MCPS"
+	} else {
+		mcpHeaderLabel = fmt.Sprintf("MCPS (%d installed)", mcpCount)
+	}
+	mcpHeader := "\n\n" + renderSectionHeader(mcpHeaderLabel, m.width) + "\n"
+	if mcpCount > 0 {
+		var mcpLines strings.Builder
+		mcpLines.WriteString(mcpHeader)
+		for i, mcp := range m.mcps {
+			isSelected := m.section == folderSectionMCPs && i == m.mcpCursor
+			mcpLines.WriteString(m.renderMCPRow(mcp, isSelected))
+		}
+		mcpBlock = mcpLines.String()
+	} else {
+		mcpBlock = mcpHeader + "\n" + mutedStyle.Render("  No MCPs installed")
+	}
+
 	// Build footer: optional update prefix + registry status.
 	var parts []string
 	if m.updateCount > 0 {
@@ -188,15 +284,15 @@ func (m folderModel) view() string {
 
 	if m.availCount > 0 {
 		parts = append(parts,
-			mutedStyle.Render(fmt.Sprintf("%d skills available from registries", m.availCount))+
+			mutedStyle.Render(fmt.Sprintf("%d available from registries", m.availCount))+
 				"  "+headerHintStyle.Render("[i] Install"))
-	} else if len(m.regSkills) == 0 {
+	} else if len(m.regSkills) == 0 && len(m.regMCPs) == 0 {
 		parts = append(parts,
 			mutedStyle.Render("No registries configured.")+
 				"  "+headerHintStyle.Render("[s] Settings to add"))
 	} else {
 		parts = append(parts,
-			mutedStyle.Render("All registry skills installed"))
+			mutedStyle.Render("All registry items installed"))
 	}
 
 	footer := "  " + strings.Join(parts, "  |  ")
@@ -204,7 +300,7 @@ func (m folderModel) view() string {
 	footerBlock := "\n\n" + footer
 
 	// 2. Measure chrome height.
-	chromeH := lipgloss.Height(banner) + lipgloss.Height(sectionHeader) + lipgloss.Height(footerBlock)
+	chromeH := lipgloss.Height(banner) + lipgloss.Height(sectionHeader) + lipgloss.Height(mcpBlock) + lipgloss.Height(footerBlock)
 
 	// 3. Size the list to fit its content, capped by available space.
 	//    DefaultDelegate: Height()=2 (title+desc), Spacing()=1.
@@ -238,9 +334,37 @@ func (m folderModel) view() string {
 		b.WriteString(m.list.View())
 	}
 
+	b.WriteString(mcpBlock)
 	b.WriteString(footerBlock)
 
 	return b.String()
+}
+
+// renderMCPRow renders a single MCP row in the folder view.
+func (m folderModel) renderMCPRow(mcp mcpItem, selected bool) string {
+	indicator := "    "
+	if selected {
+		indicator = "  > "
+	}
+
+	name := mcp.locked.Name
+	var parts []string
+	if selected {
+		parts = append(parts, selectedItemStyle.Render(name))
+	} else {
+		parts = append(parts, normalItemStyle.Render(name))
+	}
+
+	if mcp.desc != "" {
+		parts = append(parts, mutedStyle.Render(mcp.desc))
+	}
+
+	// Show agent names.
+	if len(mcp.locked.Agents) > 0 {
+		parts = append(parts, badgeStyle.Render(strings.Join(mcp.locked.Agents, ", ")))
+	}
+
+	return indicator + strings.Join(parts, "  ") + "\n"
 }
 
 func (m folderModel) removeSelectedSkill(app *App) tea.Cmd {
@@ -460,20 +584,76 @@ func executeSkillUpdate(app *App, ui core.UpdateInfo, folderPath string, cfg *co
 	return nil
 }
 
-// countAvailable counts registry skills NOT already installed in the active folder.
-func (m folderModel) countAvailable() int {
-	if m.status == nil {
-		return len(m.regSkills)
+// removeSelectedMCP shows a confirmation dialog for the selected MCP.
+// The confirmation message lists the agent config files that will be modified.
+func (m folderModel) removeSelectedMCP(app *App) tea.Cmd {
+	if m.mcpCursor < 0 || m.mcpCursor >= len(m.mcps) || m.status == nil {
+		return nil
 	}
 
-	installed := make(map[string]bool)
+	mcp := m.mcps[m.mcpCursor]
+	folderPath := app.activeFolder
+
+	// Build list of agent config files that will be modified.
+	var configFiles []string
+	for _, agentName := range mcp.locked.Agents {
+		for _, agent := range app.agents {
+			if agent.Name == agentName && agent.MCPConfigPath != "" {
+				configFiles = append(configFiles, core.ResolveMCPConfigPathRel(agent, folderPath))
+			}
+		}
+	}
+
+	var confirmMsg string
+	if len(configFiles) > 0 {
+		confirmMsg = fmt.Sprintf("Remove MCP %s?\nConfig files: %s",
+			mcp.locked.Name, strings.Join(configFiles, ", "))
+	} else {
+		confirmMsg = fmt.Sprintf("Remove MCP %s?", mcp.locked.Name)
+	}
+
+	deleteCmd := func() tea.Msg {
+		// Remove from agent config files.
+		_, err := core.UninstallMCPConfig(mcp.locked.Name, app.agents, core.MCPUninstallOptions{
+			ProjectDir: folderPath,
+		})
+		if err != nil {
+			return errMsg{err: fmt.Errorf("removing MCP %s: %w", mcp.locked.Name, err)}
+		}
+		// Remove lock entry.
+		_ = core.RemoveMCPLockEntry(folderPath, mcp.locked.Name)
+		// Reload data to refresh the view.
+		return app.loadDataCmd()
+	}
+
+	app.confirm = app.confirm.show(confirmMsg, deleteCmd)
+	return nil
+}
+
+// countAvailable counts registry items (skills + MCPs) NOT already installed in the active folder.
+func (m folderModel) countAvailable() int {
+	if m.status == nil {
+		return len(m.regSkills) + len(m.regMCPs)
+	}
+
+	installedSkills := make(map[string]bool)
 	for _, s := range m.status.Skills {
-		installed[s.Name] = true
+		installedSkills[s.Name] = true
+	}
+
+	installedMCPs := make(map[string]bool)
+	for _, mcp := range m.mcps {
+		installedMCPs[mcp.locked.Name] = true
 	}
 
 	count := 0
 	for _, rs := range m.regSkills {
-		if !installed[rs.Skill.Name] {
+		if !installedSkills[rs.Skill.Name] {
+			count++
+		}
+	}
+	for _, rm := range m.regMCPs {
+		if !installedMCPs[rm.MCP.Name] {
 			count++
 		}
 	}

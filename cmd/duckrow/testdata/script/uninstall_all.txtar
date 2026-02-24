@@ -15,13 +15,13 @@ setup-registry-config test-owner/source-b source-b
 
 # Setup: create project and install multiple skills
 mkdir myproject
-exec duckrow install test-owner/source-a -d myproject
-exec duckrow install test-owner/source-b -d myproject
+exec duckrow skill install https://github.com/test-owner/source-a -d myproject
+exec duckrow skill install https://github.com/test-owner/source-b -d myproject
 exists myproject/.agents/skills/alpha/SKILL.md
 exists myproject/.agents/skills/beta/SKILL.md
 
 # Uninstall all
-exec duckrow uninstall-all -d myproject
+exec duckrow skill uninstall --all -d myproject
 stdout 'Removed: alpha'
 stdout 'Removed: beta'
 stdout 'Removed 2 skill'
@@ -30,8 +30,8 @@ stdout 'Removed 2 skill'
 dir-not-exists myproject/.agents/skills/alpha
 dir-not-exists myproject/.agents/skills/beta
 
-# Uninstall-all on empty project
-exec duckrow uninstall-all -d myproject
+# Uninstall --all on empty project
+exec duckrow skill uninstall --all -d myproject
 stdout 'No skills installed'
 
 -- alpha-md --

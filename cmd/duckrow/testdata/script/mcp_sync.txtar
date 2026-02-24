@@ -1,0 +1,85 @@
+# Test MCP sync command
+
+# Create a project directory
+mkdir myproject
+
+# Create a registry repo with MCP entries
+setup-mcp-registry mcp-registry my-mcps my-db:psql:DB_HOST,DB_USER simple-mcp:echo
+
+# Add the registry
+exec duckrow registry add mcp-registry
+stdout 'Added registry: my-mcps'
+
+# Install MCPs to create lock file
+exec duckrow mcp install my-db -d myproject
+exec duckrow mcp install simple-mcp -d myproject
+
+# Verify lock file exists
+exists myproject/duckrow.lock.json
+file-contains myproject/duckrow.lock.json '"name": "my-db"'
+file-contains myproject/duckrow.lock.json '"name": "simple-mcp"'
+
+# Delete the agent config files to simulate a fresh checkout
+rm myproject/.cursor/mcp.json
+rm myproject/.mcp.json
+rm myproject/opencode.json
+rm myproject/.vscode/mcp.json
+
+# Sync should restore MCP configs from lock file
+exec duckrow mcp sync -d myproject
+stdout 'Installed: my-db'
+stdout 'Installed: simple-mcp'
+stdout 'MCPs: 2 installed'
+
+# Verify configs were restored
+exists myproject/.cursor/mcp.json
+file-contains myproject/.cursor/mcp.json 'my-db'
+file-contains myproject/.cursor/mcp.json 'simple-mcp'
+
+# Test: Sync with --dry-run shows what would be done without changes
+rm myproject/.cursor/mcp.json
+rm myproject/.mcp.json
+rm myproject/opencode.json
+rm myproject/.vscode/mcp.json
+
+exec duckrow mcp sync -d myproject --dry-run
+stdout 'install: my-db'
+stdout 'install: simple-mcp'
+# Config files should NOT exist after dry run
+! exists myproject/.cursor/mcp.json
+
+# Test: Sync skips existing entries (without --force)
+exec duckrow mcp sync -d myproject
+stdout 'Installed: my-db'
+# Run sync again - should skip
+exec duckrow mcp sync -d myproject
+stdout 'skipped'
+! stdout 'Installed:'
+
+# Test: Sync with --force overwrites existing
+exec duckrow mcp sync -d myproject --force
+stdout 'Installed: my-db'
+stdout 'Installed: simple-mcp'
+
+# Test: Sync without lock file fails
+mkdir nolock-project
+! exec duckrow mcp sync -d nolock-project
+stderr 'no duckrow.lock.json found'
+
+# Test: Sync with empty MCPs section succeeds with 0 installed
+mkdir empty-project
+cp empty-lock empty-project/duckrow.lock.json
+exec duckrow mcp sync -d empty-project
+stdout 'MCPs: 0 installed'
+
+# Test: Sync shows required env vars summary
+exec duckrow mcp sync -d myproject --force
+stdout 'environment variables are required'
+stdout 'DB_HOST'
+stdout 'DB_USER'
+
+-- empty-lock --
+{
+  "skills": [],
+  "mcps": []
+}

@@ -18,9 +18,9 @@ setup-git-repo skill-repo test-skills redirected-skill
 # "fake-owner/fake-repo" (a nonexistent GitHub repo) -> local git repo path
 setup-config-override fake-owner/fake-repo skill-repo
 
-# Install using the GitHub shorthand that would normally fail.
+# Install using the full URL that would normally fail.
 # The override in config.json redirects the clone to our local repo.
-exec duckrow install fake-owner/fake-repo -d myproject
+exec duckrow skill install https://github.com/fake-owner/fake-repo -d myproject
 stdout 'Installed: redirected-skill'
 ! stderr .
 

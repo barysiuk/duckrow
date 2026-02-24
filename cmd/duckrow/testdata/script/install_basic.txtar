@@ -13,7 +13,7 @@ setup-git-repo skill-source test-skills test-skill
 setup-config-override test-owner/test-repo skill-source
 
 # Install from git source (redirected via override)
-exec duckrow install test-owner/test-repo -d myproject
+exec duckrow skill install https://github.com/test-owner/test-repo -d myproject
 stdout 'Installed: test-skill'
 stdout 'Path:'
 ! stderr .

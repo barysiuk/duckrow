@@ -101,6 +101,33 @@ func (d registrySkillDelegate) Render(w io.Writer, m list.Model, index int, item
 		}
 
 		_, _ = fmt.Fprint(w, indicator+strings.Join(parts, "  "))
+
+	case registryMCPItem:
+		isSelected := index == m.Index()
+
+		indicator := "    "
+		if isSelected {
+			indicator = "  > "
+		}
+
+		name := it.info.MCP.Name
+		var parts []string
+		if isSelected {
+			parts = append(parts, selectedItemStyle.Render(name))
+		} else {
+			parts = append(parts, normalItemStyle.Render(name))
+		}
+
+		if it.info.MCP.Description != "" {
+			parts = append(parts, mutedStyle.Render(it.info.MCP.Description))
+		}
+
+		// Show type indicator for MCPs.
+		if it.info.MCP.URL != "" {
+			parts = append(parts, mutedStyle.Render("(remote)"))
+		}
+
+		_, _ = fmt.Fprint(w, indicator+strings.Join(parts, "  "))
 	}
 }
 
@@ -135,6 +162,84 @@ func registrySkillsToItems(available []core.RegistrySkillInfo) []list.Item {
 	}
 	return items
 }
+
+// registryItemsToList converts registry skills and MCPs to list items, inserting
+// separator items between different registries, and within each registry between
+// "Skills" and "MCPs" sub-sections.
+func registryItemsToList(skills []core.RegistrySkillInfo, mcps []core.RegistryMCPInfo) []list.Item {
+	// Group by registry repo URL, preserving order.
+	type group struct {
+		name   string
+		skills []core.RegistrySkillInfo
+		mcps   []core.RegistryMCPInfo
+	}
+	groupMap := make(map[string]*group)
+	var order []string
+
+	for _, s := range skills {
+		g, ok := groupMap[s.RegistryRepo]
+		if !ok {
+			g = &group{name: s.RegistryName}
+			groupMap[s.RegistryRepo] = g
+			order = append(order, s.RegistryRepo)
+		}
+		g.skills = append(g.skills, s)
+	}
+
+	for _, m := range mcps {
+		g, ok := groupMap[m.RegistryRepo]
+		if !ok {
+			g = &group{name: m.RegistryName}
+			groupMap[m.RegistryRepo] = g
+			order = append(order, m.RegistryRepo)
+		}
+		g.mcps = append(g.mcps, m)
+	}
+
+	var items []list.Item
+	for _, repoURL := range order {
+		g := groupMap[repoURL]
+		items = append(items, registrySeparatorItem{registryName: g.name})
+
+		if len(g.skills) > 0 && len(g.mcps) > 0 {
+			// Both types: add sub-section headers.
+			items = append(items, registrySeparatorItem{registryName: "Skills"})
+			for _, skill := range g.skills {
+				items = append(items, registrySkillItem{info: skill})
+			}
+			items = append(items, registrySeparatorItem{registryName: "MCPs"})
+			for _, mcp := range g.mcps {
+				items = append(items, registryMCPItem{info: mcp})
+			}
+		} else if len(g.skills) > 0 {
+			for _, skill := range g.skills {
+				items = append(items, registrySkillItem{info: skill})
+			}
+		} else if len(g.mcps) > 0 {
+			for _, mcp := range g.mcps {
+				items = append(items, registryMCPItem{info: mcp})
+			}
+		}
+	}
+	return items
+}
+
+// ---------------------------------------------------------------------------
+// MCP items (folder view — installed MCPs from lock file)
+// ---------------------------------------------------------------------------
+
+// mcpItem represents an installed MCP for display in the folder view.
+type mcpItem struct {
+	locked core.LockedMCP
+	desc   string // Description from registry, if available
+}
+
+// registryMCPItem wraps a RegistryMCPInfo for the install picker list.
+type registryMCPItem struct {
+	info core.RegistryMCPInfo
+}
+
+func (i registryMCPItem) FilterValue() string { return i.info.MCP.Name }
 
 // ---------------------------------------------------------------------------
 // Folder items (folder picker)

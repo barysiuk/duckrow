@@ -10,12 +10,12 @@ setup-config-override test-owner/test-repo skill-source
 
 # Setup: create project and install a skill
 mkdir myproject
-exec duckrow install test-owner/test-repo -d myproject
+exec duckrow skill install https://github.com/test-owner/test-repo -d myproject
 stdout 'Installed: my-skill'
 exists myproject/.agents/skills/my-skill/SKILL.md
 
 # Uninstall the skill
-exec duckrow uninstall my-skill -d myproject
+exec duckrow skill uninstall my-skill -d myproject
 stdout 'Removed: my-skill'
 ! stderr .
 
@@ -27,7 +27,7 @@ exec duckrow status myproject
 stdout 'Skills: none installed'
 
 # Uninstalling a nonexistent skill should fail
-! exec duckrow uninstall nonexistent -d myproject
+! exec duckrow skill uninstall nonexistent -d myproject
 stderr 'not found'
 
 -- skill-md --

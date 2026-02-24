@@ -6,7 +6,11 @@
     "altSkillsDirs": [".opencode/skills"],
     "globalSkillsDir": "$XDG_CONFIG/opencode/skills",
     "detectPaths": ["$XDG_CONFIG/opencode"],
-    "universal": true
+    "universal": true,
+    "mcpConfigPath": "opencode.json",
+    "mcpConfigPathAlt": "opencode.jsonc",
+    "mcpConfigKey": "mcp",
+    "mcpConfigFormat": "jsonc"
   },
   {
     "name": "claude-code",
@@ -14,7 +18,9 @@
     "skillsDir": ".claude/skills",
     "globalSkillsDir": "~/.claude/skills",
     "detectPaths": ["~/.claude"],
-    "universal": false
+    "universal": false,
+    "mcpConfigPath": ".mcp.json",
+    "mcpConfigKey": "mcpServers"
   },
   {
     "name": "cursor",
@@ -22,7 +28,10 @@
     "skillsDir": ".cursor/skills",
     "globalSkillsDir": "~/.cursor/skills",
     "detectPaths": ["~/.cursor"],
-    "universal": false
+    "universal": false,
+    "mcpConfigPath": ".cursor/mcp.json",
+    "mcpConfigKey": "mcpServers",
+    "mcpConfigFormat": "jsonc"
   },
   {
     "name": "codex",
@@ -47,7 +56,10 @@
     "altSkillsDirs": [".github/skills"],
     "globalSkillsDir": "~/.copilot/skills",
     "detectPaths": ["~/.copilot"],
-    "universal": true
+    "universal": true,
+    "mcpConfigPath": ".vscode/mcp.json",
+    "mcpConfigKey": "servers",
+    "mcpConfigFormat": "jsonc"
   },
   {
     "name": "goose",

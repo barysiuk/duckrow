@@ -1286,3 +1286,349 @@ func TestHydrateRegistryCommits(t *testing.T) {
 		}
 	})
 }
+
+// --- MCP Registry Tests ---
+
+func TestReadManifest_WithMCPs(t *testing.T) {
+	t.Run("parses MCPs alongside skills", func(t *testing.T) {
+		dir := t.TempDir()
+		manifest := RegistryManifest{
+			Name:        "test-registry",
+			Description: "Registry with MCPs",
+			Skills: []SkillEntry{
+				{Name: "skill-a", Description: "Skill A", Source: "owner/repo"},
+			},
+			MCPs: []MCPEntry{
+				{
+					Name:        "internal-db",
+					Description: "Query databases",
+					Command:     "npx",
+					Args:        []string{"-y", "@acme/mcp-db-server"},
+					Env:         map[string]string{"DATABASE_URL": "$DATABASE_URL"},
+				},
+				{
+					Name:        "docs-search",
+					Description: "Search docs",
+					Type:        "http",
+					URL:         "https://mcp.acme.com/mcp",
+				},
+			},
+		}
+		createTestManifest(t, dir, manifest)
+
+		got, err := readManifest(dir)
+		if err != nil {
+			t.Fatalf("readManifest() error = %v", err)
+		}
+
+		if len(got.MCPs) != 2 {
+			t.Fatalf("len(MCPs) = %d, want 2", len(got.MCPs))
+		}
+		if got.MCPs[0].Name != "internal-db" {
+			t.Errorf("MCPs[0].Name = %q, want %q", got.MCPs[0].Name, "internal-db")
+		}
+		if got.MCPs[0].Command != "npx" {
+			t.Errorf("MCPs[0].Command = %q, want %q", got.MCPs[0].Command, "npx")
+		}
+		if len(got.MCPs[0].Args) != 2 || got.MCPs[0].Args[1] != "@acme/mcp-db-server" {
+			t.Errorf("MCPs[0].Args = %v, want [-y @acme/mcp-db-server]", got.MCPs[0].Args)
+		}
+		if got.MCPs[0].Env["DATABASE_URL"] != "$DATABASE_URL" {
+			t.Errorf("MCPs[0].Env[DATABASE_URL] = %q, want %q", got.MCPs[0].Env["DATABASE_URL"], "$DATABASE_URL")
+		}
+		if got.MCPs[1].Name != "docs-search" {
+			t.Errorf("MCPs[1].Name = %q, want %q", got.MCPs[1].Name, "docs-search")
+		}
+		if got.MCPs[1].Type != "http" {
+			t.Errorf("MCPs[1].Type = %q, want %q", got.MCPs[1].Type, "http")
+		}
+		if got.MCPs[1].URL != "https://mcp.acme.com/mcp" {
+			t.Errorf("MCPs[1].URL = %q, want %q", got.MCPs[1].URL, "https://mcp.acme.com/mcp")
+		}
+	})
+
+	t.Run("handles manifest with no MCPs", func(t *testing.T) {
+		dir := t.TempDir()
+		manifest := RegistryManifest{
+			Name:   "skills-only",
+			Skills: []SkillEntry{{Name: "s", Description: "S", Source: "o/r"}},
+		}
+		createTestManifest(t, dir, manifest)
+
+		got, err := readManifest(dir)
+		if err != nil {
+			t.Fatalf("readManifest() error = %v", err)
+		}
+		if len(got.MCPs) != 0 {
+			t.Errorf("len(MCPs) = %d, want 0", len(got.MCPs))
+		}
+	})
+}
+
+func TestReadManifest_MCPValidation(t *testing.T) {
+	t.Run("warns on missing name", func(t *testing.T) {
+		dir := t.TempDir()
+		manifest := RegistryManifest{
+			Name: "test",
+			MCPs: []MCPEntry{
+				{Command: "npx", Args: []string{"pkg"}},
+			},
+		}
+		createTestManifest(t, dir, manifest)
+
+		got, err := readManifest(dir)
+		if err != nil {
+			t.Fatalf("readManifest() error = %v", err)
+		}
+		if len(got.Warnings) == 0 {
+			t.Fatal("expected warning for MCP with missing name")
+		}
+		if !containsStr(got.Warnings[0], "missing required 'name'") {
+			t.Errorf("warning = %q, want to contain 'missing required name'", got.Warnings[0])
+		}
+	})
+
+	t.Run("warns on missing both command and url", func(t *testing.T) {
+		dir := t.TempDir()
+		manifest := RegistryManifest{
+			Name: "test",
+			MCPs: []MCPEntry{
+				{Name: "empty-mcp"},
+			},
+		}
+		createTestManifest(t, dir, manifest)
+
+		got, err := readManifest(dir)
+		if err != nil {
+			t.Fatalf("readManifest() error = %v", err)
+		}
+		if len(got.Warnings) == 0 {
+			t.Fatal("expected warning for MCP with no command and no url")
+		}
+		if !containsStr(got.Warnings[0], "missing both") {
+			t.Errorf("warning = %q, want to contain 'missing both'", got.Warnings[0])
+		}
+	})
+
+	t.Run("warns on having both command and url", func(t *testing.T) {
+		dir := t.TempDir()
+		manifest := RegistryManifest{
+			Name: "test",
+			MCPs: []MCPEntry{
+				{Name: "both-mcp", Command: "npx", URL: "https://example.com"},
+			},
+		}
+		createTestManifest(t, dir, manifest)
+
+		got, err := readManifest(dir)
+		if err != nil {
+			t.Fatalf("readManifest() error = %v", err)
+		}
+		if len(got.Warnings) == 0 {
+			t.Fatal("expected warning for MCP with both command and url")
+		}
+		if !containsStr(got.Warnings[0], "both") {
+			t.Errorf("warning = %q, want to contain 'both'", got.Warnings[0])
+		}
+	})
+
+	t.Run("no warnings for valid MCPs", func(t *testing.T) {
+		dir := t.TempDir()
+		manifest := RegistryManifest{
+			Name: "test",
+			MCPs: []MCPEntry{
+				{Name: "stdio-mcp", Command: "npx", Args: []string{"-y", "pkg"}},
+				{Name: "remote-mcp", URL: "https://example.com", Type: "http"},
+			},
+		}
+		createTestManifest(t, dir, manifest)
+
+		got, err := readManifest(dir)
+		if err != nil {
+			t.Fatalf("readManifest() error = %v", err)
+		}
+		if len(got.Warnings) != 0 {
+			t.Errorf("expected no warnings, got %v", got.Warnings)
+		}
+	})
+}
+
+func TestRegistryManager_ListMCPs(t *testing.T) {
+	t.Run("lists MCPs from all registries", func(t *testing.T) {
+		registriesDir := t.TempDir()
+		rm := NewRegistryManager(registriesDir)
+
+		repoA := "git@example.com:a.git"
+		repoB := "git@example.com:b.git"
+
+		createTestRegistryClone(t, registriesDir, repoA, RegistryManifest{
+			Name: "org-a",
+			MCPs: []MCPEntry{
+				{Name: "mcp-1", Command: "cmd1"},
+				{Name: "mcp-2", Command: "cmd2"},
+			},
+		})
+		createTestRegistryClone(t, registriesDir, repoB, RegistryManifest{
+			Name: "org-b",
+			MCPs: []MCPEntry{
+				{Name: "mcp-3", URL: "https://example.com", Type: "http"},
+			},
+		})
+
+		registries := []Registry{
+			{Name: "org-a", Repo: repoA},
+			{Name: "org-b", Repo: repoB},
+		}
+
+		mcps := rm.ListMCPs(registries)
+		if len(mcps) != 3 {
+			t.Fatalf("len(mcps) = %d, want 3", len(mcps))
+		}
+		if mcps[0].RegistryName != "org-a" {
+			t.Errorf("mcps[0].RegistryName = %q, want %q", mcps[0].RegistryName, "org-a")
+		}
+		if mcps[0].MCP.Name != "mcp-1" {
+			t.Errorf("mcps[0].MCP.Name = %q, want %q", mcps[0].MCP.Name, "mcp-1")
+		}
+		if mcps[2].RegistryName != "org-b" {
+			t.Errorf("mcps[2].RegistryName = %q, want %q", mcps[2].RegistryName, "org-b")
+		}
+		if mcps[2].MCP.Name != "mcp-3" {
+			t.Errorf("mcps[2].MCP.Name = %q, want %q", mcps[2].MCP.Name, "mcp-3")
+		}
+	})
+
+	t.Run("returns empty for registries with no MCPs", func(t *testing.T) {
+		registriesDir := t.TempDir()
+		rm := NewRegistryManager(registriesDir)
+
+		repoURL := "git@example.com:skills-only.git"
+		createTestRegistryClone(t, registriesDir, repoURL, RegistryManifest{
+			Name:   "skills-only",
+			Skills: []SkillEntry{{Name: "s", Description: "S", Source: "o/r"}},
+		})
+
+		registries := []Registry{{Name: "skills-only", Repo: repoURL}}
+		mcps := rm.ListMCPs(registries)
+		if len(mcps) != 0 {
+			t.Errorf("len(mcps) = %d, want 0", len(mcps))
+		}
+	})
+}
+
+func TestRegistryManager_FindMCP(t *testing.T) {
+	registriesDir := t.TempDir()
+	rm := NewRegistryManager(registriesDir)
+
+	repoA := "git@example.com:org-a/tools.git"
+	repoB := "git@example.com:org-b/tools.git"
+
+	createTestRegistryClone(t, registriesDir, repoA, RegistryManifest{
+		Name: "org-a",
+		MCPs: []MCPEntry{
+			{Name: "internal-db", Description: "DB queries", Command: "npx", Args: []string{"-y", "@acme/db"}},
+			{Name: "shared-mcp", Description: "Shared A", Command: "cmd-a"},
+		},
+	})
+	createTestRegistryClone(t, registriesDir, repoB, RegistryManifest{
+		Name: "org-b",
+		MCPs: []MCPEntry{
+			{Name: "jira", Description: "Jira integration", Command: "npx", Args: []string{"-y", "@acme/jira"}},
+			{Name: "shared-mcp", Description: "Shared B", Command: "cmd-b"},
+		},
+	})
+
+	registries := []Registry{
+		{Name: "org-a", Repo: repoA},
+		{Name: "org-b", Repo: repoB},
+	}
+
+	t.Run("finds unique MCP", func(t *testing.T) {
+		info, err := rm.FindMCP(registries, "internal-db", "")
+		if err != nil {
+			t.Fatalf("FindMCP() error = %v", err)
+		}
+		if info.MCP.Name != "internal-db" {
+			t.Errorf("MCP.Name = %q, want %q", info.MCP.Name, "internal-db")
+		}
+		if info.RegistryName != "org-a" {
+			t.Errorf("RegistryName = %q, want %q", info.RegistryName, "org-a")
+		}
+	})
+
+	t.Run("errors on ambiguous MCP", func(t *testing.T) {
+		_, err := rm.FindMCP(registries, "shared-mcp", "")
+		if err == nil {
+			t.Fatal("expected error for ambiguous MCP")
+		}
+		if !containsStr(err.Error(), "multiple registries") {
+			t.Errorf("error = %q, want to contain 'multiple registries'", err.Error())
+		}
+		if !containsStr(err.Error(), "--registry") {
+			t.Errorf("error = %q, want to contain '--registry'", err.Error())
+		}
+	})
+
+	t.Run("disambiguates with registry filter by name", func(t *testing.T) {
+		info, err := rm.FindMCP(registries, "shared-mcp", "org-b")
+		if err != nil {
+			t.Fatalf("FindMCP() error = %v", err)
+		}
+		if info.RegistryName != "org-b" {
+			t.Errorf("RegistryName = %q, want %q", info.RegistryName, "org-b")
+		}
+		if info.MCP.Command != "cmd-b" {
+			t.Errorf("MCP.Command = %q, want %q", info.MCP.Command, "cmd-b")
+		}
+	})
+
+	t.Run("disambiguates with registry filter by repo URL", func(t *testing.T) {
+		info, err := rm.FindMCP(registries, "shared-mcp", repoA)
+		if err != nil {
+			t.Fatalf("FindMCP() error = %v", err)
+		}
+		if info.RegistryName != "org-a" {
+			t.Errorf("RegistryName = %q, want %q", info.RegistryName, "org-a")
+		}
+	})
+
+	t.Run("errors on unknown MCP", func(t *testing.T) {
+		_, err := rm.FindMCP(registries, "nonexistent", "")
+		if err == nil {
+			t.Fatal("expected error for nonexistent MCP")
+		}
+		if !containsStr(err.Error(), "not found") {
+			t.Errorf("error = %q, want to contain 'not found'", err.Error())
+		}
+		if !containsStr(err.Error(), "Available") {
+			t.Errorf("error = %q, want to contain 'Available'", err.Error())
+		}
+	})
+
+	t.Run("errors on empty MCP name", func(t *testing.T) {
+		_, err := rm.FindMCP(registries, "", "")
+		if err == nil {
+			t.Fatal("expected error for empty MCP name")
+		}
+	})
+
+	t.Run("errors with no registries configured", func(t *testing.T) {
+		_, err := rm.FindMCP(nil, "internal-db", "")
+		if err == nil {
+			t.Fatal("expected error when no registries")
+		}
+		if !containsStr(err.Error(), "no MCPs available") {
+			t.Errorf("error = %q, want to contain 'no MCPs available'", err.Error())
+		}
+	})
+
+	t.Run("errors on unknown registry filter", func(t *testing.T) {
+		_, err := rm.FindMCP(registries, "internal-db", "nonexistent")
+		if err == nil {
+			t.Fatal("expected error for nonexistent registry")
+		}
+		if !containsStr(err.Error(), "not found") {
+			t.Errorf("error = %q, want to contain 'not found'", err.Error())
+		}
+	})
+}

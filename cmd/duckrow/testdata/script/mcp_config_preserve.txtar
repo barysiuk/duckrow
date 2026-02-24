@@ -1,0 +1,82 @@
+# Test that MCP operations preserve existing config content
+
+# Create a project directory
+mkdir myproject
+
+# Create a registry repo with MCP entries
+setup-mcp-registry mcp-registry my-mcps my-db:psql simple-mcp:echo
+
+# Add the registry
+exec duckrow registry add mcp-registry
+stdout 'Added registry: my-mcps'
+
+# Create an existing .cursor/mcp.json with other keys and an existing MCP entry
+mkdir myproject/.cursor
+cp existing-cursor-config myproject/.cursor/mcp.json
+
+# Create an existing opencode.json with non-MCP config
+cp existing-opencode-config myproject/opencode.json
+
+# Install an MCP - should preserve existing content
+exec duckrow mcp install my-db -d myproject
+stdout 'MCP "my-db" installed successfully'
+
+# Verify existing keys are preserved in .cursor/mcp.json
+file-contains myproject/.cursor/mcp.json 'my-db'
+file-contains myproject/.cursor/mcp.json 'existing-mcp'
+file-contains myproject/.cursor/mcp.json 'someOtherKey'
+file-contains myproject/.cursor/mcp.json 'preserved-value'
+
+# Verify existing keys are preserved in opencode.json
+file-contains myproject/opencode.json 'my-db'
+file-contains myproject/opencode.json 'anthropic'
+file-contains myproject/opencode.json 'claude-3.5-sonnet'
+
+# Install a second MCP
+exec duckrow mcp install simple-mcp -d myproject
+stdout 'MCP "simple-mcp" installed successfully'
+
+# All three MCPs should now exist in cursor config
+file-contains myproject/.cursor/mcp.json 'my-db'
+file-contains myproject/.cursor/mcp.json 'simple-mcp'
+file-contains myproject/.cursor/mcp.json 'existing-mcp'
+file-contains myproject/.cursor/mcp.json 'someOtherKey'
+
+# Uninstall my-db - should preserve other MCPs and config keys
+exec duckrow mcp uninstall my-db -d myproject
+stdout 'MCP "my-db" removed'
+
+# Verify my-db is gone but others remain
+! file-contains myproject/.cursor/mcp.json 'my-db'
+file-contains myproject/.cursor/mcp.json 'simple-mcp'
+file-contains myproject/.cursor/mcp.json 'existing-mcp'
+file-contains myproject/.cursor/mcp.json 'someOtherKey'
+file-contains myproject/.cursor/mcp.json 'preserved-value'
+
+# opencode.json should still have its original keys
+file-contains myproject/opencode.json 'anthropic'
+file-contains myproject/opencode.json 'claude-3.5-sonnet'
+file-contains myproject/opencode.json 'simple-mcp'
+! file-contains myproject/opencode.json 'my-db'
+
+# Uninstall simple-mcp - existing-mcp should still remain
+exec duckrow mcp uninstall simple-mcp -d myproject
+! file-contains myproject/.cursor/mcp.json 'simple-mcp'
+file-contains myproject/.cursor/mcp.json 'existing-mcp'
+file-contains myproject/.cursor/mcp.json 'someOtherKey'
+
+-- existing-cursor-config --
+{
+  "someOtherKey": "preserved-value",
+  "mcpServers": {
+    "existing-mcp": {
+      "command": "existing-cmd",
+      "args": ["--flag"]
+    }
+  }
+}
+-- existing-opencode-config --
+{
+  "provider": "anthropic",
+  "model": "claude-3.5-sonnet"
+}

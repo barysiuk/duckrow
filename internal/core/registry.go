@@ -236,6 +236,13 @@ type RegistrySkillInfo struct {
 	Skill        SkillEntry
 }
 
+// RegistryMCPInfo associates an MCP entry with its registry.
+type RegistryMCPInfo struct {
+	RegistryName string // Display name from the manifest
+	RegistryRepo string // Repo URL (unique identifier)
+	MCP          MCPEntry
+}
+
 // FindSkill searches all registries for a skill by name.
 // If registryFilter is non-empty, only that registry (matched by name or repo URL) is searched.
 // Returns an error if the skill is not found or if the name is ambiguous across registries.
@@ -297,6 +304,92 @@ func (rm *RegistryManager) FindSkill(registries []Registry, skillName, registryF
 		}
 		return nil, fmt.Errorf("skill %q found in multiple registries; use --registry to disambiguate:\n  %s",
 			skillName, strings.Join(registryNames, "\n  "))
+	}
+}
+
+// ListMCPs returns all MCPs across all loaded registries.
+func (rm *RegistryManager) ListMCPs(registries []Registry) []RegistryMCPInfo {
+	var mcps []RegistryMCPInfo
+
+	for _, reg := range registries {
+		manifest, err := rm.LoadManifest(reg.Repo)
+		if err != nil {
+			continue
+		}
+
+		for _, mcp := range manifest.MCPs {
+			mcps = append(mcps, RegistryMCPInfo{
+				RegistryName: manifest.Name,
+				RegistryRepo: reg.Repo,
+				MCP:          mcp,
+			})
+		}
+	}
+
+	return mcps
+}
+
+// FindMCP searches all registries for an MCP by name.
+// If registryFilter is non-empty, only that registry (matched by name or repo URL) is searched.
+// Returns an error if the MCP is not found or if the name is ambiguous across registries.
+func (rm *RegistryManager) FindMCP(registries []Registry, mcpName, registryFilter string) (*RegistryMCPInfo, error) {
+	if mcpName == "" {
+		return nil, fmt.Errorf("MCP name is required")
+	}
+
+	var searchRegistries []Registry
+	if registryFilter != "" {
+		// Filter to the specified registry (by name or repo URL)
+		for _, r := range registries {
+			if r.Name == registryFilter || r.Repo == registryFilter {
+				searchRegistries = append(searchRegistries, r)
+			}
+		}
+		if len(searchRegistries) == 0 {
+			return nil, fmt.Errorf("registry %q not found", registryFilter)
+		}
+	} else {
+		searchRegistries = registries
+	}
+
+	var matches []RegistryMCPInfo
+	for _, reg := range searchRegistries {
+		manifest, err := rm.LoadManifest(reg.Repo)
+		if err != nil {
+			continue
+		}
+		for _, mcp := range manifest.MCPs {
+			if mcp.Name == mcpName {
+				matches = append(matches, RegistryMCPInfo{
+					RegistryName: manifest.Name,
+					RegistryRepo: reg.Repo,
+					MCP:          mcp,
+				})
+			}
+		}
+	}
+
+	switch len(matches) {
+	case 0:
+		// List available MCPs to help the user
+		allMCPs := rm.ListMCPs(searchRegistries)
+		if len(allMCPs) == 0 {
+			return nil, fmt.Errorf("MCP %q not found (no MCPs available in configured registries)", mcpName)
+		}
+		var names []string
+		for _, m := range allMCPs {
+			names = append(names, m.MCP.Name)
+		}
+		return nil, fmt.Errorf("MCP %q not found in registries. Available: %s", mcpName, strings.Join(names, ", "))
+	case 1:
+		return &matches[0], nil
+	default:
+		var registryNames []string
+		for _, m := range matches {
+			registryNames = append(registryNames, fmt.Sprintf("%s (%s)", m.RegistryName, m.RegistryRepo))
+		}
+		return nil, fmt.Errorf("MCP %q found in multiple registries; use --registry to disambiguate:\n  %s",
+			mcpName, strings.Join(registryNames, "\n  "))
 	}
 }
 
@@ -502,6 +595,25 @@ func readManifest(dir string) (*RegistryManifest, error) {
 			manifest.Warnings = append(manifest.Warnings,
 				fmt.Sprintf("skill %q has non-canonical source %q (expected host/owner/repo/path format)",
 					skill.Name, skill.Source))
+		}
+	}
+
+	// Validate MCP entries.
+	for _, mcp := range manifest.MCPs {
+		if mcp.Name == "" {
+			manifest.Warnings = append(manifest.Warnings,
+				"MCP entry missing required 'name' field")
+			continue
+		}
+		hasCommand := mcp.Command != ""
+		hasURL := mcp.URL != ""
+		if !hasCommand && !hasURL {
+			manifest.Warnings = append(manifest.Warnings,
+				fmt.Sprintf("MCP %q missing both 'command' and 'url' (one is required)", mcp.Name))
+		}
+		if hasCommand && hasURL {
+			manifest.Warnings = append(manifest.Warnings,
+				fmt.Sprintf("MCP %q has both 'command' and 'url' (only one allowed)", mcp.Name))
 		}
 	}
 

@@ -35,6 +35,7 @@ type RegistryManifest struct {
 	Name        string       `json:"name"`
 	Description string       `json:"description,omitempty"`
 	Skills      []SkillEntry `json:"skills"`
+	MCPs        []MCPEntry   `json:"mcps,omitempty"`
 	Warnings    []string     `json:"-"` // validation warnings, not serialized
 }
 
@@ -44,6 +45,18 @@ type SkillEntry struct {
 	Description string `json:"description"`
 	Source      string `json:"source"`
 	Commit      string `json:"commit,omitempty"`
+}
+
+// MCPEntry is an MCP server configuration listed in a registry manifest.
+// An entry is either stdio (command present) or remote (url present), not both.
+type MCPEntry struct {
+	Name        string            `json:"name"`
+	Description string            `json:"description,omitempty"`
+	Command     string            `json:"command,omitempty"`
+	Args        []string          `json:"args,omitempty"`
+	Env         map[string]string `json:"env,omitempty"`
+	URL         string            `json:"url,omitempty"`
+	Type        string            `json:"type,omitempty"` // "http" or "sse" for remote MCPs
 }
 
 // InstalledSkill represents a skill found on disk in a tracked folder.
@@ -73,13 +86,17 @@ type SkillMetadataDetails struct {
 
 // AgentDef defines an AI coding agent and its skill directory conventions.
 type AgentDef struct {
-	Name            string   `json:"name"`
-	DisplayName     string   `json:"displayName"`
-	SkillsDir       string   `json:"skillsDir"`               // Project-relative skill directory (e.g. ".cursor/skills")
-	AltSkillsDirs   []string `json:"altSkillsDirs,omitempty"` // Additional native skill directories the agent reads from
-	GlobalSkillsDir string   `json:"globalSkillsDir"`         // Global skill directory (e.g. "~/.cursor/skills")
-	DetectPaths     []string `json:"detectPaths"`             // Paths to check for agent presence
-	Universal       bool     `json:"universal"`               // If true, uses .agents/skills as skillsDir
+	Name             string   `json:"name"`
+	DisplayName      string   `json:"displayName"`
+	SkillsDir        string   `json:"skillsDir"`                  // Project-relative skill directory (e.g. ".cursor/skills")
+	AltSkillsDirs    []string `json:"altSkillsDirs,omitempty"`    // Additional native skill directories the agent reads from
+	GlobalSkillsDir  string   `json:"globalSkillsDir"`            // Global skill directory (e.g. "~/.cursor/skills")
+	DetectPaths      []string `json:"detectPaths"`                // Paths to check for agent presence
+	Universal        bool     `json:"universal"`                  // If true, uses .agents/skills as skillsDir
+	MCPConfigPath    string   `json:"mcpConfigPath,omitempty"`    // Project-relative MCP config file (e.g. ".cursor/mcp.json")
+	MCPConfigPathAlt string   `json:"mcpConfigPathAlt,omitempty"` // Alternative config path checked first (e.g. "opencode.jsonc")
+	MCPConfigKey     string   `json:"mcpConfigKey,omitempty"`     // Top-level JSON key in the config file (e.g. "mcpServers")
+	MCPConfigFormat  string   `json:"mcpConfigFormat,omitempty"`  // "jsonc" or "" (strict JSON); controls comment preservation
 }
 
 // ParsedSource represents a parsed skill source string.
@@ -109,10 +126,12 @@ type FolderStatus struct {
 	Error  error    // Non-nil if scanning failed
 }
 
-// LockFile represents the duckrow.lock.json file that pins installed skills.
+// LockFile represents the duckrow.lock.json file that pins installed skills
+// and MCP server configurations.
 type LockFile struct {
 	LockVersion int           `json:"lockVersion"`
 	Skills      []LockedSkill `json:"skills"`
+	MCPs        []LockedMCP   `json:"mcps,omitempty"`
 }
 
 // LockedSkill is a single pinned skill entry in the lock file.
@@ -121,6 +140,16 @@ type LockedSkill struct {
 	Source string `json:"source"`
 	Commit string `json:"commit"`
 	Ref    string `json:"ref,omitempty"`
+}
+
+// LockedMCP is a single MCP server entry in the lock file.
+// It records which MCP was installed, from which registry, and for which agents.
+type LockedMCP struct {
+	Name        string   `json:"name"`
+	Registry    string   `json:"registry"`
+	ConfigHash  string   `json:"configHash"`
+	Agents      []string `json:"agents"`
+	RequiredEnv []string `json:"requiredEnv,omitempty"`
 }
 
 // UpdateInfo holds update status for a single locked skill.

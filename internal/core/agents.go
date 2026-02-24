@@ -74,6 +74,51 @@ func GetNonUniversalAgents(agents []AgentDef) []AgentDef {
 	return nonUniversal
 }
 
+// GetMCPCapableAgents returns agents that have MCP config paths defined.
+func GetMCPCapableAgents(agents []AgentDef) []AgentDef {
+	var capable []AgentDef
+	for _, a := range agents {
+		if a.MCPConfigPath != "" {
+			capable = append(capable, a)
+		}
+	}
+	return capable
+}
+
+// ResolveMCPConfigPath resolves the full path to an agent's MCP config file
+// relative to the given project directory.
+// If the agent defines an alternative config path (MCPConfigPathAlt), it is
+// checked first on disk. If the alt file exists, that path is returned.
+// Otherwise the primary MCPConfigPath is used (for both reading and creation).
+func ResolveMCPConfigPath(agent AgentDef, projectDir string) string {
+	if agent.MCPConfigPath == "" {
+		return ""
+	}
+	// Check alternative path first (e.g. opencode.jsonc preferred over opencode.json).
+	if agent.MCPConfigPathAlt != "" {
+		altPath := filepath.Join(projectDir, agent.MCPConfigPathAlt)
+		if _, err := os.Stat(altPath); err == nil {
+			return altPath
+		}
+	}
+	return filepath.Join(projectDir, agent.MCPConfigPath)
+}
+
+// ResolveMCPConfigPathRel returns the project-relative config path for an agent,
+// checking for the alternative path on disk first. Useful for display purposes.
+func ResolveMCPConfigPathRel(agent AgentDef, projectDir string) string {
+	if agent.MCPConfigPath == "" {
+		return ""
+	}
+	if agent.MCPConfigPathAlt != "" {
+		altPath := filepath.Join(projectDir, agent.MCPConfigPathAlt)
+		if _, err := os.Stat(altPath); err == nil {
+			return agent.MCPConfigPathAlt
+		}
+	}
+	return agent.MCPConfigPath
+}
+
 // ResolveAgentSkillsDir resolves the project-level skill directory for an agent,
 // relative to the given base directory.
 func ResolveAgentSkillsDir(agent AgentDef, baseDir string) string {

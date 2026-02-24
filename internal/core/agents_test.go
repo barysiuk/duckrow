@@ -264,3 +264,226 @@ func TestDetectAgentsInFolder(t *testing.T) {
 		t.Error("'not-present' should not be detected")
 	}
 }
+
+func TestGetMCPCapableAgents(t *testing.T) {
+	agents, err := LoadAgents()
+	if err != nil {
+		t.Fatalf("LoadAgents() error: %v", err)
+	}
+
+	capable := GetMCPCapableAgents(agents)
+
+	// Expect exactly 4 MCP-capable agents: opencode, claude-code, cursor, github-copilot.
+	if len(capable) != 4 {
+		t.Fatalf("len(capable) = %d, want 4", len(capable))
+	}
+
+	names := make(map[string]bool)
+	for _, a := range capable {
+		names[a.Name] = true
+		if a.MCPConfigPath == "" {
+			t.Errorf("MCP-capable agent %q has empty MCPConfigPath", a.Name)
+		}
+		if a.MCPConfigKey == "" {
+			t.Errorf("MCP-capable agent %q has empty MCPConfigKey", a.Name)
+		}
+	}
+
+	expected := []string{"opencode", "claude-code", "cursor", "github-copilot"}
+	for _, name := range expected {
+		if !names[name] {
+			t.Errorf("expected MCP-capable agent %q not found", name)
+		}
+	}
+}
+
+func TestGetMCPCapableAgents_NonMCPAgentsExcluded(t *testing.T) {
+	agents, _ := LoadAgents()
+	capable := GetMCPCapableAgents(agents)
+
+	capableNames := make(map[string]bool)
+	for _, a := range capable {
+		capableNames[a.Name] = true
+	}
+
+	// These agents should NOT be MCP-capable.
+	nonMCP := []string{"codex", "gemini-cli", "goose", "windsurf", "cline"}
+	for _, name := range nonMCP {
+		if capableNames[name] {
+			t.Errorf("agent %q should not be MCP-capable", name)
+		}
+	}
+}
+
+func TestResolveMCPConfigPath(t *testing.T) {
+	agent := AgentDef{
+		Name:          "cursor",
+		MCPConfigPath: ".cursor/mcp.json",
+	}
+
+	got := ResolveMCPConfigPath(agent, "/projects/myapp")
+	want := filepath.Join("/projects/myapp", ".cursor/mcp.json")
+	if got != want {
+		t.Errorf("ResolveMCPConfigPath = %q, want %q", got, want)
+	}
+}
+
+func TestResolveMCPConfigPath_Empty(t *testing.T) {
+	agent := AgentDef{
+		Name: "codex",
+		// No MCPConfigPath.
+	}
+
+	got := ResolveMCPConfigPath(agent, "/projects/myapp")
+	if got != "" {
+		t.Errorf("ResolveMCPConfigPath = %q, want empty", got)
+	}
+}
+
+func TestResolveMCPConfigPath_AltExists(t *testing.T) {
+	dir := t.TempDir()
+
+	// Create the alt file (opencode.jsonc).
+	altPath := filepath.Join(dir, "opencode.jsonc")
+	if err := os.WriteFile(altPath, []byte("{}"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	agent := AgentDef{
+		Name:             "opencode",
+		MCPConfigPath:    "opencode.json",
+		MCPConfigPathAlt: "opencode.jsonc",
+	}
+
+	got := ResolveMCPConfigPath(agent, dir)
+	if got != altPath {
+		t.Errorf("ResolveMCPConfigPath = %q, want %q (alt path)", got, altPath)
+	}
+}
+
+func TestResolveMCPConfigPath_AltNotExists(t *testing.T) {
+	dir := t.TempDir()
+
+	// No opencode.jsonc on disk — should fall back to primary.
+	agent := AgentDef{
+		Name:             "opencode",
+		MCPConfigPath:    "opencode.json",
+		MCPConfigPathAlt: "opencode.jsonc",
+	}
+
+	got := ResolveMCPConfigPath(agent, dir)
+	want := filepath.Join(dir, "opencode.json")
+	if got != want {
+		t.Errorf("ResolveMCPConfigPath = %q, want %q (primary path)", got, want)
+	}
+}
+
+func TestResolveMCPConfigPath_AltPreferredOverPrimary(t *testing.T) {
+	dir := t.TempDir()
+
+	// Both files exist — alt should win.
+	if err := os.WriteFile(filepath.Join(dir, "opencode.json"), []byte("{}"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(dir, "opencode.jsonc"), []byte("{}"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	agent := AgentDef{
+		Name:             "opencode",
+		MCPConfigPath:    "opencode.json",
+		MCPConfigPathAlt: "opencode.jsonc",
+	}
+
+	got := ResolveMCPConfigPath(agent, dir)
+	want := filepath.Join(dir, "opencode.jsonc")
+	if got != want {
+		t.Errorf("ResolveMCPConfigPath = %q, want %q (alt preferred)", got, want)
+	}
+}
+
+func TestResolveMCPConfigPathRel(t *testing.T) {
+	dir := t.TempDir()
+
+	agent := AgentDef{
+		Name:             "opencode",
+		MCPConfigPath:    "opencode.json",
+		MCPConfigPathAlt: "opencode.jsonc",
+	}
+
+	// Alt not on disk — returns primary.
+	got := ResolveMCPConfigPathRel(agent, dir)
+	if got != "opencode.json" {
+		t.Errorf("ResolveMCPConfigPathRel = %q, want %q", got, "opencode.json")
+	}
+
+	// Create alt file — returns alt.
+	if err := os.WriteFile(filepath.Join(dir, "opencode.jsonc"), []byte("{}"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	got = ResolveMCPConfigPathRel(agent, dir)
+	if got != "opencode.jsonc" {
+		t.Errorf("ResolveMCPConfigPathRel = %q, want %q", got, "opencode.jsonc")
+	}
+}
+
+func TestResolveMCPConfigPathRel_NoAlt(t *testing.T) {
+	agent := AgentDef{
+		Name:          "cursor",
+		MCPConfigPath: ".cursor/mcp.json",
+	}
+
+	got := ResolveMCPConfigPathRel(agent, "/projects/myapp")
+	if got != ".cursor/mcp.json" {
+		t.Errorf("ResolveMCPConfigPathRel = %q, want %q", got, ".cursor/mcp.json")
+	}
+}
+
+func TestResolveMCPConfigPathRel_Empty(t *testing.T) {
+	agent := AgentDef{Name: "codex"}
+	got := ResolveMCPConfigPathRel(agent, "/projects/myapp")
+	if got != "" {
+		t.Errorf("ResolveMCPConfigPathRel = %q, want empty", got)
+	}
+}
+
+func TestLoadAgents_MCPFields(t *testing.T) {
+	agents, err := LoadAgents()
+	if err != nil {
+		t.Fatalf("LoadAgents() error: %v", err)
+	}
+
+	// Verify specific agents have the expected MCP fields.
+	mcpExpected := map[string]struct {
+		configPath    string
+		configPathAlt string
+		configKey     string
+	}{
+		"opencode":       {configPath: "opencode.json", configPathAlt: "opencode.jsonc", configKey: "mcp"},
+		"claude-code":    {configPath: ".mcp.json", configKey: "mcpServers"},
+		"cursor":         {configPath: ".cursor/mcp.json", configKey: "mcpServers"},
+		"github-copilot": {configPath: ".vscode/mcp.json", configKey: "servers"},
+	}
+
+	for _, a := range agents {
+		if expected, ok := mcpExpected[a.Name]; ok {
+			if a.MCPConfigPath != expected.configPath {
+				t.Errorf("agent %q: MCPConfigPath = %q, want %q", a.Name, a.MCPConfigPath, expected.configPath)
+			}
+			if a.MCPConfigPathAlt != expected.configPathAlt {
+				t.Errorf("agent %q: MCPConfigPathAlt = %q, want %q", a.Name, a.MCPConfigPathAlt, expected.configPathAlt)
+			}
+			if a.MCPConfigKey != expected.configKey {
+				t.Errorf("agent %q: MCPConfigKey = %q, want %q", a.Name, a.MCPConfigKey, expected.configKey)
+			}
+		} else {
+			// Non-MCP agents should have empty MCP fields.
+			if a.MCPConfigPath != "" {
+				t.Errorf("agent %q: MCPConfigPath = %q, want empty", a.Name, a.MCPConfigPath)
+			}
+			if a.MCPConfigKey != "" {
+				t.Errorf("agent %q: MCPConfigKey = %q, want empty", a.Name, a.MCPConfigKey)
+			}
+		}
+	}
+}

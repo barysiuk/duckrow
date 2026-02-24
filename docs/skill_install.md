@@ -229,7 +229,7 @@ Registries are git repos containing a `duckrow.json` manifest that catalogs avai
 ```json
 {
   "name": "my-org",
-  "description": "Our team skills",
+  "description": "Our team skills and MCPs",
   "skills": [
     {
       "name": "go-review",
@@ -237,11 +237,30 @@ Registries are git repos containing a `duckrow.json` manifest that catalogs avai
       "source": "github.com/acme/go-skills/skills/go-review",
       "commit": "a1b2c3d4e5f6789012345678901234567890abcd"
     }
+  ],
+  "mcps": [
+    {
+      "name": "internal-db",
+      "description": "Query the internal database",
+      "command": "npx",
+      "args": ["-y", "@acme/mcp-db"],
+      "env": {
+        "DB_URL": ""
+      }
+    },
+    {
+      "name": "analytics-api",
+      "description": "Access the analytics API",
+      "url": "https://mcp.acme.internal/analytics",
+      "type": "http"
+    }
   ]
 }
 ```
 
-The `source` field should use canonical format (`host/owner/repo/path`). GitHub shorthand and URLs are also accepted but canonical format is preferred for multi-host support and lock file matching. The `commit` field is optional — when present, it pins the skill to that exact git commit.
+The `skills[].source` field should use canonical format (`host/owner/repo/path`). The `skills[].commit` field is optional — when present, it pins the skill to that exact git commit.
+
+MCP entries are either **stdio** (with `command` and optional `args`/`env`) or **remote** (with `url` and optional `type`). The `env` object lists env vars required at runtime — values in the manifest are ignored; only the key names matter.
 
 ### Workflow
 
@@ -249,14 +268,17 @@ The `source` field should use canonical format (`host/owner/repo/path`). GitHub 
 # 1. Add a registry
 duckrow registry add https://github.com/acme/skill-registry.git
 
-# 2. See what's available
+# 2. See what's available (skills and MCPs)
 duckrow registry list --verbose
 
-# 3. Install by skill name -- no need to know the repo
+# 3. Install a skill by name — no need to know the repo
 duckrow install --skill go-review
 
 # 4. If the same skill name exists in multiple registries, disambiguate
 duckrow install --skill go-review --registry my-org
+
+# 5. Install an MCP server from the registry
+duckrow mcp install internal-db
 ```
 
 When `--skill` is used without a source argument:

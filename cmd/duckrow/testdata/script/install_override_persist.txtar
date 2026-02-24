@@ -19,8 +19,8 @@ setup-git-repo skill-repo acme-corp skill-alpha skill-beta
 # Set up config override: acme/tools -> local repo
 setup-config-override acme/tools skill-repo
 
-# First install: specific skill into project-a
-exec duckrow install acme/tools -d project-a -s skill-alpha
+# First install: specific skill into project-a using URL subpath
+exec duckrow skill install https://github.com/acme/tools/tree/main/skills/skill-alpha -d project-a
 stdout 'Installed: skill-alpha'
 ! stderr .
 
@@ -29,7 +29,7 @@ exists project-a/.agents/skills/skill-alpha/SKILL.md
 file-contains project-a/.agents/skills/skill-alpha/SKILL.md 'Alpha skill'
 
 # Second install: different skill into project-b (override still works)
-exec duckrow install acme/tools -d project-b -s skill-beta
+exec duckrow skill install https://github.com/acme/tools/tree/main/skills/skill-beta -d project-b
 stdout 'Installed: skill-beta'
 ! stderr .
 

@@ -3,138 +3,60 @@ package cmd
 import (
 	"fmt"
 	"os"
-	"path/filepath"
-	"strings"
 
-	"github.com/barysiuk/duckrow/internal/core"
 	"github.com/spf13/cobra"
 )
 
 var syncCmd = &cobra.Command{
 	Use:   "sync",
-	Short: "Install skills from lock file",
-	Long: `Install all skills declared in duckrow.lock.json at their pinned commits.
+	Short: "Install everything from lock file",
+	Long: `Install all assets declared in duckrow.lock.json at their pinned versions.
 
-Skills whose directories already exist are skipped. To force a reinstall,
-delete the skill directory and rerun duckrow sync.
+Skills whose directories already exist are skipped. MCP entries that already
+exist in agent config files are skipped unless --force is used.
 
 This command enforces the lock file and does not fetch upstream updates.
-Use duckrow outdated and duckrow update to move the lock file forward.`,
+Use duckrow skill outdated and duckrow skill update to move the lock file forward.
+
+This is equivalent to running duckrow skill sync and duckrow mcp sync in sequence.`,
 	Args: cobra.NoArgs,
 	RunE: func(cmd *cobra.Command, args []string) error {
-		d, err := newDeps()
-		if err != nil {
-			return err
+		fmt.Fprintln(os.Stdout, "Syncing from duckrow.lock.json...")
+		fmt.Fprintln(os.Stdout)
+
+		// Sync skills.
+		skillResult, skillErr := runSkillSync(cmd)
+		if skillResult != nil {
+			fmt.Fprintf(os.Stdout, "Skills: %d installed, %d skipped, %d errors\n",
+				skillResult.installed, skillResult.skipped, skillResult.errors)
+		} else if skillErr != nil {
+			fmt.Fprintf(os.Stderr, "Skills: error: %v\n", skillErr)
 		}
 
-		targetDir, _ := cmd.Flags().GetString("dir")
-		if targetDir == "" {
-			targetDir, err = os.Getwd()
-			if err != nil {
-				return fmt.Errorf("getting current directory: %w", err)
-			}
+		// Sync MCPs.
+		mcpResult, mcpErr := runMCPSync(cmd)
+		if mcpResult != nil {
+			fmt.Fprintf(os.Stdout, "MCPs:   %d installed, %d skipped, %d errors\n",
+				mcpResult.installed, mcpResult.skipped, mcpResult.errors)
+			printRequiredEnvSummary(mcpResult.requiredEnv)
+		} else if mcpErr != nil {
+			fmt.Fprintf(os.Stderr, "MCPs:   error: %v\n", mcpErr)
 		}
 
-		dryRun, _ := cmd.Flags().GetBool("dry-run")
-		agentsFlag, _ := cmd.Flags().GetString("agents")
+		fmt.Fprintln(os.Stdout, "\nSynced successfully.")
 
-		// Resolve target agents: universal-only unless --agents is provided.
-		var targetAgents []core.AgentDef
-		if agentsFlag != "" {
-			names := strings.Split(agentsFlag, ",")
-			for i := range names {
-				names[i] = strings.TrimSpace(names[i])
-			}
-			specified, resolveErr := core.ResolveAgentsByNames(d.agents, names)
-			if resolveErr != nil {
-				return resolveErr
-			}
-			targetAgents = core.GetUniversalAgents(d.agents)
-			targetAgents = append(targetAgents, specified...)
+		// Return the first error encountered.
+		if skillErr != nil {
+			return skillErr
 		}
-
-		lf, err := core.ReadLockFile(targetDir)
-		if err != nil {
-			return fmt.Errorf("reading lock file: %w", err)
+		if skillResult != nil && skillResult.errors > 0 {
+			return fmt.Errorf("%d skill(s) failed to sync", skillResult.errors)
 		}
-		if lf == nil {
-			return fmt.Errorf("no duckrow.lock.json found in %s", targetDir)
+		if mcpErr != nil {
+			return mcpErr
 		}
-
-		if len(lf.Skills) == 0 {
-			fmt.Fprintln(os.Stdout, "Lock file has no skills.")
-			return nil
-		}
-
-		cfg, err := d.config.Load()
-		if err != nil {
-			return fmt.Errorf("loading config: %w", err)
-		}
-
-		installer := core.NewInstaller(d.agents)
-
-		var installed, skipped, errors int
-
-		for _, skill := range lf.Skills {
-			// Check if skill directory already exists.
-			skillDir := filepath.Join(targetDir, ".agents", "skills", skill.Name)
-			if _, statErr := os.Stat(skillDir); statErr == nil {
-				skipped++
-				if dryRun {
-					fmt.Fprintf(os.Stdout, "skip: %s (already installed)\n", skill.Name)
-				}
-				continue
-			}
-
-			if dryRun {
-				fmt.Fprintf(os.Stdout, "install: %s (commit %s)\n", skill.Name, core.TruncateCommit(skill.Commit))
-				installed++
-				continue
-			}
-
-			// Parse canonical source to build a ParsedSource.
-			host, owner, repo, subPath, parseErr := core.ParseLockSource(skill.Source)
-			if parseErr != nil {
-				fmt.Fprintf(os.Stderr, "Error: %s: %v\n", skill.Name, parseErr)
-				errors++
-				continue
-			}
-
-			cloneURL := fmt.Sprintf("https://%s/%s/%s.git", host, owner, repo)
-			source := &core.ParsedSource{
-				Type:     core.SourceTypeGit,
-				Host:     host,
-				Owner:    owner,
-				Repo:     repo,
-				CloneURL: cloneURL,
-				SubPath:  subPath,
-			}
-
-			// Apply clone URL override if one exists.
-			source.ApplyCloneURLOverride(cfg.Settings.CloneURLOverrides)
-
-			result, installErr := installer.InstallFromSource(source, core.InstallOptions{
-				TargetDir:    targetDir,
-				SkillFilter:  skill.Name,
-				Commit:       skill.Commit,
-				TargetAgents: targetAgents,
-			})
-			if installErr != nil {
-				fmt.Fprintf(os.Stderr, "Error: %s: %v\n", skill.Name, installErr)
-				errors++
-				continue
-			}
-
-			for _, s := range result.InstalledSkills {
-				fmt.Fprintf(os.Stdout, "Installed: %s\n", s.Name)
-			}
-			installed++
-		}
-
-		fmt.Fprintf(os.Stdout, "\nSynced: %d installed, %d skipped, %d errors\n", installed, skipped, errors)
-
-		if errors > 0 {
-			return fmt.Errorf("%d skill(s) failed to sync", errors)
+		if mcpResult != nil && mcpResult.errors > 0 {
+			return fmt.Errorf("%d MCP(s) failed to sync", mcpResult.errors)
 		}
 		return nil
 	},
@@ -143,6 +65,7 @@ Use duckrow outdated and duckrow update to move the lock file forward.`,
 func init() {
 	syncCmd.Flags().StringP("dir", "d", "", "Target directory (default: current directory)")
 	syncCmd.Flags().Bool("dry-run", false, "Show what would be done without making changes")
-	syncCmd.Flags().String("agents", "", "Comma-separated agent names to also symlink into (e.g. cursor,claude-code)")
+	syncCmd.Flags().Bool("force", false, "Overwrite existing MCP entries in agent config files")
+	syncCmd.Flags().String("agents", "", "Comma-separated agent names to target (e.g. cursor,claude-code)")
 	rootCmd.AddCommand(syncCmd)
 }
