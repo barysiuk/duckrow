@@ -6,6 +6,14 @@ duckrow includes an interactive terminal UI built with [Bubble Tea](https://gith
   <img src="images/duckrow_tui.png" alt="duckrow TUI screenshot" width="800" />
 </p>
 
+## Layout
+
+The TUI uses a bordered panel layout:
+
+- **Content panel** — the main area showing the active view
+- **Sidebar** (right) — a fixed 38-column panel titled "Info" showing the current folder path, bookmark status, and detected agents. The sidebar is visible only in the folder view and hides automatically when the terminal is too narrow.
+- **Status bar** (bottom) — a single-line bar with three zones: transient messages (left), help keybindings (center), and background task spinner (right)
+
 ## Views
 
 The TUI has several views you navigate between:
@@ -14,7 +22,7 @@ The TUI has several views you navigate between:
 |------|---------|-----------|
 | **Folder** | Main view — shows installed skills and MCPs for the active folder | Default on launch |
 | **Bookmarks** | Switch between bookmarked folders | `b` from folder view |
-| **Install** | Browse and install registry skills and MCPs | `i` from folder view |
+| **Install** | Browse and install registry skills or MCPs | `i` from folder view |
 | **Settings** | Manage registries | `s` from folder view |
 | **Preview** | Read a skill's SKILL.md content | `enter` on a skill |
 
@@ -22,47 +30,50 @@ The TUI has several views you navigate between:
 
 ### Folder View (Main)
 
-The folder view has two sections: **Skills** (top) and **MCPs** (bottom). Use `j`/`k` to navigate within a section; at the boundary between sections the cursor crosses over automatically.
+The folder view uses **tabs** to switch between **Skills** and **MCPs**. Each tab has its own independent list with filtering. Press `Tab` / `Shift+Tab` to switch tabs.
 
 | Key | Action | Notes |
 |-----|--------|-------|
-| `j` / `k` | Move up/down | Arrow keys also work; crosses between Skills and MCPs sections |
-| `enter` | Preview skill | Opens SKILL.md in a scrollable view (Skills section only) |
-| `/` | Filter skills | Type to search, `esc` to clear (Skills section only) |
+| `j` / `k` | Move up/down | Arrow keys also work |
+| `Tab` / `Shift+Tab` | Switch tab | Cycles between Skills and MCPs tabs |
+| `enter` | Preview skill | Opens SKILL.md in a scrollable view (Skills tab only) |
+| `/` | Filter | Type to search, `esc` to clear |
 | `d` | Remove item | Removes selected skill or MCP; confirmation prompt before removal |
-| `u` | Update skill | Only shown when the selected skill has an update (Skills section only) |
+| `u` | Update skill | Only shown when the selected skill has an update (Skills tab only) |
 | `U` | Update all | Only shown when any skill has an update |
 | `r` | Refresh | Refreshes registries and reloads data |
 | `i` | Install | Opens install picker (requires configured registries) |
-| `c` | Change folder | Opens bookmarks view |
+| `b` | Bookmarks | Opens bookmarks view |
 | `s` | Settings | Opens registry management |
-| `a` | Add folder | Bookmark the active folder (shown when folder is not bookmarked) |
 | `q` | Quit | `ctrl+c` also works |
-| `?` | Help | Toggle keybinding reference |
 
 ### Bookmarks
+
+The bookmarks view is a full-screen list with built-in filtering. If duckrow was launched from a non-bookmarked folder, that folder always appears at the top of the list so you can navigate back to it.
 
 | Key | Action |
 |-----|--------|
 | `j` / `k` | Move up/down |
 | `enter` | Select folder |
 | `/` | Filter folders |
-| `a` | Bookmark folder |
+| `b` | Bookmark current directory |
 | `d` | Remove bookmark |
 | `esc` | Back to folder view |
 
 ### Install Picker
 
+The install picker is context-aware: pressing `i` from the **Skills** tab shows only skills, and pressing `i` from the **MCPs** tab shows only MCPs.
+
 | Key | Action |
 |-----|--------|
 | `j` / `k` | Move up/down |
 | `enter` | Install selected skill or MCP |
-| `/` | Filter skills and MCPs |
+| `/` | Filter |
 | `esc` | Back to folder view |
 
-**Skill install flow:** after selecting a skill, an agent selection screen appears if non-universal agents are detected. Use `space`/`x` to toggle agents, `a` to select all/none, and `enter` to confirm.
+**Skill install wizard:** after selecting a skill, an agent selection step appears if non-universal agents are detected. Use `space`/`x` to toggle agents, `a` to select all/none, and `enter` to proceed with installation.
 
-**MCP install flow:** selecting an MCP opens a multi-step workflow:
+**MCP install wizard:** selecting an MCP opens a multi-step wizard:
 
 1. **Agent selection** — choose which MCP-capable agents to configure (OpenCode, Claude Code, Cursor, GitHub Copilot). Detected agents are pre-selected; toggle with `space`/`x`.
 2. **Preview** — shows the MCP details and the status of any required environment variables (already set, missing, etc.)
@@ -80,12 +91,22 @@ The folder view has two sections: **Skills** (top) and **MCPs** (bottom). Use `j
 | `esc` | Back to folder view |
 | `q` | Quit |
 
+Adding a registry opens a wizard: enter the registry URL, then duckrow clones it and shows the result. If cloning fails, you can edit the URL or retry.
+
 ### Skill Preview
 
 | Key | Action |
 |-----|--------|
 | `j` / `k` | Scroll up/down |
 | `esc` | Back to folder view |
+
+## Sidebar
+
+The sidebar panel (titled "Info") is shown to the right of the folder view when the terminal is wide enough. It displays:
+
+- **Folder:** the shortened path of the active folder
+- **Bookmarked:** Yes or No (with an italic `([b] to bookmark)` hint when not bookmarked)
+- **Agents:** list of detected agents in the active folder (based on config artifacts like `.cursor/`, `codex.md`, `.github/copilot-instructions.md`, etc.)
 
 ## Update Detection
 
@@ -99,8 +120,8 @@ Only **registry-tracked skills** are checked for updates. Skills installed from 
 
 1. On startup, duckrow loads the registry commit map from cached data (instant, no network)
 2. In parallel, an async registry refresh runs in the background — pulling latest registry data and [hydrating unpinned commits](lock-file.md#commit-hydration)
-3. A spinning indicator shows "refreshing" in the header while this runs
-4. When the refresh completes, the skill list updates automatically with any new update badges
+3. A spinner with "fetching" label appears in the status bar while this runs
+4. When the refresh completes, the skill list updates automatically with any new update indicators
 
 The TUI remains fully interactive during the background refresh.
 
@@ -108,16 +129,15 @@ The TUI remains fully interactive during the background refresh.
 
 When updates are available:
 
-- The section header shows the count: `SKILLS (3 installed, 2 updates available)`
-- Each skill with an update shows an `(update available)` badge
-- The footer shows the total update count with an `[u] Update` hint
+- The Skills tab label shows the count with a yellow down arrow: `Skills (3 ↓2)`
+- Each skill with an update shows a yellow `↓` next to its name
 - The `u` and `U` keybindings appear in the help bar
 
 ### Updating skills
 
 **Single skill** — select the skill with an update and press `u`. A confirmation dialog shows the old and new commit hashes (e.g., `Update go-review? (a1b2c3d -> f9e8d7c)`). Confirm to proceed.
 
-**All skills** — press `U` to update all skills with available updates at once. A confirmation dialog shows the total count. Updates are applied sequentially; if one fails, the rest continue. A summary toast shows the result (e.g., `Updated 3 skills` or `Updated 2 skills, 1 errors`).
+**All skills** — press `U` to update all skills with available updates at once. A confirmation dialog shows the total count. Updates are applied sequentially; if one fails, the rest continue. A status bar message shows the result (e.g., `Updated 3 skills` or `Updated 2 skills, 1 errors`).
 
 Updates preserve existing agent symlinks — no agent selection is needed during updates.
 
@@ -130,29 +150,27 @@ Press `r` in the folder view to manually trigger a registry refresh. This:
 3. Rebuilds the commit map
 4. Reloads folder data
 
-The refresh runs asynchronously with a spinner indicator. You can continue browsing while it runs.
+The refresh runs asynchronously with a spinner in the status bar. You can continue browsing while it runs.
 
-## Toast Notifications
+## Status Bar
 
-The TUI uses toast notifications for feedback:
+The status bar occupies the bottom line of the terminal and has three zones:
 
-- **Success** (green) — skill installed, updated, or removed; MCP installed or removed
-- **Warning** (amber) — partial success (e.g., bulk update with some errors)
-- **Error** (red) — operation failed
-
-Toasts dismiss automatically after a short delay.
+- **Left** — transient messages (success in green, error in red, warning in amber) that auto-dismiss after a few seconds
+- **Center** — help keybindings for the active view (hidden while a transient message is visible)
+- **Right** — background task counter with a spinner dot (e.g., "fetching" during registry refresh)
 
 ## MCP Management
 
-The folder view shows installed MCPs below the skills list in a separate **MCPS** section. Each row shows the MCP name, its description (if available from the registry), and the agents it is configured for.
+The folder view shows installed MCPs in the **MCPs** tab. Each row shows the MCP name, its description (if available from the registry), and the agents it is configured for.
 
 ### Installing MCPs
 
-Press `i` to open the install picker. MCPs from configured registries that are not yet installed appear alongside available skills. Select an MCP and follow the multi-step install workflow (see [Install Picker](#install-picker) above).
+Press `i` from the MCPs tab to open the install picker filtered to MCPs. Select an MCP and follow the multi-step install wizard (see [Install Picker](#install-picker) above).
 
 ### Removing MCPs
 
-Navigate to the MCPs section with `j` (past the last skill), select the MCP, and press `d`. A confirmation prompt shows before removal. duckrow removes the MCP entry from all agent config files that contain it and updates the lock file.
+Switch to the MCPs tab with `Tab`, select the MCP, and press `d`. A confirmation prompt shows before removal. duckrow removes the MCP entry from all agent config files that contain it and updates the lock file.
 
 ### Env Var Entry Flow
 

@@ -52,7 +52,7 @@ Run `duckrow` to launch the terminal UI. Browse installed skills and MCP configs
 
 Key actions: navigate with `j`/`k`, preview a skill with `enter`, install with `i`, remove with `d`, update with `u`/`U`, refresh registries with `r`, switch folders with `b` (bookmarks), and open settings with `s`. Press `?` for the full keybinding reference.
 
-The TUI shows both installed skills and installed MCPs in the folder view. The install picker lists all registry skills and MCPs not yet installed in the current folder, with a multi-step workflow for MCP installs that handles agent selection and env var setup.
+The folder view uses tabs to switch between installed skills and MCPs. The install picker is context-aware — pressing `i` from the Skills tab shows available skills, and from the MCPs tab shows available MCPs, each with a multi-step wizard for agent selection and env var setup.
 
 The TUI automatically detects available updates for registry-tracked skills and shows update badges inline. Registry data is refreshed asynchronously in the background — the UI is fully interactive from the first frame.
 
