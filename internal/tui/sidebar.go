@@ -21,9 +21,11 @@ const minContentWidth = 60
 //	Current Folder:
 //	~/path/to/project
 //
-//	[b] Bookmark this       ← omitted when isBookmarked
+//	Bookmarked: Yes         ← green when bookmarked
+//	Bookmarked: No          ← red when not bookmarked
+//	[b] to bookmark it      ← dimmed hint, only when not bookmarked
 //
-//	Tools:                  ← omitted when no agents detected
+//	Agents:                 ← omitted when no agents detected
 //	· OpenCode
 //	· Cursor
 type sidebarModel struct {
@@ -69,10 +71,13 @@ func (m sidebarModel) view() string {
 	}
 	lines = append(lines, sidebarPathStyle.Render(path))
 
-	// Bookmark hint (only if not bookmarked).
-	if !m.isBookmarked {
-		lines = append(lines, "")
-		lines = append(lines, sidebarHintStyle.Render("[b] bookmark this folder"))
+	// Bookmark status.
+	lines = append(lines, "")
+	if m.isBookmarked {
+		lines = append(lines, sidebarLabelStyle.Render("Bookmarked: ")+sidebarAgentStyle.Render("Yes"))
+	} else {
+		hint := mutedStyle.Italic(true).Render("([b] to bookmark)")
+		lines = append(lines, sidebarLabelStyle.Render("Bookmarked: ")+sidebarAgentStyle.Render("No ")+hint)
 	}
 
 	// Tools section (only if agents detected).

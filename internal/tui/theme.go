@@ -133,9 +133,6 @@ var (
 	sidebarPathStyle = lipgloss.NewStyle().
 				Foreground(lipgloss.Color("#F3F4F6"))
 
-	sidebarHintStyle = lipgloss.NewStyle().
-				Foreground(colorSecondary)
-
 	sidebarAgentStyle = lipgloss.NewStyle().
 				Foreground(lipgloss.Color("#D1D5DB"))
 
