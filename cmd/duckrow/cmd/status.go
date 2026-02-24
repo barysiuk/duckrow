@@ -59,9 +59,9 @@ If a path is given, shows status for that folder. Otherwise shows status for the
 			fmt.Fprintln(os.Stdout)
 			fmt.Fprintln(os.Stdout, "This folder is not tracked by DuckRow.")
 			if len(args) > 0 {
-				fmt.Fprintf(os.Stdout, "To add it, run: duckrow add %s\n", args[0])
+				fmt.Fprintf(os.Stdout, "To add it, run: duckrow bookmark add %s\n", args[0])
 			} else {
-				fmt.Fprintln(os.Stdout, "To add it, run: duckrow add .")
+				fmt.Fprintln(os.Stdout, "To add it, run: duckrow bookmark add .")
 			}
 		}
 

@@ -21,11 +21,11 @@ setup-config-override test-owner/skill-repo skill-repo
 setup-registry-config test-owner/another-skill another-skill
 
 # Phase 2: Add folder to tracking
-exec duckrow add myproject
+exec duckrow bookmark add myproject
 stdout 'Bookmarked'
 
 # Phase 3: List folders
-exec duckrow folders
+exec duckrow bookmark list
 stdout 'Bookmarks \(1\)'
 stdout 'myproject'
 
@@ -76,10 +76,10 @@ exec duckrow status myproject
 stdout 'Skills: none installed'
 
 # Phase 14: Remove folder from tracking
-exec duckrow remove-folder myproject
+exec duckrow bookmark remove myproject
 stdout 'Removed bookmark'
 
-exec duckrow folders
+exec duckrow bookmark list
 stdout 'No bookmarks'
 
 -- code-review-skill --

@@ -1,9 +1,8 @@
 # Test help output lists all commands
 exec duckrow --help
 stdout 'manages AI agent skills'
-stdout 'add'
-stdout 'remove-folder'
-stdout 'folders'
+stdout 'bookmark'
+! stdout 'remove-bookmark'
 stdout 'status'
 stdout 'skill'
 stdout 'mcp'
@@ -37,4 +36,10 @@ exec duckrow registry --help
 stdout 'add'
 stdout 'list'
 stdout 'refresh'
+stdout 'remove'
+
+# Test help for bookmark subcommand
+exec duckrow bookmark --help
+stdout 'add'
+stdout 'list'
 stdout 'remove'

@@ -1,25 +1,25 @@
 # Test adding folders to the bookmarks list
 
 # Add current directory (default)
-exec duckrow add
+exec duckrow bookmark add
 stdout 'Bookmarked'
 ! stderr .
 
 # Add a specific directory
 mkdir myproject
-exec duckrow add myproject
+exec duckrow bookmark add myproject
 stdout 'Bookmarked'
 
 # Adding the same folder again should fail
-! exec duckrow add myproject
+! exec duckrow bookmark add myproject
 stderr 'already tracked'
 
 # Adding a nonexistent folder should fail
-! exec duckrow add /nonexistent/path
+! exec duckrow bookmark add /nonexistent/path
 stderr 'does not exist'
 
 # Adding a file (not a directory) should fail
-! exec duckrow add somefile.txt
+! exec duckrow bookmark add somefile.txt
 stderr 'not a directory'
 
 -- somefile.txt --

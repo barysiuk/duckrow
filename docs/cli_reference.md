@@ -18,51 +18,51 @@ duckrow version
 
 Prints version, commit hash, and build date.
 
-## Folder Management
+## Bookmarks
 
-### add
+### bookmark add
 
-Add a project folder to the tracked list.
+Bookmark a project folder.
 
 ```bash
 # Add current directory
-duckrow add
+duckrow bookmark add
 
 # Add a specific folder
-duckrow add /path/to/project
+duckrow bookmark add /path/to/project
 ```
 
 | Argument | Required | Default | Description |
 |----------|----------|---------|-------------|
-| `path` | No | Current directory | Folder path to track |
+| `path` | No | Current directory | Folder path to bookmark |
 
-### folders
+### bookmark list
 
-List all tracked folders.
+List all bookmarked folders.
 
 ```bash
-duckrow folders
+duckrow bookmark list
 ```
 
 No arguments or flags.
 
-### remove-folder
+### bookmark remove
 
-Remove a folder from the tracked list. Does not delete any files on disk.
+Remove a folder from the bookmarks. Does not delete any files on disk.
 
 ```bash
-duckrow remove-folder /path/to/project
+duckrow bookmark remove /path/to/project
 ```
 
 | Argument | Required | Description |
 |----------|----------|-------------|
-| `path` | Yes | Path of the folder to un-track |
+| `path` | Yes | Path of the folder to remove |
 
 ## Skill Status
 
 ### status
 
-Show installed skills, MCP configurations, and tracking status for a folder.
+Show installed skills, MCP configurations, and bookmark status for a folder.
 
 ```bash
 # Current directory
@@ -454,9 +454,10 @@ The project `.env.duckrow` is automatically added to `.gitignore` by the TUI dur
 ```
 duckrow                              Launch interactive TUI
   version                            Print version information
-  add [path]                         Add a folder to the tracked list
-  folders                            List all tracked folders
-  remove-folder <path>               Remove a folder from the tracked list
+  bookmark                           Manage bookmarks
+    add [path]                         Bookmark a folder
+    list                               List all bookmarks
+    remove <path>                      Remove a bookmark
   status [path]                      Show installed skills and MCPs for a folder
   install [source]                   Install skill(s)
     --dir, -d <path>                   Target directory

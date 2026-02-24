@@ -2,21 +2,21 @@
 
 # Setup: add a folder first
 mkdir project-a
-exec duckrow add project-a
+exec duckrow bookmark add project-a
 
 # Remove it
-exec duckrow remove-folder project-a
+exec duckrow bookmark remove project-a
 stdout 'Removed bookmark'
 ! stderr .
 
 # Verify it's gone
-exec duckrow folders
+exec duckrow bookmark list
 stdout 'No bookmarks'
 
 # Removing a folder that isn't tracked should fail
-! exec duckrow remove-folder /some/random/path
+! exec duckrow bookmark remove /some/random/path
 stderr 'not tracked'
 
 # Remove requires an argument
-! exec duckrow remove-folder
+! exec duckrow bookmark remove
 stderr 'accepts 1 arg'

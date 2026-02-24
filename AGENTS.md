@@ -25,11 +25,17 @@ internal/core/            Core library (zero UI dependencies)
 internal/tui/             Interactive terminal UI (Bubble Tea)
   app.go                  Main TUI model, view routing, data loading
   folder.go               Folder view — skill list, preview, removal
-  install.go              Install view — skill installation workflow
-  picker.go               Folder picker view
+  install.go              Install view — skill/MCP picking list
+  skill_wizard.go         Skill install wizard
+  mcp_wizard.go           MCP install wizard
+  wizard.go               Shared wizard component
+  registry_wizard.go      Registry add wizard
+  bookmarks.go            Bookmarks view — folder switching
+  sidebar.go              Sidebar panel — folder info, agents
+  tabs.go                 Tab bar component
+  statusbar.go            Status bar (transient messages, spinner)
   settings.go             Settings view — registry management
   confirm.go              Confirmation dialog
-  toast.go                Toast notifications (success/error/warning)
   clone_error.go          Clone error handling with retry flow
   items.go                List item delegates for bubbles components
   keys.go                 Keybinding definitions
@@ -57,7 +63,7 @@ go test ./... -short
 go test ./cmd/duckrow/ -v -count=1 -run TestScript
 
 # Single integration test
-go test ./cmd/duckrow/ -v -count=1 -run TestScript/add_folder
+go test ./cmd/duckrow/ -v -count=1 -run TestScript/bookmark_add
 ```
 
 ## Integration Tests
