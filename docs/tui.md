@@ -12,9 +12,9 @@ The TUI has several views you navigate between:
 
 | View | Purpose | Enter via |
 |------|---------|-----------|
-| **Folder** | Main view — shows installed skills for the active folder | Default on launch |
+| **Folder** | Main view — shows installed skills and MCPs for the active folder | Default on launch |
 | **Folder Picker** | Switch between tracked folders | `c` from folder view |
-| **Install** | Browse and install registry skills | `i` from folder view |
+| **Install** | Browse and install registry skills and MCPs | `i` from folder view |
 | **Settings** | Manage registries | `s` from folder view |
 | **Preview** | Read a skill's SKILL.md content | `enter` on a skill |
 
@@ -22,13 +22,15 @@ The TUI has several views you navigate between:
 
 ### Folder View (Main)
 
+The folder view has two sections: **Skills** (top) and **MCPs** (bottom). Use `j`/`k` to navigate within a section; at the boundary between sections the cursor crosses over automatically.
+
 | Key | Action | Notes |
 |-----|--------|-------|
-| `j` / `k` | Move up/down | Arrow keys also work |
-| `enter` | Preview skill | Opens SKILL.md in a scrollable view |
-| `/` | Filter skills | Type to search, `esc` to clear |
-| `d` | Remove skill | Confirmation prompt before removal |
-| `u` | Update skill | Only shown when the selected skill has an update |
+| `j` / `k` | Move up/down | Arrow keys also work; crosses between Skills and MCPs sections |
+| `enter` | Preview skill | Opens SKILL.md in a scrollable view (Skills section only) |
+| `/` | Filter skills | Type to search, `esc` to clear (Skills section only) |
+| `d` | Remove item | Removes selected skill or MCP; confirmation prompt before removal |
+| `u` | Update skill | Only shown when the selected skill has an update (Skills section only) |
 | `U` | Update all | Only shown when any skill has an update |
 | `r` | Refresh | Refreshes registries and reloads data |
 | `i` | Install | Opens install picker (requires configured registries) |
@@ -54,11 +56,18 @@ The TUI has several views you navigate between:
 | Key | Action |
 |-----|--------|
 | `j` / `k` | Move up/down |
-| `enter` | Install selected skill |
-| `/` | Filter skills |
+| `enter` | Install selected skill or MCP |
+| `/` | Filter skills and MCPs |
 | `esc` | Back to folder view |
 
-After selecting a skill, an agent selection screen appears if non-universal agents are detected. Use `space`/`x` to toggle agents, `a` to select all/none, and `enter` to confirm.
+**Skill install flow:** after selecting a skill, an agent selection screen appears if non-universal agents are detected. Use `space`/`x` to toggle agents, `a` to select all/none, and `enter` to confirm.
+
+**MCP install flow:** selecting an MCP opens a multi-step workflow:
+
+1. **Agent selection** — choose which MCP-capable agents to configure (OpenCode, Claude Code, Cursor, GitHub Copilot). Detected agents are pre-selected; toggle with `space`/`x`.
+2. **Preview** — shows the MCP details and the status of any required environment variables (already set, missing, etc.)
+3. **Env var entry** — if required env vars are missing, you are prompted to enter each value one at a time. After entering a value, choose whether to save it to the **project** `.env.duckrow` or to the **global** `~/.duckrow/.env.duckrow`.
+4. **Install** — duckrow writes the MCP config into each agent's config file and updates the lock file.
 
 ### Settings
 
@@ -127,8 +136,33 @@ The refresh runs asynchronously with a spinner indicator. You can continue brows
 
 The TUI uses toast notifications for feedback:
 
-- **Success** (green) — skill installed, updated, or removed
+- **Success** (green) — skill installed, updated, or removed; MCP installed or removed
 - **Warning** (amber) — partial success (e.g., bulk update with some errors)
 - **Error** (red) — operation failed
 
 Toasts dismiss automatically after a short delay.
+
+## MCP Management
+
+The folder view shows installed MCPs below the skills list in a separate **MCPS** section. Each row shows the MCP name, its description (if available from the registry), and the agents it is configured for.
+
+### Installing MCPs
+
+Press `i` to open the install picker. MCPs from configured registries that are not yet installed appear alongside available skills. Select an MCP and follow the multi-step install workflow (see [Install Picker](#install-picker) above).
+
+### Removing MCPs
+
+Navigate to the MCPs section with `j` (past the last skill), select the MCP, and press `d`. A confirmation prompt shows before removal. duckrow removes the MCP entry from all agent config files that contain it and updates the lock file.
+
+### Env Var Entry Flow
+
+When installing an MCP that requires environment variables (e.g., API keys, database URLs), the TUI prompts you to enter values for any that are not already set:
+
+1. The preview screen lists each required env var and its current status (set or missing)
+2. For each missing var, an input field appears with the var name as the prompt
+3. After entering a value, choose the save location:
+   - **Project** — saved to `.env.duckrow` in the project root (gitignored automatically)
+   - **Global** — saved to `~/.duckrow/.env.duckrow` (applies to all projects)
+4. The TUI proceeds to install once all vars are handled
+
+If you skip entering a value, installation proceeds with a warning. You can add the value to `.env.duckrow` manually at any time before running the MCP.
