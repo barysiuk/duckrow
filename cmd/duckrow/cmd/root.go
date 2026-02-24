@@ -33,7 +33,7 @@ Run without arguments to launch the interactive TUI.`,
 			return err
 		}
 
-		app := tui.NewApp(d.config, d.agents)
+		app := tui.NewApp(d.config, d.agents, Version)
 		p := tea.NewProgram(app, tea.WithAltScreen())
 		_, err = p.Run()
 		return err

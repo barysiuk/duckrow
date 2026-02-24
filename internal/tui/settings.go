@@ -31,7 +31,8 @@ type settingsModel struct {
 	cursor  int // Cursor within the current section.
 
 	// Data.
-	cfg *core.Config
+	cfg     *core.Config
+	version string // App version (e.g. "0.3.0", "dev").
 }
 
 func newSettingsModel() settingsModel {
@@ -44,8 +45,9 @@ func (m settingsModel) setSize(width, height int) settingsModel {
 	return m
 }
 
-func (m settingsModel) setData(cfg *core.Config) settingsModel {
+func (m settingsModel) setData(cfg *core.Config, version string) settingsModel {
 	m.cfg = cfg
+	m.version = version
 	return m
 }
 
@@ -207,7 +209,18 @@ func (m settingsModel) view() string {
 	}
 	b.WriteString("\n")
 
-	return b.String()
+	// Footer: version + learn more link, pinned to the bottom.
+	content := b.String()
+	footer := m.renderFooter()
+	footerLines := strings.Count(footer, "\n") + 1
+	contentLines := strings.Count(content, "\n")
+	gap := m.height - contentLines - footerLines
+	if gap > 0 {
+		content += strings.Repeat("\n", gap)
+	}
+	content += footer
+
+	return content
 }
 
 func (m settingsModel) renderRegistryRow(reg core.Registry, selected bool) string {
@@ -226,4 +239,14 @@ func (m settingsModel) renderRegistryRow(reg core.Registry, selected bool) strin
 	b.WriteString("\n")
 
 	return b.String()
+}
+
+func (m settingsModel) renderFooter() string {
+	ver := m.version
+	if ver == "" {
+		ver = "dev"
+	}
+	versionLine := mutedStyle.Render("  duckrow ver: " + ver)
+	learnMore := mutedStyle.Render("  Learn more: ") + mutedStyle.Render("https://github.com/barysiuk/duckrow")
+	return versionLine + "\n" + learnMore
 }
