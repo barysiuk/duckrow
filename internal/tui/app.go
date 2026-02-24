@@ -87,14 +87,8 @@ type App struct {
 	// Update info for the active folder's skills: skill name -> update info.
 	updateInfo map[string]core.UpdateInfo
 
-	// Whether registries are being refreshed asynchronously.
-	refreshingRegistries bool
-
-	// Spinner for async registry refresh indicator in the header.
-	refreshSpinner spinner.Model
-
-	// Toast notifications (replaces old statusText/err banner).
-	toast toastModel
+	// Status bar (replaces toast + refresh spinner).
+	statusBar statusBarModel
 
 	// Confirmation dialog (replaces help bar when active).
 	confirm confirmModel
@@ -116,11 +110,6 @@ func NewApp(config *core.ConfigManager, agents []core.AgentDef) App {
 		spinner.WithStyle(spinnerStyle),
 	)
 
-	rs := spinner.New(
-		spinner.WithSpinner(spinner.Dot),
-		spinner.WithStyle(spinnerStyle),
-	)
-
 	return App{
 		config:         config,
 		agents:         agents,
@@ -136,8 +125,7 @@ func NewApp(config *core.ConfigManager, agents []core.AgentDef) App {
 		cloneError:     newCloneErrorModel(),
 		help:           h,
 		previewSpinner: s,
-		refreshSpinner: rs,
-		toast:          newToastModel(),
+		statusBar:      newStatusBarModel(),
 		confirm:        newConfirmModel(),
 	}
 }
@@ -224,7 +212,7 @@ func (a App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case loadedDataMsg:
 		if msg.err != nil {
 			var cmd tea.Cmd
-			a.toast, cmd = a.toast.show(fmt.Sprintf("Error: %v", msg.err), toastError)
+			a.statusBar, cmd = a.statusBar.showMsg(fmt.Sprintf("Error: %v", msg.err), statusError)
 			return a, cmd
 		}
 		a.cfg = msg.cfg
@@ -256,11 +244,11 @@ func (a App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				return a, nil
 			}
 			var cmd tea.Cmd
-			a.toast, cmd = a.toast.show(fmt.Sprintf("Error: %v", msg.err), toastError)
+			a.statusBar, cmd = a.statusBar.showMsg(fmt.Sprintf("Error: %v", msg.err), statusError)
 			return a, tea.Batch(cmd, a.loadDataCmd)
 		}
 		var cmd tea.Cmd
-		a.toast, cmd = a.toast.show(fmt.Sprintf("Installed %s", msg.skillName), toastSuccess)
+		a.statusBar, cmd = a.statusBar.showMsg(fmt.Sprintf("Installed %s", msg.skillName), statusSuccess)
 		a.activeView = viewFolder
 		return a, tea.Batch(cmd, a.loadDataCmd)
 
@@ -268,71 +256,77 @@ func (a App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		a.install.setInstalling(false)
 		if msg.err != nil {
 			var cmd tea.Cmd
-			a.toast, cmd = a.toast.show(fmt.Sprintf("Error: %v", msg.err), toastError)
+			a.statusBar, cmd = a.statusBar.showMsg(fmt.Sprintf("Error: %v", msg.err), statusError)
 			return a, tea.Batch(cmd, a.loadDataCmd)
 		}
 		var cmd tea.Cmd
-		a.toast, cmd = a.toast.show(fmt.Sprintf("Installed MCP %s", msg.mcpName), toastSuccess)
+		a.statusBar, cmd = a.statusBar.showMsg(fmt.Sprintf("Installed MCP %s", msg.mcpName), statusSuccess)
 		a.activeView = viewFolder
 		return a, tea.Batch(cmd, a.loadDataCmd)
 
 	case updateDoneMsg:
 		if msg.err != nil {
 			var cmd tea.Cmd
-			a.toast, cmd = a.toast.show(fmt.Sprintf("Error updating %s: %v", msg.skillName, msg.err), toastError)
+			a.statusBar, cmd = a.statusBar.showMsg(fmt.Sprintf("Error updating %s: %v", msg.skillName, msg.err), statusError)
 			return a, tea.Batch(cmd, a.loadDataCmd)
 		}
 		var cmd tea.Cmd
-		a.toast, cmd = a.toast.show(fmt.Sprintf("Updated %s", msg.skillName), toastSuccess)
+		a.statusBar, cmd = a.statusBar.showMsg(fmt.Sprintf("Updated %s", msg.skillName), statusSuccess)
 		return a, tea.Batch(cmd, a.loadDataCmd)
 
 	case bulkUpdateDoneMsg:
 		var cmd tea.Cmd
 		if msg.errors > 0 {
-			a.toast, cmd = a.toast.show(
-				fmt.Sprintf("Updated %d skills, %d errors", msg.updated, msg.errors), toastWarning)
+			a.statusBar, cmd = a.statusBar.showMsg(
+				fmt.Sprintf("Updated %d skills, %d errors", msg.updated, msg.errors), statusWarning)
 		} else {
-			a.toast, cmd = a.toast.show(
-				fmt.Sprintf("Updated %d skills", msg.updated), toastSuccess)
+			a.statusBar, cmd = a.statusBar.showMsg(
+				fmt.Sprintf("Updated %d skills", msg.updated), statusSuccess)
 		}
 		return a, tea.Batch(cmd, a.loadDataCmd)
 
 	case startRegistryRefreshMsg:
-		a.refreshingRegistries = true
-		return a, tea.Batch(a.refreshSpinner.Tick, a.refreshRegistriesCmd)
+		var cmd tea.Cmd
+		a.statusBar, cmd = a.statusBar.update(taskStartedMsg{})
+		return a, tea.Batch(cmd, a.refreshRegistriesCmd)
 
 	case registryRefreshDoneMsg:
-		a.refreshingRegistries = false
+		var cmd tea.Cmd
+		a.statusBar, cmd = a.statusBar.update(taskDoneMsg{})
 		a.registryCommits = msg.registryCommits
 		a.registrySkills = msg.registrySkills
 		a.registryMCPs = msg.registryMCPs
 		a.refreshActiveFolder()
 		a.pushDataToSubModels()
-		return a, nil
+		return a, cmd
 
 	case registryAddDoneMsg:
+		// Close the task counter that was started in settings (add/refresh).
+		var taskCmd tea.Cmd
+		a.statusBar, taskCmd = a.statusBar.update(taskDoneMsg{})
+
 		if msg.err != nil {
 			// Check if this is a clone error.
 			if ce, ok := core.IsCloneError(msg.err); ok {
 				a.previousView = a.activeView
 				a.activeView = viewCloneError
 				a.cloneError = a.cloneError.activateForRegistryAdd(ce, msg.url)
-				return a, nil
+				return a, taskCmd
 			}
 			var cmd tea.Cmd
-			a.toast, cmd = a.toast.show(fmt.Sprintf("Error: %v", msg.err), toastError)
-			return a, tea.Batch(cmd, a.loadDataCmd)
+			a.statusBar, cmd = a.statusBar.showMsg(fmt.Sprintf("Error: %v", msg.err), statusError)
+			return a, tea.Batch(taskCmd, cmd, a.loadDataCmd)
 		}
 		var cmd tea.Cmd
 		if len(msg.warnings) > 0 {
-			a.toast, cmd = a.toast.show(
+			a.statusBar, cmd = a.statusBar.showMsg(
 				fmt.Sprintf("Registry %s: %d warning(s)", msg.name, len(msg.warnings)),
-				toastWarning)
+				statusWarning)
 		} else {
-			a.toast, cmd = a.toast.show(fmt.Sprintf("Added registry %s", msg.name), toastSuccess)
+			a.statusBar, cmd = a.statusBar.showMsg(fmt.Sprintf("Added registry %s", msg.name), statusSuccess)
 		}
 		// Reload data and trigger async registry refresh (hydration + commit map rebuild).
-		return a, tea.Batch(cmd, a.loadDataCmd, a.startRegistryRefreshCmd)
+		return a, tea.Batch(taskCmd, cmd, a.loadDataCmd, a.startRegistryRefreshCmd)
 
 	case cloneRetryResultMsg:
 		// Result from a retry initiated from the clone error overlay.
@@ -348,17 +342,17 @@ func (a App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 		// Full success — dismiss the overlay and reload data.
 		a.cloneError = a.cloneError.handleRetryResult(msg)
-		var toastMsg string
+		var successMsg string
 		switch msg.origin {
 		case retryOriginInstall:
-			toastMsg = fmt.Sprintf("Installed %s", msg.skillName)
+			successMsg = fmt.Sprintf("Installed %s", msg.skillName)
 			a.activeView = viewFolder
 		case retryOriginRegistryAdd:
-			toastMsg = fmt.Sprintf("Added registry %s", msg.registryName)
+			successMsg = fmt.Sprintf("Added registry %s", msg.registryName)
 			a.activeView = a.previousView
 		}
 		var cmd tea.Cmd
-		a.toast, cmd = a.toast.show(toastMsg, toastSuccess)
+		a.statusBar, cmd = a.statusBar.showMsg(successMsg, statusSuccess)
 		return a, tea.Batch(cmd, a.loadDataCmd)
 
 	case openPreviewMsg:
@@ -407,17 +401,12 @@ func (a App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 	case spinner.TickMsg:
 		// Route spinner ticks to all active consumers.
-		// Multiple spinners can be active simultaneously (e.g. refresh + toast),
+		// Multiple spinners can be active simultaneously (e.g. status bar + preview),
 		// so we collect commands from each and batch them.
 		var cmds []tea.Cmd
-		if a.refreshingRegistries {
+		if a.statusBar.tasksRunning() {
 			var cmd tea.Cmd
-			a.refreshSpinner, cmd = a.refreshSpinner.Update(msg)
-			cmds = append(cmds, cmd)
-		}
-		if a.toast.active && a.toast.kind == toastLoading {
-			var cmd tea.Cmd
-			a.toast, cmd = a.toast.update(msg)
+			a.statusBar, cmd = a.statusBar.update(msg)
 			cmds = append(cmds, cmd)
 		}
 		if a.previewLoading {
@@ -435,19 +424,29 @@ func (a App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 		// Fall through to delegate section for install spinner, etc.
 
-	case toastDismissMsg:
+	case statusDismissMsg:
 		var cmd tea.Cmd
-		a.toast, cmd = a.toast.update(msg)
+		a.statusBar, cmd = a.statusBar.update(msg)
+		return a, cmd
+
+	case taskStartedMsg:
+		var cmd tea.Cmd
+		a.statusBar, cmd = a.statusBar.update(msg)
+		return a, cmd
+
+	case taskDoneMsg:
+		var cmd tea.Cmd
+		a.statusBar, cmd = a.statusBar.update(msg)
 		return a, cmd
 
 	case statusMsg:
 		var cmd tea.Cmd
-		a.toast, cmd = a.toast.show(msg.text, toastSuccess)
+		a.statusBar, cmd = a.statusBar.showMsg(msg.text, statusSuccess)
 		return a, cmd
 
 	case errMsg:
 		var cmd tea.Cmd
-		a.toast, cmd = a.toast.show(fmt.Sprintf("Error: %v", msg.err), toastError)
+		a.statusBar, cmd = a.statusBar.showMsg(fmt.Sprintf("Error: %v", msg.err), statusError)
 		return a, cmd
 
 	case confirmResultMsg:
@@ -583,14 +582,9 @@ func (a App) View() string {
 	// Frame sizes are read from contentStyle via GetVerticalFrameSize() etc.
 	// so the layout adapts automatically if contentStyle changes.
 
-	// 1. Render fixed chrome (header, help bar / toast).
+	// 1. Render fixed chrome (header, status bar).
 	header := a.renderHeader()
-	helpBar := a.renderHelpBar()
-
-	// If a toast is active, it replaces the help bar.
-	if a.toast.active {
-		helpBar = a.toast.view()
-	}
+	helpBar := a.statusBar.view(a.renderHelpBar())
 
 	// 2. Measure fixed chrome height.
 	//    JoinVertical adds \n between each block. We always have
@@ -686,12 +680,6 @@ func (a App) renderHeader() string {
 		} else {
 			hints = headerHintStyle.Render("Clone Error")
 		}
-	}
-
-	// Prepend refresh spinner to hints when registries are being refreshed.
-	if a.refreshingRegistries {
-		refreshIndicator := a.refreshSpinner.View() + mutedStyle.Render("refreshing") + "  "
-		hints = refreshIndicator + hints
 	}
 
 	// Indent 1 char to align with content box's left border.
@@ -881,6 +869,7 @@ func (a *App) propagateSize() {
 	a.settings = a.settings.setSize(w, h)
 	a.cloneError = a.cloneError.setSize(w, h)
 	a.confirm = a.confirm.setSize(w, h)
+	a.statusBar.width = a.width
 
 	// Update preview viewport if active.
 	if a.activeView == viewSkillPreview {
@@ -900,7 +889,7 @@ func (a App) innerContentSize() (width, height int) {
 
 	// JoinVertical adds \n between blocks. Always 3 blocks
 	// (header, styled, helpBar) → 2 separators.
-	// Toast replaces the help bar in-place, so no extra block is needed.
+	// The status bar replaces the help bar in-place, so no extra block is needed.
 	separators := 2
 	chromeH := lipgloss.Height(header)
 	chromeH += lipgloss.Height(helpBar)

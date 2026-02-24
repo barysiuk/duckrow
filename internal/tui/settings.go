@@ -85,9 +85,9 @@ func (m settingsModel) update(msg tea.Msg, app *App) (settingsModel, tea.Cmd) {
 				m.textInput.SetValue("")
 				if value != "" {
 					submitCmd := m.handleInputSubmit(value, app)
-					var toastCmd tea.Cmd
-					app.toast, toastCmd = app.toast.show("Adding registry...", toastLoading)
-					return m, tea.Batch(submitCmd, toastCmd)
+					var taskCmd tea.Cmd
+					app.statusBar, taskCmd = app.statusBar.update(taskStartedMsg{})
+					return m, tea.Batch(submitCmd, taskCmd)
 				}
 				return m, nil
 			default:
@@ -115,10 +115,9 @@ func (m settingsModel) update(msg tea.Msg, app *App) (settingsModel, tea.Cmd) {
 		case key.Matches(msg, keys.Refresh):
 			if m.section == settingsRegistries && len(m.cfg.Registries) > 0 {
 				refreshCmd := m.refreshSelectedRegistry(app)
-				regName := m.cfg.Registries[m.cursor].Name
-				var toastCmd tea.Cmd
-				app.toast, toastCmd = app.toast.show("Refreshing "+regName+"...", toastLoading)
-				return m, tea.Batch(refreshCmd, toastCmd)
+				var taskCmd tea.Cmd
+				app.statusBar, taskCmd = app.statusBar.update(taskStartedMsg{})
+				return m, tea.Batch(refreshCmd, taskCmd)
 			}
 			return m, nil
 		}

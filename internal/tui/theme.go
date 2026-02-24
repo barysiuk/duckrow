@@ -114,6 +114,12 @@ var (
 				Background(colorDanger).
 				Padding(0, 2).
 				Bold(true)
+
+	// Status bar styles.
+	statusSuccessStyle = lipgloss.NewStyle().Foreground(colorSuccess)
+	statusErrorStyle   = lipgloss.NewStyle().Foreground(colorDanger)
+	statusWarningStyle = lipgloss.NewStyle().Foreground(colorWarning)
+	statusTaskStyle    = lipgloss.NewStyle().Foreground(colorMuted)
 )
 
 // renderSectionHeader renders a section label with short rules on both sides:
