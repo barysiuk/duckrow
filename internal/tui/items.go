@@ -24,7 +24,7 @@ type skillItem struct {
 
 func (i skillItem) Title() string {
 	if i.hasUpdate {
-		return i.skill.Name + " " + warningStyle.Render("(update available)")
+		return i.skill.Name + "  " + warningStyle.Render("↓")
 	}
 	return i.skill.Name
 }

@@ -54,7 +54,7 @@ type folderModel struct {
 
 func newFolderModel() folderModel {
 	return folderModel{
-		tabs:       newTabsModel([]string{"Skills", "MCPs"}),
+		tabs:       newTabsModel([]tabDef{{label: "Skills"}, {label: "MCPs"}}),
 		skillsList: newFolderList(),
 		mcpsList:   newFolderList(),
 	}
@@ -122,14 +122,14 @@ func (m folderModel) updateTabLabels() tabsModel {
 		skillCount = len(m.status.Skills)
 	}
 
-	skillLabel := fmt.Sprintf("Skills (%d)", skillCount)
+	skillTab := tabDef{label: fmt.Sprintf("Skills (%d)", skillCount)}
 	if m.updateCount > 0 {
-		skillLabel = fmt.Sprintf("Skills (%d ↑%d)", skillCount, m.updateCount)
+		skillTab.extra = fmt.Sprintf(" ↓%d", m.updateCount)
 	}
 
-	mcpLabel := fmt.Sprintf("MCPs (%d)", len(m.mcps))
+	mcpTab := tabDef{label: fmt.Sprintf("MCPs (%d)", len(m.mcps))}
 
-	return m.tabs.setLabels([]string{skillLabel, mcpLabel})
+	return m.tabs.setTabs([]tabDef{skillTab, mcpTab})
 }
 
 // activeList returns a pointer to the currently active list model.

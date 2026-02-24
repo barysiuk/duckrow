@@ -123,7 +123,7 @@ var (
 				Padding(0, 1)
 
 	tabUnderlineStyle = lipgloss.NewStyle().
-				Foreground(colorBorder)
+				Foreground(colorSecondary)
 
 	// Sidebar styles.
 	sidebarLabelStyle = lipgloss.NewStyle().
