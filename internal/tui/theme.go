@@ -138,6 +138,20 @@ var (
 
 	sidebarAgentStyle = lipgloss.NewStyle().
 				Foreground(lipgloss.Color("#D1D5DB"))
+
+	// Wizard styles.
+	wizardContentStyle = lipgloss.NewStyle().
+				PaddingLeft(2)
+
+	wizardStepActiveStyle = lipgloss.NewStyle().
+				Bold(true).
+				Foreground(colorSecondary)
+
+	wizardStepInactiveStyle = lipgloss.NewStyle().
+				Foreground(colorMuted)
+
+	wizardStepSeparatorStyle = lipgloss.NewStyle().
+					Foreground(colorBorder)
 )
 
 // renderSectionHeader renders a section label with short rules on both sides:

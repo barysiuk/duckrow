@@ -21,12 +21,13 @@ import (
 type appView int
 
 const (
-	viewFolder        appView = iota // Main folder view (default)
-	viewBookmarks                    // Bookmarks view (full-screen)
-	viewInstallPicker                // Install skill picker overlay
-	viewSettings                     // Settings overlay
-	viewSkillPreview                 // SKILL.md preview overlay
-	viewCloneError                   // Clone error overlay
+	viewFolder         appView = iota // Main folder view (default)
+	viewBookmarks                     // Bookmarks view (full-screen)
+	viewInstallPicker                 // Install skill picker overlay
+	viewSettings                      // Settings overlay
+	viewSkillPreview                  // SKILL.md preview overlay
+	viewCloneError                    // Clone error overlay
+	viewRegistryWizard                // Registry add wizard overlay
 )
 
 // App is the root Bubbletea model for DuckRow.
@@ -56,6 +57,7 @@ type App struct {
 	settings   settingsModel
 	cloneError cloneErrorModel
 	sidebar    sidebarModel
+	regWizard  registryWizardModel
 
 	// View the user was on before clone error overlay opened (for going back).
 	previousView appView
@@ -125,6 +127,7 @@ func NewApp(config *core.ConfigManager, agents []core.AgentDef) App {
 		settings:       newSettingsModel(),
 		cloneError:     newCloneErrorModel(),
 		sidebar:        newSidebarModel(),
+		regWizard:      newRegistryWizardModel(),
 		help:           h,
 		previewSpinner: s,
 		statusBar:      newStatusBarModel(),
@@ -313,7 +316,25 @@ func (a App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return a, cmd
 
 	case registryAddDoneMsg:
-		// Close the task counter that was started in settings (add/refresh).
+		// If the registry wizard is active, route to it — but intercept
+		// clone errors so the structured cloneErrorModel overlay is shown
+		// instead of a flat error string.
+		if a.activeView == viewRegistryWizard {
+			if msg.err != nil {
+				if ce, ok := core.IsCloneError(msg.err); ok {
+					a.previousView = viewRegistryWizard
+					a.activeView = viewCloneError
+					a.cloneError = a.cloneError.activateForRegistryAdd(ce, msg.url)
+					return a, nil
+				}
+			}
+			var cmd tea.Cmd
+			a.regWizard, cmd = a.regWizard.update(msg, &a)
+			return a, cmd
+		}
+
+		// Non-wizard path: registry refresh from settings.
+		// Close the task counter that was started in settings (refresh).
 		var taskCmd tea.Cmd
 		a.statusBar, taskCmd = a.statusBar.update(taskDoneMsg{})
 
@@ -340,6 +361,29 @@ func (a App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		// Reload data and trigger async registry refresh (hydration + commit map rebuild).
 		return a, tea.Batch(taskCmd, cmd, a.loadDataCmd, a.startRegistryRefreshCmd)
 
+	case openRegistryWizardMsg:
+		a.activeView = viewRegistryWizard
+		w, h := a.innerContentSize()
+		a.regWizard = a.regWizard.activate(&a, w, h)
+		return a, nil
+
+	case wizardDoneMsg:
+		// Wizard completed — return to settings and reload data.
+		if a.activeView == viewRegistryWizard {
+			a.activeView = viewSettings
+			var cmd tea.Cmd
+			a.statusBar, cmd = a.statusBar.showMsg("Registry added", statusSuccess)
+			return a, tea.Batch(cmd, a.loadDataCmd, a.startRegistryRefreshCmd)
+		}
+		return a, nil
+
+	case wizardBackMsg:
+		// Wizard cancelled — return to settings.
+		if a.activeView == viewRegistryWizard {
+			a.activeView = viewSettings
+		}
+		return a, nil
+
 	case cloneRetryResultMsg:
 		// Result from a retry initiated from the clone error overlay.
 		if msg.cloneErr != nil {
@@ -361,11 +405,17 @@ func (a App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			a.activeView = viewFolder
 		case retryOriginRegistryAdd:
 			successMsg = fmt.Sprintf("Added registry %s", msg.registryName)
-			a.activeView = a.previousView
+			// If the clone error was opened from the wizard, go to settings
+			// (the wizard is no longer meaningful after a successful retry).
+			if a.previousView == viewRegistryWizard {
+				a.activeView = viewSettings
+			} else {
+				a.activeView = a.previousView
+			}
 		}
 		var cmd tea.Cmd
 		a.statusBar, cmd = a.statusBar.showMsg(successMsg, statusSuccess)
-		return a, tea.Batch(cmd, a.loadDataCmd)
+		return a, tea.Batch(cmd, a.loadDataCmd, a.startRegistryRefreshCmd)
 
 	case openPreviewMsg:
 		a.activeView = viewSkillPreview
@@ -429,6 +479,11 @@ func (a App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		if a.activeView == viewCloneError && a.cloneError.isRetrying() {
 			var cmd tea.Cmd
 			a.cloneError, cmd = a.cloneError.update(msg, &a)
+			cmds = append(cmds, cmd)
+		}
+		if a.activeView == viewRegistryWizard {
+			var cmd tea.Cmd
+			a.regWizard, cmd = a.regWizard.update(msg, &a)
 			cmds = append(cmds, cmd)
 		}
 		if len(cmds) > 0 {
@@ -499,21 +554,27 @@ func (a App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				break
 			}
 			if key.Matches(msg, keys.Back) || key.Matches(msg, keys.Quit) {
-				a.activeView = a.previousView
+				// If we came from the wizard, go to settings instead
+				// (the wizard is in a broken clone state).
+				if a.previousView == viewRegistryWizard {
+					a.activeView = viewSettings
+				} else {
+					a.activeView = a.previousView
+				}
 				return a, nil
 			}
 		}
 
 		// Global quit (unless input is focused).
 		if key.Matches(msg, keys.Quit) {
-			if a.activeView == viewSettings && a.settings.inputFocused() {
-				break
-			}
 			if a.activeView == viewInstallPicker && a.install.isInstalling() {
 				break // Don't quit during install
 			}
 			if a.activeView == viewCloneError {
 				break // Handled above
+			}
+			if a.activeView == viewRegistryWizard {
+				break // Let the wizard handle q
 			}
 			// Don't quit while filtering in any list view.
 			if a.isListFiltering() {
@@ -524,11 +585,11 @@ func (a App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 		// Global back: return to folder view from overlays.
 		if key.Matches(msg, keys.Back) {
-			if a.activeView == viewSettings && a.settings.inputFocused() {
-				break // Let settings handle esc for input
-			}
 			if a.activeView == viewCloneError {
 				break // Handled above
+			}
+			if a.activeView == viewRegistryWizard {
+				break // Let the wizard handle esc
 			}
 			// Don't intercept esc while filtering — let the list handle it.
 			if a.isListFiltering() {
@@ -578,6 +639,8 @@ func (a App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		a.settings, cmd = a.settings.update(msg, &a)
 	case viewCloneError:
 		a.cloneError, cmd = a.cloneError.update(msg, &a)
+	case viewRegistryWizard:
+		a.regWizard, cmd = a.regWizard.update(msg, &a)
 	}
 
 	return a, cmd
@@ -617,6 +680,8 @@ func (a App) View() string {
 		content = a.renderPreview()
 	case viewCloneError:
 		content = a.cloneError.view()
+	case viewRegistryWizard:
+		content = a.regWizard.view()
 	}
 
 	// If a confirmation dialog is active, overlay it on the content area.
@@ -684,6 +749,8 @@ func (a App) contentPanelTitle() string {
 			return "Clone Result"
 		}
 		return "Clone Error"
+	case viewRegistryWizard:
+		return a.regWizard.wizard.title
 	}
 	return ""
 }
@@ -719,6 +786,8 @@ func (a App) renderHelpBar() string {
 		km = previewHelpKeyMap{}
 	case viewCloneError:
 		km = cloneErrorHelpKeyMap{editing: a.cloneError.editing, retrying: a.cloneError.isRetrying()}
+	case viewRegistryWizard:
+		km = wizardHelpKeyMap{}
 	}
 
 	// Indent 1 char to align with content box's left border.
@@ -884,6 +953,9 @@ func (a *App) propagateSize() {
 	a.cloneError = a.cloneError.setSize(w, h)
 	a.confirm = a.confirm.setSize(w, h)
 	a.statusBar.width = a.width
+
+	// Wizard gets the same inner content area as other views.
+	a.regWizard = a.regWizard.setSize(w, h)
 
 	// Sidebar height: same as the body area (total height minus status bar).
 	helpBar := a.statusBar.view(a.renderHelpBar())

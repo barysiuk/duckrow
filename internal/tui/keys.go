@@ -275,3 +275,16 @@ func (k cloneErrorHelpKeyMap) ShortHelp() []key.Binding {
 func (k cloneErrorHelpKeyMap) FullHelp() [][]key.Binding {
 	return [][]key.Binding{k.ShortHelp()}
 }
+
+// wizardHelpKeyMap is shown for wizard overlays.
+type wizardHelpKeyMap struct{}
+
+func (k wizardHelpKeyMap) ShortHelp() []key.Binding {
+	return []key.Binding{
+		keys.Enter, keys.Back,
+	}
+}
+
+func (k wizardHelpKeyMap) FullHelp() [][]key.Binding {
+	return [][]key.Binding{k.ShortHelp()}
+}

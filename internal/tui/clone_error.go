@@ -430,8 +430,6 @@ func (m cloneErrorModel) view() string {
 
 	// --- Retrying state: spinner + URL ---
 	if m.retrying {
-		b.WriteString(renderSectionHeader("CLONING", m.width))
-		b.WriteString("\n\n")
 		b.WriteString("  ")
 		b.WriteString(m.spinner.View())
 		b.WriteString(" Cloning ")
@@ -442,9 +440,6 @@ func (m cloneErrorModel) view() string {
 
 	// --- Post-clone error: clone succeeded, but something after failed ---
 	if m.postCloneErr != nil {
-		b.WriteString(renderSectionHeader("CLONE RESULT", m.width))
-		b.WriteString("\n\n")
-
 		// Show clone success.
 		b.WriteString("  ")
 		b.WriteString(installedStyle.Render("Clone succeeded"))
@@ -489,9 +484,6 @@ func (m cloneErrorModel) view() string {
 
 	// --- Clone error view: show error details + hints ---
 	ce := m.cloneErr
-
-	b.WriteString(renderSectionHeader("CLONE FAILED", m.width))
-	b.WriteString("\n\n")
 
 	// Error kind.
 	b.WriteString("  ")
