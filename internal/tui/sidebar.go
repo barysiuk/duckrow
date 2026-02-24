@@ -7,7 +7,7 @@ import (
 )
 
 // sidebarWidth is the visible column count for the sidebar panel.
-const sidebarWidth = 32
+const sidebarWidth = 38
 
 // minContentWidth is the minimum content panel width (in columns) required
 // to show the sidebar. If the content panel would be narrower, the sidebar
