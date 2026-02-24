@@ -279,17 +279,17 @@ func (m folderModel) view() string {
 	if m.updateCount > 0 {
 		parts = append(parts,
 			warningStyle.Render(fmt.Sprintf("%d updates available", m.updateCount))+
-				"  "+headerHintStyle.Render("[u] Update"))
+				"  "+mutedStyle.Render("[u] Update"))
 	}
 
 	if m.availCount > 0 {
 		parts = append(parts,
 			mutedStyle.Render(fmt.Sprintf("%d available from registries", m.availCount))+
-				"  "+headerHintStyle.Render("[i] Install"))
+				"  "+mutedStyle.Render("[i] Install"))
 	} else if len(m.regSkills) == 0 && len(m.regMCPs) == 0 {
 		parts = append(parts,
 			mutedStyle.Render("No registries configured.")+
-				"  "+headerHintStyle.Render("[s] Settings to add"))
+				"  "+mutedStyle.Render("[s] Settings to add"))
 	} else {
 		parts = append(parts,
 			mutedStyle.Render("All registry items installed"))

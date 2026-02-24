@@ -55,6 +55,7 @@ type App struct {
 	install    installModel
 	settings   settingsModel
 	cloneError cloneErrorModel
+	sidebar    sidebarModel
 
 	// View the user was on before clone error overlay opened (for going back).
 	previousView appView
@@ -103,7 +104,7 @@ func NewApp(config *core.ConfigManager, agents []core.AgentDef) App {
 	cwd, _ := os.Getwd()
 
 	h := help.New()
-	h.ShortSeparator = "  |  "
+	h.ShortSeparator = " · "
 
 	s := spinner.New(
 		spinner.WithSpinner(spinner.Dot),
@@ -123,6 +124,7 @@ func NewApp(config *core.ConfigManager, agents []core.AgentDef) App {
 		install:        newInstallModel(),
 		settings:       newSettingsModel(),
 		cloneError:     newCloneErrorModel(),
+		sidebar:        newSidebarModel(),
 		help:           h,
 		previewSpinner: s,
 		statusBar:      newStatusBarModel(),
@@ -576,41 +578,21 @@ func (a App) View() string {
 		return "Loading..."
 	}
 
-	// Layout: fixed header + optional status + flex content box + fixed footer.
-	// Header and footer always render. Content box gets whatever remains.
+	// Layout:
+	//   Folder view:  ╭─ duckrow ──╮╭─ ~/path ──────────╮
+	//                 │ sidebar    ││ content            │
+	//                 ╰────────────╯╰────────────────────╯
+	//                 status bar
 	//
-	// Frame sizes are read from contentStyle via GetVerticalFrameSize() etc.
-	// so the layout adapts automatically if contentStyle changes.
+	//   Other views:  ╭─ Title ─────────────────────────╮
+	//                 │ content                         │
+	//                 ╰─────────────────────────────────╯
+	//                 status bar
 
-	// 1. Render fixed chrome (header, status bar).
-	header := a.renderHeader()
 	helpBar := a.statusBar.view(a.renderHelpBar())
+	helpBarH := lipgloss.Height(helpBar)
 
-	// 2. Measure fixed chrome height.
-	//    JoinVertical adds \n between each block. We always have
-	//    3 blocks (header, styled, helpBar) → 2 separators.
-	separators := 2 // between header/styled and styled/helpBar
-	chromeH := lipgloss.Height(header)
-	chromeH += lipgloss.Height(helpBar)
-	chromeH += separators // \n separators added by JoinVertical
-
-	// 3. Compute content box dimensions from contentStyle's own frame sizes.
-	//    frameV/H = border + padding combined.
-	//    borderV/H = just the border (Width/Height include padding, exclude border).
-	frameV := contentStyle.GetVerticalFrameSize()
-	frameH := contentStyle.GetHorizontalFrameSize()
-	borderV := contentStyle.GetVerticalBorderSize()
-	borderH := contentStyle.GetHorizontalBorderSize()
-
-	// Width/Height for contentStyle include padding but exclude border.
-	innerW := max(0, a.width-borderH)
-	innerH := max(0, a.height-chromeH-borderV)
-
-	// Text area inside the box (after border + padding).
-	textW := max(0, a.width-frameH)
-	textH := max(0, a.height-chromeH-frameV)
-
-	// 4. Render active view content.
+	// Render active view content.
 	content := ""
 	switch a.activeView {
 	case viewFolder:
@@ -632,64 +614,75 @@ func (a App) View() string {
 		content = a.confirm.view()
 	}
 
-	// Clamp content to the text area so it can't inflate the box.
-	// clampWidth prevents wrapping; clampHeight prevents overflow.
+	// Determine content panel title.
+	panelTitle := a.contentPanelTitle()
+
+	if a.showSidebar() {
+		// Sidebar layout: content panel + sidebar panel, then status bar below.
+		bodyH := max(0, a.height-helpBarH)
+		contentBoxW := max(0, a.width-sidebarWidth) // sidebar takes sidebarWidth columns
+
+		// Clamp content to the text area inside the panel.
+		textW := max(0, contentBoxW-panelBorderH-panelPadH*2)
+		textH := max(0, bodyH-panelBorderV-panelPadV*2)
+		content = clampWidth(content, textW)
+		content = clampHeight(content, textH)
+
+		contentPanel := renderPanel(panelTitle, content, contentBoxW, bodyH, panelPadH, panelPadV)
+		sidebar := a.sidebar.view()
+
+		body := lipgloss.JoinHorizontal(lipgloss.Top, contentPanel, sidebar)
+		return lipgloss.JoinVertical(lipgloss.Left, body, helpBar)
+	}
+
+	// Non-folder views: full-width content panel + status bar.
+	bodyH := max(0, a.height-helpBarH)
+
+	textW := max(0, a.width-panelBorderH-panelPadH*2)
+	textH := max(0, bodyH-panelBorderV-panelPadV*2)
 	content = clampWidth(content, textW)
 	content = clampHeight(content, textH)
 
-	styled := contentStyle.
-		Width(innerW).
-		Height(innerH).
-		Render(content)
-
-	// 5. Assemble with lipgloss.JoinVertical for clean stacking.
-	parts := []string{header, styled, helpBar}
-
-	return lipgloss.JoinVertical(lipgloss.Left, parts...)
+	styled := renderPanel(panelTitle, content, a.width, bodyH, panelPadH, panelPadV)
+	return lipgloss.JoinVertical(lipgloss.Left, styled, helpBar)
 }
 
-func (a App) renderHeader() string {
-	logo := logoStyle.Render("🐤duckrow")
-	path := headerPathStyle.Render(shortenPath(a.activeFolder))
-
-	var hints string
+// contentPanelTitle returns the title for the content panel border based on the active view.
+func (a App) contentPanelTitle() string {
 	switch a.activeView {
 	case viewFolder:
-		hints = headerHintStyle.Render("[b] bookmarks  [s] settings")
+		return shortenPath(a.activeFolder)
 	case viewFolderPicker:
-		hints = headerHintStyle.Render("Select Folder")
+		return "Bookmarks"
 	case viewInstallPicker:
 		if a.install.isSelectingAgents() {
-			hints = headerHintStyle.Render("Select Agents")
+			return "Select Agents"
 		} else if a.install.phase == installPhaseEnvEntry {
-			hints = headerHintStyle.Render("Configure Env Vars")
+			return "Configure Env Vars"
 		} else if a.install.isMCPPhase() {
-			hints = headerHintStyle.Render("Install MCP")
-		} else {
-			hints = headerHintStyle.Render("Install")
+			return "Install MCP"
 		}
+		return "Install"
 	case viewSettings:
-		hints = headerHintStyle.Render("Settings")
+		return "Settings"
 	case viewSkillPreview:
-		hints = headerHintStyle.Render(a.previewTitle)
+		return a.previewTitle
 	case viewCloneError:
 		if a.cloneError.isRetrying() {
-			hints = headerHintStyle.Render("Cloning...")
+			return "Cloning..."
 		} else if a.cloneError.postCloneErr != nil {
-			hints = headerHintStyle.Render("Clone Result")
-		} else {
-			hints = headerHintStyle.Render("Clone Error")
+			return "Clone Result"
 		}
+		return "Clone Error"
 	}
+	return ""
+}
 
-	// Indent 1 char to align with content box's left border.
-	indent := " "
-	left := lipgloss.JoinHorizontal(lipgloss.Top, indent, logo, " ", path)
-	gap := a.width - lipgloss.Width(left) - lipgloss.Width(hints) - 1
-	if gap < 1 {
-		gap = 1
-	}
-	return left + strings.Repeat(" ", gap) + hints
+// showSidebar returns true if the sidebar should be visible.
+// It requires the folder view AND enough terminal width so the content
+// panel retains at least minContentWidth columns.
+func (a App) showSidebar() bool {
+	return a.activeView == viewFolder && a.width-sidebarWidth >= minContentWidth
 }
 
 func (a App) renderHelpBar() string {
@@ -857,6 +850,13 @@ func (a *App) refreshActiveFolder() {
 func (a *App) pushDataToSubModels() {
 	a.folder = a.folder.setData(a.activeFolderStatus, a.isTracked, a.registrySkills, a.registryMCPs, a.updateInfo, a.activeFolderMCPs)
 	a.settings = a.settings.setData(a.cfg)
+
+	// Sidebar shows the active folder, bookmark status, and detected agents.
+	var agents []string
+	if a.activeFolderStatus != nil {
+		agents = a.activeFolderStatus.Agents
+	}
+	a.sidebar = a.sidebar.setData(a.activeFolder, a.isTracked, agents)
 }
 
 func (a *App) propagateSize() {
@@ -871,6 +871,12 @@ func (a *App) propagateSize() {
 	a.confirm = a.confirm.setSize(w, h)
 	a.statusBar.width = a.width
 
+	// Sidebar height: same as the body area (total height minus status bar).
+	helpBar := a.statusBar.view(a.renderHelpBar())
+	helpBarH := lipgloss.Height(helpBar)
+	sidebarH := max(0, a.height-helpBarH)
+	a.sidebar = a.sidebar.setSize(sidebarH)
+
 	// Update preview viewport if active.
 	if a.activeView == viewSkillPreview {
 		a.previewViewport.Width = w
@@ -879,28 +885,41 @@ func (a *App) propagateSize() {
 }
 
 // innerContentSize computes the text content area available to sub-models.
-// This is the space inside contentStyle after border AND padding are removed.
-// Frame sizes are read from contentStyle itself via GetVerticalFrameSize() etc.
-// so this adapts automatically if contentStyle changes.
+// This is the space inside the content panel after border AND padding are removed.
+//
+// Layout (folder view):
+//
+//	╭─ duckrow ──╮╭─ ~/path ──────╮
+//	│ sidebar    ││ content       │
+//	╰────────────╯╰────────────────╯
+//	status bar
+//
+// Layout (other views):
+//
+//	╭─ Title ──────────────────────╮
+//	│ content                     │
+//	╰──────────────────────────────╯
+//	status bar
 func (a App) innerContentSize() (width, height int) {
-	// Measure actual rendered chrome heights.
-	header := a.renderHeader()
-	helpBar := a.renderHelpBar()
+	// Help/status bar height.
+	helpBar := a.statusBar.view(a.renderHelpBar())
+	helpBarH := lipgloss.Height(helpBar)
 
-	// JoinVertical adds \n between blocks. Always 3 blocks
-	// (header, styled, helpBar) → 2 separators.
-	// The status bar replaces the help bar in-place, so no extra block is needed.
-	separators := 2
-	chromeH := lipgloss.Height(header)
-	chromeH += lipgloss.Height(helpBar)
-	chromeH += separators
+	// Panel frame = border + padding.
+	frameH := panelBorderH + panelPadH*2
+	frameV := panelBorderV + panelPadV*2
 
-	// Frame = border + padding. Subtract the full frame to get the text area.
-	frameV := contentStyle.GetVerticalFrameSize()
-	frameH := contentStyle.GetHorizontalFrameSize()
+	bodyH := max(0, a.height-helpBarH)
 
-	width = max(0, a.width-frameH)
-	height = max(0, a.height-chromeH-frameV)
+	if a.showSidebar() {
+		// Folder view with sidebar: sidebar panel takes sidebarWidth columns.
+		contentBoxW := max(0, a.width-sidebarWidth)
+		width = max(0, contentBoxW-frameH)
+	} else {
+		width = max(0, a.width-frameH)
+	}
+
+	height = max(0, bodyH-frameV)
 
 	return width, height
 }
