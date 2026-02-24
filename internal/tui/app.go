@@ -23,11 +23,13 @@ type appView int
 const (
 	viewFolder         appView = iota // Main folder view (default)
 	viewBookmarks                     // Bookmarks view (full-screen)
-	viewInstallPicker                 // Install skill picker overlay
+	viewInstallPicker                 // Install skill/MCP picker overlay
 	viewSettings                      // Settings overlay
 	viewSkillPreview                  // SKILL.md preview overlay
 	viewCloneError                    // Clone error overlay
 	viewRegistryWizard                // Registry add wizard overlay
+	viewSkillWizard                   // Skill install wizard overlay
+	viewMCPWizard                     // MCP install wizard overlay
 )
 
 // App is the root Bubbletea model for DuckRow.
@@ -51,13 +53,15 @@ type App struct {
 	isTracked    bool   // Whether activeFolder is in the tracked list
 
 	// Sub-models.
-	folder     folderModel
-	bookmarks  bookmarksModel
-	install    installModel
-	settings   settingsModel
-	cloneError cloneErrorModel
-	sidebar    sidebarModel
-	regWizard  registryWizardModel
+	folder      folderModel
+	bookmarks   bookmarksModel
+	install     installModel
+	settings    settingsModel
+	cloneError  cloneErrorModel
+	sidebar     sidebarModel
+	regWizard   registryWizardModel
+	skillWizard skillWizardModel
+	mcpWizard   mcpWizardModel
 
 	// View the user was on before clone error overlay opened (for going back).
 	previousView appView
@@ -128,6 +132,8 @@ func NewApp(config *core.ConfigManager, agents []core.AgentDef) App {
 		cloneError:     newCloneErrorModel(),
 		sidebar:        newSidebarModel(),
 		regWizard:      newRegistryWizardModel(),
+		skillWizard:    newSkillWizardModel(),
+		mcpWizard:      newMCPWizardModel(),
 		help:           h,
 		previewSpinner: s,
 		statusBar:      newStatusBarModel(),
@@ -244,7 +250,10 @@ func (a App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return a, tea.Batch(cmd, a.loadDataCmd)
 
 	case installDoneMsg:
-		a.install.setInstalling(false)
+		// Route to skill wizard if active.
+		if a.activeView == viewSkillWizard {
+			a.skillWizard, _ = a.skillWizard.update(msg, &a)
+		}
 		if msg.err != nil {
 			// Check if this is a clone error — if so, show the clone error overlay.
 			if ce, ok := core.IsCloneError(msg.err); ok {
@@ -252,14 +261,15 @@ func (a App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				a.activeView = viewCloneError
 				a.cloneError = a.cloneError.activateForInstall(
 					ce,
-					a.install.selectedSkillInfo(),
-					a.install.activeFolder,
-					a.install.selectedTargetAgents(),
+					a.skillWizard.selectedSkillInfo(),
+					a.skillWizard.activeFolder,
+					a.skillWizard.selectedTargetAgents(),
 				)
 				return a, nil
 			}
 			var cmd tea.Cmd
 			a.statusBar, cmd = a.statusBar.showMsg(fmt.Sprintf("Error: %v", msg.err), statusError)
+			a.activeView = viewFolder
 			return a, tea.Batch(cmd, a.loadDataCmd)
 		}
 		var cmd tea.Cmd
@@ -268,10 +278,14 @@ func (a App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return a, tea.Batch(cmd, a.loadDataCmd)
 
 	case mcpInstallDoneMsg:
-		a.install.setInstalling(false)
+		// Route to MCP wizard if active.
+		if a.activeView == viewMCPWizard {
+			a.mcpWizard, _ = a.mcpWizard.update(msg, &a)
+		}
 		if msg.err != nil {
 			var cmd tea.Cmd
 			a.statusBar, cmd = a.statusBar.showMsg(fmt.Sprintf("Error: %v", msg.err), statusError)
+			a.activeView = viewFolder
 			return a, tea.Batch(cmd, a.loadDataCmd)
 		}
 		var cmd tea.Cmd
@@ -367,20 +381,55 @@ func (a App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		a.regWizard = a.regWizard.activate(&a, w, h)
 		return a, nil
 
+	case openSkillWizardMsg:
+		a.activeView = viewSkillWizard
+		w, h := a.innerContentSize()
+		a.skillWizard = a.skillWizard.activate(msg, &a, w, h)
+		// If no non-universal agents, skip straight to install.
+		if len(msg.nonUniversal) == 0 {
+			installCmd := a.skillWizard.startInstall()
+			step := a.skillWizard.wizard.activeStep()
+			if step != nil {
+				if is, ok := step.content.(skillInstallingStepModel); ok {
+					return a, tea.Batch(is.spinner.Tick, installCmd)
+				}
+			}
+			return a, installCmd
+		}
+		return a, nil
+
+	case openMCPWizardMsg:
+		a.activeView = viewMCPWizard
+		w, h := a.innerContentSize()
+		a.mcpWizard = a.mcpWizard.activate(msg, &a, w, h)
+		return a, nil
+
 	case wizardDoneMsg:
-		// Wizard completed — return to settings and reload data.
-		if a.activeView == viewRegistryWizard {
+		// Wizard completed — return to appropriate view and reload data.
+		switch a.activeView {
+		case viewRegistryWizard:
 			a.activeView = viewSettings
 			var cmd tea.Cmd
 			a.statusBar, cmd = a.statusBar.showMsg("Registry added", statusSuccess)
 			return a, tea.Batch(cmd, a.loadDataCmd, a.startRegistryRefreshCmd)
+		case viewSkillWizard:
+			a.activeView = viewFolder
+			return a, a.loadDataCmd
+		case viewMCPWizard:
+			a.activeView = viewFolder
+			return a, a.loadDataCmd
 		}
 		return a, nil
 
 	case wizardBackMsg:
-		// Wizard cancelled — return to settings.
-		if a.activeView == viewRegistryWizard {
+		// Wizard cancelled — return to previous view.
+		switch a.activeView {
+		case viewRegistryWizard:
 			a.activeView = viewSettings
+		case viewSkillWizard:
+			a.activeView = viewInstallPicker
+		case viewMCPWizard:
+			a.activeView = viewInstallPicker
 		}
 		return a, nil
 
@@ -486,6 +535,16 @@ func (a App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			a.regWizard, cmd = a.regWizard.update(msg, &a)
 			cmds = append(cmds, cmd)
 		}
+		if a.activeView == viewSkillWizard && a.skillWizard.isInstalling() {
+			var cmd tea.Cmd
+			a.skillWizard, cmd = a.skillWizard.update(msg, &a)
+			cmds = append(cmds, cmd)
+		}
+		if a.activeView == viewMCPWizard && a.mcpWizard.isInstalling() {
+			var cmd tea.Cmd
+			a.mcpWizard, cmd = a.mcpWizard.update(msg, &a)
+			cmds = append(cmds, cmd)
+		}
 		if len(cmds) > 0 {
 			return a, tea.Batch(cmds...)
 		}
@@ -567,14 +626,20 @@ func (a App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 		// Global quit (unless input is focused).
 		if key.Matches(msg, keys.Quit) {
-			if a.activeView == viewInstallPicker && a.install.isInstalling() {
-				break // Don't quit during install
+			if a.activeView == viewSkillWizard && a.skillWizard.isInstalling() {
+				break // Don't quit during skill install
+			}
+			if a.activeView == viewMCPWizard && a.mcpWizard.isInstalling() {
+				break // Don't quit during MCP install
 			}
 			if a.activeView == viewCloneError {
 				break // Handled above
 			}
 			if a.activeView == viewRegistryWizard {
 				break // Let the wizard handle q
+			}
+			if a.activeView == viewSkillWizard || a.activeView == viewMCPWizard {
+				break // Don't quit from wizards — use esc to go back
 			}
 			// Don't quit while filtering in any list view.
 			if a.isListFiltering() {
@@ -595,8 +660,8 @@ func (a App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			if a.isListFiltering() {
 				break
 			}
-			// Don't intercept esc during agent selection or MCP phases — let install model handle it.
-			if a.activeView == viewInstallPicker && (a.install.isSelectingAgents() || a.install.isMCPPhase()) {
+			// Don't intercept esc in wizard views — let the wizard handle it.
+			if a.activeView == viewSkillWizard || a.activeView == viewMCPWizard {
 				break
 			}
 			if a.activeView != viewFolder {
@@ -615,8 +680,13 @@ func (a App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			case key.Matches(msg, keys.Install):
 				if len(a.registrySkills) > 0 || len(a.registryMCPs) > 0 {
 					a.activeView = viewInstallPicker
+					// Map the active folder tab to the install filter.
+					filter := installFilterSkills
+					if a.folder.activeTab == folderTabMCPs {
+						filter = installFilterMCPs
+					}
 					a.install = a.install.setMCPData(a.registryMCPs, a.activeFolderMCPs)
-					a.install = a.install.activate(a.activeFolder, a.registrySkills, a.activeFolderStatus, a.agents)
+					a.install = a.install.activate(filter, a.activeFolder, a.registrySkills, a.activeFolderStatus, a.agents)
 				}
 				return a, nil
 			case key.Matches(msg, keys.Settings):
@@ -634,13 +704,17 @@ func (a App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case viewBookmarks:
 		a.bookmarks, cmd = a.bookmarks.update(msg, &a)
 	case viewInstallPicker:
-		a.install, cmd = a.install.update(msg, &a)
+		a.install, cmd = a.install.update(msg)
 	case viewSettings:
 		a.settings, cmd = a.settings.update(msg, &a)
 	case viewCloneError:
 		a.cloneError, cmd = a.cloneError.update(msg, &a)
 	case viewRegistryWizard:
 		a.regWizard, cmd = a.regWizard.update(msg, &a)
+	case viewSkillWizard:
+		a.skillWizard, cmd = a.skillWizard.update(msg, &a)
+	case viewMCPWizard:
+		a.mcpWizard, cmd = a.mcpWizard.update(msg, &a)
 	}
 
 	return a, cmd
@@ -682,6 +756,10 @@ func (a App) View() string {
 		content = a.cloneError.view()
 	case viewRegistryWizard:
 		content = a.regWizard.view()
+	case viewSkillWizard:
+		content = a.skillWizard.view()
+	case viewMCPWizard:
+		content = a.mcpWizard.view()
 	}
 
 	// If a confirmation dialog is active, overlay it on the content area.
@@ -730,14 +808,16 @@ func (a App) contentPanelTitle() string {
 	case viewBookmarks:
 		return "Bookmarks"
 	case viewInstallPicker:
-		if a.install.isSelectingAgents() {
-			return "Select Agents"
-		} else if a.install.phase == installPhaseEnvEntry {
-			return "Configure Env Vars"
-		} else if a.install.isMCPPhase() {
+		switch a.install.filter {
+		case installFilterMCPs:
 			return "Install MCP"
+		default:
+			return "Install Skill"
 		}
-		return "Install"
+	case viewSkillWizard:
+		return a.skillWizard.wizard.title
+	case viewMCPWizard:
+		return a.mcpWizard.wizard.title
 	case viewSettings:
 		return "Settings"
 	case viewSkillPreview:
@@ -771,15 +851,11 @@ func (a App) renderHelpBar() string {
 	case viewBookmarks:
 		km = bookmarksHelpKeyMap{}
 	case viewInstallPicker:
-		if a.install.isSelectingAgents() {
-			km = agentSelectHelpKeyMap{}
-		} else if a.install.phase == installPhaseMCPPreview {
-			km = mcpPreviewHelpKeyMap{hasEnvVars: len(a.install.mcpEnvStatus) > 0}
-		} else if a.install.phase == installPhaseEnvEntry {
-			km = envEntryHelpKeyMap{}
-		} else {
-			km = installHelpKeyMap{}
-		}
+		km = installHelpKeyMap{}
+	case viewSkillWizard:
+		km = a.skillWizard.currentHelpKeyMap()
+	case viewMCPWizard:
+		km = a.mcpWizard.currentHelpKeyMap()
 	case viewSettings:
 		km = settingsHelpKeyMap{}
 	case viewSkillPreview:
@@ -956,6 +1032,8 @@ func (a *App) propagateSize() {
 
 	// Wizard gets the same inner content area as other views.
 	a.regWizard = a.regWizard.setSize(w, h)
+	a.skillWizard = a.skillWizard.setSize(w, h)
+	a.mcpWizard = a.mcpWizard.setSize(w, h)
 
 	// Sidebar height: same as the body area (total height minus status bar).
 	helpBar := a.statusBar.view(a.renderHelpBar())

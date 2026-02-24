@@ -9,6 +9,8 @@ type keyMap struct {
 	Up              key.Binding
 	Down            key.Binding
 	Enter           key.Binding
+	Next            key.Binding
+	Confirm         key.Binding
 	Back            key.Binding
 	Bookmarks       key.Binding
 	Install         key.Binding
@@ -49,6 +51,14 @@ var keys = keyMap{
 	Enter: key.NewBinding(
 		key.WithKeys("enter"),
 		key.WithHelp("enter", "select"),
+	),
+	Next: key.NewBinding(
+		key.WithKeys("enter"),
+		key.WithHelp("enter", "next"),
+	),
+	Confirm: key.NewBinding(
+		key.WithKeys("enter"),
+		key.WithHelp("enter", "confirm"),
 	),
 	Back: key.NewBinding(
 		key.WithKeys("esc"),
@@ -177,51 +187,6 @@ func (k installHelpKeyMap) ShortHelp() []key.Binding {
 }
 
 func (k installHelpKeyMap) FullHelp() [][]key.Binding {
-	return [][]key.Binding{k.ShortHelp()}
-}
-
-// agentSelectHelpKeyMap is shown in the agent selection phase.
-type agentSelectHelpKeyMap struct{}
-
-func (k agentSelectHelpKeyMap) ShortHelp() []key.Binding {
-	return []key.Binding{
-		keys.Up, keys.Down, keys.Toggle, keys.ToggleAll,
-		keys.Enter, keys.Back,
-	}
-}
-
-func (k agentSelectHelpKeyMap) FullHelp() [][]key.Binding {
-	return [][]key.Binding{k.ShortHelp()}
-}
-
-// mcpPreviewHelpKeyMap is shown in the MCP preview/confirmation phase.
-type mcpPreviewHelpKeyMap struct {
-	hasEnvVars bool
-}
-
-func (k mcpPreviewHelpKeyMap) ShortHelp() []key.Binding {
-	bindings := []key.Binding{keys.Enter}
-	if k.hasEnvVars {
-		bindings = append(bindings, keys.Configure)
-	}
-	bindings = append(bindings, keys.Back)
-	return bindings
-}
-
-func (k mcpPreviewHelpKeyMap) FullHelp() [][]key.Binding {
-	return [][]key.Binding{k.ShortHelp()}
-}
-
-// envEntryHelpKeyMap is shown during the env var entry flow.
-type envEntryHelpKeyMap struct{}
-
-func (k envEntryHelpKeyMap) ShortHelp() []key.Binding {
-	return []key.Binding{
-		keys.Enter, keys.TabSaveLocation, keys.Back,
-	}
-}
-
-func (k envEntryHelpKeyMap) FullHelp() [][]key.Binding {
 	return [][]key.Binding{k.ShortHelp()}
 }
 
