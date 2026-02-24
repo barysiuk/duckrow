@@ -86,5 +86,5 @@ func (m sidebarModel) view() string {
 
 	content := strings.Join(lines, "\n")
 
-	return renderPanel("duckrow", content, sidebarWidth, m.height, sidebarPadH, sidebarPadV)
+	return renderPanel("info", content, sidebarWidth, m.height, sidebarPadH, sidebarPadV)
 }
