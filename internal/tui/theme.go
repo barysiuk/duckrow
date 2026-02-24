@@ -110,6 +110,21 @@ var (
 	statusWarningStyle = lipgloss.NewStyle().Foreground(colorWarning)
 	statusTaskStyle    = lipgloss.NewStyle().Foreground(colorMuted)
 
+	// Tab bar styles.
+	tabActiveStyle = lipgloss.NewStyle().
+			Bold(true).
+			Foreground(colorSecondary)
+
+	tabInactiveStyle = lipgloss.NewStyle().
+				Foreground(colorMuted)
+
+	tabSeparatorStyle = lipgloss.NewStyle().
+				Foreground(colorBorder).
+				Padding(0, 1)
+
+	tabUnderlineStyle = lipgloss.NewStyle().
+				Foreground(colorBorder)
+
 	// Sidebar styles.
 	sidebarLabelStyle = lipgloss.NewStyle().
 				Foreground(colorMuted).
@@ -131,16 +146,6 @@ func renderSectionHeader(label string, _ int) string {
 	rule := sectionRuleStyle.Render("──")
 	text := sectionHeaderStyle.Render(" " + label + " ")
 	return "  " + rule + text + rule
-}
-
-// renderSectionHeaderWithUpdate renders a section header with an amber-colored
-// update portion, e.g. "  ── SKILLS (3 installed, 2 updates available) ──"
-func renderSectionHeaderWithUpdate(prefix, updatePart, suffix string, _ int) string {
-	rule := sectionRuleStyle.Render("──")
-	prefixText := sectionHeaderStyle.Render(" " + prefix)
-	updateText := warningStyle.Render(updatePart)
-	suffixText := sectionHeaderStyle.Render(suffix + " ")
-	return "  " + rule + prefixText + updateText + suffixText + rule
 }
 
 // newSkillDelegate creates a DefaultDelegate styled to match the DuckRow theme.

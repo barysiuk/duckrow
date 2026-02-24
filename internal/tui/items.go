@@ -229,9 +229,36 @@ func registryItemsToList(skills []core.RegistrySkillInfo, mcps []core.RegistryMC
 // ---------------------------------------------------------------------------
 
 // mcpItem represents an installed MCP for display in the folder view.
+// Implements list.DefaultItem (Title + Description + FilterValue).
 type mcpItem struct {
 	locked core.LockedMCP
 	desc   string // Description from registry, if available
+}
+
+func (i mcpItem) Title() string       { return i.locked.Name }
+func (i mcpItem) FilterValue() string { return i.locked.Name }
+
+func (i mcpItem) Description() string {
+	parts := []string{}
+	if i.desc != "" {
+		parts = append(parts, i.desc)
+	}
+	if len(i.locked.Agents) > 0 {
+		parts = append(parts, strings.Join(i.locked.Agents, ", "))
+	}
+	if len(parts) == 0 {
+		return "MCP server"
+	}
+	return strings.Join(parts, " · ")
+}
+
+// mcpsToItems converts a slice of mcpItem to list items.
+func mcpsToItems(mcps []mcpItem) []list.Item {
+	items := make([]list.Item, len(mcps))
+	for i, m := range mcps {
+		items[i] = m
+	}
+	return items
 }
 
 // registryMCPItem wraps a RegistryMCPInfo for the install picker list.

@@ -535,7 +535,7 @@ func (a App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 
 		// View-switching keys (only from folder view, and not while filtering).
-		if a.activeView == viewFolder && !a.folder.list.SettingFilter() {
+		if a.activeView == viewFolder && !a.folder.isFiltering() {
 			switch {
 			case key.Matches(msg, keys.Bookmarks):
 				a.activeView = viewFolderPicker
@@ -736,7 +736,7 @@ func (a App) renderPreview() string {
 func (a App) isListFiltering() bool {
 	switch a.activeView {
 	case viewFolder:
-		return a.folder.list.SettingFilter()
+		return a.folder.isFiltering()
 	case viewFolderPicker:
 		return a.picker.list.SettingFilter()
 	case viewInstallPicker:

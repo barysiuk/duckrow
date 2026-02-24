@@ -4,27 +4,29 @@ import "github.com/charmbracelet/bubbles/key"
 
 // keyMap defines the keybindings for the TUI.
 type keyMap struct {
-	Quit      key.Binding
-	Help      key.Binding
-	Up        key.Binding
-	Down      key.Binding
-	Enter     key.Binding
-	Back      key.Binding
-	Bookmarks key.Binding
-	Install   key.Binding
-	Settings  key.Binding
-	Bookmark  key.Binding
-	Delete    key.Binding
-	Refresh   key.Binding
-	Filter    key.Binding
-	Edit      key.Binding
-	Retry     key.Binding
-	Toggle    key.Binding
-	ToggleAll key.Binding
-	Update    key.Binding
-	UpdateAll key.Binding
-	Configure key.Binding
-	Tab       key.Binding
+	Quit            key.Binding
+	Help            key.Binding
+	Up              key.Binding
+	Down            key.Binding
+	Enter           key.Binding
+	Back            key.Binding
+	Bookmarks       key.Binding
+	Install         key.Binding
+	Settings        key.Binding
+	Bookmark        key.Binding
+	Delete          key.Binding
+	Refresh         key.Binding
+	Filter          key.Binding
+	Edit            key.Binding
+	Retry           key.Binding
+	Toggle          key.Binding
+	ToggleAll       key.Binding
+	Update          key.Binding
+	UpdateAll       key.Binding
+	Configure       key.Binding
+	Tab             key.Binding
+	ShiftTab        key.Binding
+	TabSaveLocation key.Binding
 }
 
 var keys = keyMap{
@@ -110,6 +112,14 @@ var keys = keyMap{
 	),
 	Tab: key.NewBinding(
 		key.WithKeys("tab"),
+		key.WithHelp("tab", "next tab"),
+	),
+	ShiftTab: key.NewBinding(
+		key.WithKeys("shift+tab"),
+		key.WithHelp("shift+tab", "prev tab"),
+	),
+	TabSaveLocation: key.NewBinding(
+		key.WithKeys("tab"),
 		key.WithHelp("tab", "switch save location"),
 	),
 }
@@ -127,7 +137,7 @@ type folderHelpKeyMap struct {
 func (k folderHelpKeyMap) ShortHelp() []key.Binding {
 	bindings := []key.Binding{
 		keys.Up, keys.Down, keys.Enter,
-		keys.Filter,
+		keys.Filter, keys.Tab,
 	}
 	if k.updatesAvailable {
 		bindings = append(bindings, keys.Update, keys.UpdateAll)
@@ -207,7 +217,7 @@ type envEntryHelpKeyMap struct{}
 
 func (k envEntryHelpKeyMap) ShortHelp() []key.Binding {
 	return []key.Binding{
-		keys.Enter, keys.Tab, keys.Back,
+		keys.Enter, keys.TabSaveLocation, keys.Back,
 	}
 }
 
