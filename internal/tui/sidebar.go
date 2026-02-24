@@ -78,7 +78,7 @@ func (m sidebarModel) view() string {
 	// Tools section (only if agents detected).
 	if len(m.agents) > 0 {
 		lines = append(lines, "")
-		lines = append(lines, sidebarLabelStyle.Render("Tools:"))
+		lines = append(lines, sidebarLabelStyle.Render("Agents:"))
 		for _, name := range m.agents {
 			lines = append(lines, sidebarAgentStyle.Render("· "+name))
 		}

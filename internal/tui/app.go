@@ -851,12 +851,10 @@ func (a *App) pushDataToSubModels() {
 	a.folder = a.folder.setData(a.activeFolderStatus, a.isTracked, a.registrySkills, a.registryMCPs, a.updateInfo, a.activeFolderMCPs)
 	a.settings = a.settings.setData(a.cfg)
 
-	// Sidebar shows the active folder, bookmark status, and detected agents.
-	var agents []string
-	if a.activeFolderStatus != nil {
-		agents = a.activeFolderStatus.Agents
-	}
-	a.sidebar = a.sidebar.setData(a.activeFolder, a.isTracked, agents)
+	// Sidebar shows the active folder, bookmark status, and agents whose own
+	// config files are present (not just duckrow-managed skill dirs).
+	sidebarAgents := core.DetectActiveAgents(a.agents, a.activeFolder)
+	a.sidebar = a.sidebar.setData(a.activeFolder, a.isTracked, sidebarAgents)
 }
 
 func (a *App) propagateSize() {
