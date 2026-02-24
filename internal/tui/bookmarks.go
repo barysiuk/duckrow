@@ -6,7 +6,6 @@ import (
 	"github.com/charmbracelet/bubbles/key"
 	"github.com/charmbracelet/bubbles/list"
 	tea "github.com/charmbracelet/bubbletea"
-	"github.com/charmbracelet/lipgloss"
 
 	"github.com/barysiuk/duckrow/internal/core"
 )
@@ -21,6 +20,7 @@ type bookmarksModel struct {
 	list list.Model
 
 	// Data (set on activate).
+	cwd          string // original launch directory (never changes)
 	activeFolder string
 	folders      []core.FolderStatus
 }
@@ -46,20 +46,51 @@ func (m bookmarksModel) setSize(width, height int) bookmarksModel {
 	return m
 }
 
-// activate is called when the bookmarks view opens. It receives the currently
-// active folder path, the full list of bookmarked folder statuses, and agent
-// definitions for detecting active agents per folder.
-func (m bookmarksModel) activate(activeFolder string, folders []core.FolderStatus, agents []core.AgentDef) bookmarksModel {
+// activate is called when the bookmarks view opens. It receives the cwd
+// (original launch directory), the currently active folder path, the full list
+// of bookmarked folder statuses, and agent definitions for detecting active
+// agents per folder.
+//
+// If the cwd is not bookmarked, it is prepended to the list as a synthetic
+// entry so the user can always navigate back to it.
+func (m bookmarksModel) activate(cwd, activeFolder string, folders []core.FolderStatus, agents []core.AgentDef) bookmarksModel {
+	m.cwd = cwd
 	m.activeFolder = activeFolder
 	m.folders = folders
 
 	items := foldersToItems(folders, activeFolder, agents)
+
+	// If the cwd is not in the bookmarks list, prepend it.
+	cwdBookmarked := false
+	for _, fs := range folders {
+		if fs.Folder.Path == cwd {
+			cwdBookmarked = true
+			break
+		}
+	}
+	if !cwdBookmarked {
+		var installed int
+		if lf, err := core.ReadLockFile(cwd); err == nil && lf != nil {
+			installed = len(lf.Skills) + len(lf.MCPs)
+		}
+		currentItem := folderItem{
+			status: core.FolderStatus{
+				Folder: core.TrackedFolder{Path: cwd},
+			},
+			isActive:  cwd == activeFolder,
+			isCurrent: true,
+			agents:    core.DetectActiveAgents(agents, cwd),
+			installed: installed,
+		}
+		items = append([]list.Item{currentItem}, items...)
+	}
+
 	m.list.SetItems(items)
 	m.list.ResetFilter()
 
-	// Start cursor on the currently active folder.
-	for i, fs := range folders {
-		if fs.Folder.Path == activeFolder {
+	// Start cursor on the active folder.
+	for i, item := range items {
+		if fi, ok := item.(folderItem); ok && fi.status.Folder.Path == activeFolder {
 			m.list.Select(i)
 			break
 		}
@@ -102,34 +133,14 @@ func (m bookmarksModel) update(msg tea.Msg, app *App) (bookmarksModel, tea.Cmd) 
 }
 
 func (m bookmarksModel) view() string {
-	if len(m.folders) == 0 {
+	if len(m.list.Items()) == 0 {
 		hint := "\n" + mutedStyle.Render("  No bookmarks yet.")
-		if !m.isActiveBookmarked() {
-			hint += "\n" + mutedStyle.Render("  Press [b] to bookmark "+shortenPath(m.activeFolder))
-		}
+		hint += "\n" + mutedStyle.Render("  Press [b] to bookmark "+shortenPath(m.activeFolder))
 		return hint
 	}
 
-	var header string
-	listH := m.height
-	if !m.isActiveBookmarked() {
-		header = mutedStyle.Render("  "+shortenPath(m.activeFolder)) +
-			mutedStyle.Render(" is not bookmarked. Press [b] to add it.") + "\n"
-		listH = max(1, m.height-lipgloss.Height(header))
-	}
-
-	m.list.SetSize(m.width, max(1, listH))
-	return header + m.list.View()
-}
-
-// isActiveBookmarked returns true if the active folder is in the bookmarks list.
-func (m bookmarksModel) isActiveBookmarked() bool {
-	for _, fs := range m.folders {
-		if fs.Folder.Path == m.activeFolder {
-			return true
-		}
-	}
-	return false
+	m.list.SetSize(m.width, max(1, m.height))
+	return m.list.View()
 }
 
 // bookmarkAddedMsg is sent after successfully adding a folder to bookmarks.
@@ -158,8 +169,8 @@ func (m bookmarksModel) removeSelected(app *App) tea.Cmd {
 	}
 
 	fi, ok := item.(folderItem)
-	if !ok {
-		return nil
+	if !ok || fi.isCurrent {
+		return nil // can't remove the synthetic (non-bookmarked) entry
 	}
 
 	path := fi.status.Folder.Path

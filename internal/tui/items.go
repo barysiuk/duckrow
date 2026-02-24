@@ -246,7 +246,8 @@ func (i registryMCPItem) FilterValue() string { return i.info.MCP.Name }
 // folderItem wraps a FolderStatus for the bookmarks list.
 type folderItem struct {
 	status    core.FolderStatus
-	isActive  bool
+	isActive  bool     // this folder is currently being viewed
+	isCurrent bool     // synthetic entry for the cwd (not bookmarked)
 	agents    []string // display names from DetectActiveAgents
 	installed int      // skills + MCPs managed by duckrow (from lock file)
 }
@@ -282,7 +283,9 @@ func (d folderDelegate) Render(w io.Writer, m list.Model, index int, item list.I
 	}
 
 	active := ""
-	if fi.isActive {
+	if fi.isCurrent {
+		active = "  " + mutedStyle.Render("(current, not bookmarked)")
+	} else if fi.isActive {
 		active = "  " + installedStyle.Render("(active)")
 	}
 

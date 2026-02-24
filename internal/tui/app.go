@@ -675,7 +675,7 @@ func (a App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			switch {
 			case key.Matches(msg, keys.Bookmarks):
 				a.activeView = viewBookmarks
-				a.bookmarks = a.bookmarks.activate(a.activeFolder, a.folderStatus, a.agents)
+				a.bookmarks = a.bookmarks.activate(a.cwd, a.activeFolder, a.folderStatus, a.agents)
 				return a, nil
 			case key.Matches(msg, keys.Install):
 				if len(a.registrySkills) > 0 || len(a.registryMCPs) > 0 {
@@ -1009,7 +1009,7 @@ func (a *App) pushDataToSubModels() {
 	// Re-activate bookmarks if we're currently viewing them so the list
 	// reflects adds/removes immediately.
 	if a.activeView == viewBookmarks {
-		a.bookmarks = a.bookmarks.activate(a.activeFolder, a.folderStatus, a.agents)
+		a.bookmarks = a.bookmarks.activate(a.cwd, a.activeFolder, a.folderStatus, a.agents)
 	}
 
 	// Sidebar shows the active folder, bookmark status, and agents whose own
