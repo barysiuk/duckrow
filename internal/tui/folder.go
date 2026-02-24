@@ -246,12 +246,6 @@ func (m folderModel) view() string {
 	// --- Render-then-measure: render fixed chrome first, measure, size list. ---
 
 	// 1. Render fixed chrome parts.
-	var banner string
-	if !m.isTracked {
-		banner = warningStyle.Render("  This folder is not bookmarked.") +
-			"  " + mutedStyle.Render("Open bookmarks [b] to add it.") + "\n\n"
-	}
-
 	tabBar := m.tabs.view() + "\n"
 
 	// Build footer: optional update prefix + registry status.
@@ -279,7 +273,7 @@ func (m folderModel) view() string {
 	footerBlock := "\n\n" + footer
 
 	// 2. Measure chrome height.
-	chromeH := lipgloss.Height(banner) + lipgloss.Height(tabBar) + lipgloss.Height(footerBlock)
+	chromeH := lipgloss.Height(tabBar) + lipgloss.Height(footerBlock)
 
 	// 3. Size and render the active list.
 	listH := max(1, m.height-chromeH)
@@ -304,7 +298,6 @@ func (m folderModel) view() string {
 
 	// 4. Assemble.
 	var b strings.Builder
-	b.WriteString(banner)
 	b.WriteString(tabBar)
 	b.WriteString(listView)
 	b.WriteString(footerBlock)

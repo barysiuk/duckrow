@@ -72,7 +72,7 @@ func (m sidebarModel) view() string {
 	// Bookmark hint (only if not bookmarked).
 	if !m.isBookmarked {
 		lines = append(lines, "")
-		lines = append(lines, sidebarHintStyle.Render("[b] Bookmark this"))
+		lines = append(lines, sidebarHintStyle.Render("[b] bookmark this folder"))
 	}
 
 	// Tools section (only if agents detected).

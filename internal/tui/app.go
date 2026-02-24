@@ -22,7 +22,7 @@ type appView int
 
 const (
 	viewFolder        appView = iota // Main folder view (default)
-	viewFolderPicker                 // Folder picker overlay
+	viewBookmarks                    // Bookmarks view (full-screen)
 	viewInstallPicker                // Install skill picker overlay
 	viewSettings                     // Settings overlay
 	viewSkillPreview                 // SKILL.md preview overlay
@@ -51,7 +51,7 @@ type App struct {
 
 	// Sub-models.
 	folder     folderModel
-	picker     pickerModel
+	bookmarks  bookmarksModel
 	install    installModel
 	settings   settingsModel
 	cloneError cloneErrorModel
@@ -120,7 +120,7 @@ func NewApp(config *core.ConfigManager, agents []core.AgentDef) App {
 		cwd:            cwd,
 		activeFolder:   cwd,
 		folder:         newFolderModel(),
-		picker:         newPickerModel(),
+		bookmarks:      newBookmarksModel(),
 		install:        newInstallModel(),
 		settings:       newSettingsModel(),
 		cloneError:     newCloneErrorModel(),
@@ -229,6 +229,16 @@ func (a App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			a.propagateSize()
 		}
 		return a, nil
+
+	case bookmarkAddedMsg:
+		var cmd tea.Cmd
+		a.statusBar, cmd = a.statusBar.showMsg(fmt.Sprintf("Bookmarked %s", shortenPath(msg.path)), statusSuccess)
+		return a, tea.Batch(cmd, a.loadDataCmd)
+
+	case bookmarkRemovedMsg:
+		var cmd tea.Cmd
+		a.statusBar, cmd = a.statusBar.showMsg(fmt.Sprintf("Removed %s", shortenPath(msg.path)), statusSuccess)
+		return a, tea.Batch(cmd, a.loadDataCmd)
 
 	case installDoneMsg:
 		a.install.setInstalling(false)
@@ -538,8 +548,8 @@ func (a App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		if a.activeView == viewFolder && !a.folder.isFiltering() {
 			switch {
 			case key.Matches(msg, keys.Bookmarks):
-				a.activeView = viewFolderPicker
-				a.picker = a.picker.activate(a.activeFolder, a.folderStatus)
+				a.activeView = viewBookmarks
+				a.bookmarks = a.bookmarks.activate(a.activeFolder, a.folderStatus, a.agents)
 				return a, nil
 			case key.Matches(msg, keys.Install):
 				if len(a.registrySkills) > 0 || len(a.registryMCPs) > 0 {
@@ -560,8 +570,8 @@ func (a App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	switch a.activeView {
 	case viewFolder:
 		a.folder, cmd = a.folder.update(msg, &a)
-	case viewFolderPicker:
-		a.picker, cmd = a.picker.update(msg, &a)
+	case viewBookmarks:
+		a.bookmarks, cmd = a.bookmarks.update(msg, &a)
 	case viewInstallPicker:
 		a.install, cmd = a.install.update(msg, &a)
 	case viewSettings:
@@ -597,8 +607,8 @@ func (a App) View() string {
 	switch a.activeView {
 	case viewFolder:
 		content = a.folder.view()
-	case viewFolderPicker:
-		content = a.picker.view()
+	case viewBookmarks:
+		content = a.bookmarks.view()
 	case viewInstallPicker:
 		content = a.install.view()
 	case viewSettings:
@@ -652,7 +662,7 @@ func (a App) contentPanelTitle() string {
 	switch a.activeView {
 	case viewFolder:
 		return shortenPath(a.activeFolder)
-	case viewFolderPicker:
+	case viewBookmarks:
 		return "Bookmarks"
 	case viewInstallPicker:
 		if a.install.isSelectingAgents() {
@@ -691,8 +701,8 @@ func (a App) renderHelpBar() string {
 	switch a.activeView {
 	case viewFolder:
 		km = folderHelpKeyMap{updatesAvailable: len(a.updateInfo) > 0}
-	case viewFolderPicker:
-		km = pickerHelpKeyMap{}
+	case viewBookmarks:
+		km = bookmarksHelpKeyMap{}
 	case viewInstallPicker:
 		if a.install.isSelectingAgents() {
 			km = agentSelectHelpKeyMap{}
@@ -737,8 +747,8 @@ func (a App) isListFiltering() bool {
 	switch a.activeView {
 	case viewFolder:
 		return a.folder.isFiltering()
-	case viewFolderPicker:
-		return a.picker.list.SettingFilter()
+	case viewBookmarks:
+		return a.bookmarks.list.SettingFilter()
 	case viewInstallPicker:
 		return a.install.list.SettingFilter()
 	}
@@ -851,6 +861,12 @@ func (a *App) pushDataToSubModels() {
 	a.folder = a.folder.setData(a.activeFolderStatus, a.isTracked, a.registrySkills, a.registryMCPs, a.updateInfo, a.activeFolderMCPs)
 	a.settings = a.settings.setData(a.cfg)
 
+	// Re-activate bookmarks if we're currently viewing them so the list
+	// reflects adds/removes immediately.
+	if a.activeView == viewBookmarks {
+		a.bookmarks = a.bookmarks.activate(a.activeFolder, a.folderStatus, a.agents)
+	}
+
 	// Sidebar shows the active folder, bookmark status, and agents whose own
 	// config files are present (not just duckrow-managed skill dirs).
 	sidebarAgents := core.DetectActiveAgents(a.agents, a.activeFolder)
@@ -862,7 +878,7 @@ func (a *App) propagateSize() {
 	// innerContentSize returns the text content area (after border + padding).
 	// Sub-models render into this space.
 	a.folder = a.folder.setSize(w, h)
-	a.picker = a.picker.setSize(w, h)
+	a.bookmarks = a.bookmarks.setSize(w, h)
 	a.install = a.install.setSize(w, h)
 	a.settings = a.settings.setSize(w, h)
 	a.cloneError = a.cloneError.setSize(w, h)

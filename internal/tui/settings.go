@@ -17,7 +17,6 @@ type settingsSection int
 const (
 	settingsRegistries settingsSection = iota
 	settingsAddRegistry
-	settingsFolders
 )
 
 // settingsModel is the settings/configuration screen.
@@ -137,13 +136,6 @@ func (m settingsModel) moveCursorUp() settingsModel {
 			m.section = settingsRegistries
 			m.cursor = len(m.cfg.Registries) - 1
 		}
-	case settingsFolders:
-		if m.cursor > 0 {
-			m.cursor--
-		} else {
-			m.section = settingsAddRegistry
-			m.cursor = 0
-		}
 	}
 	return m
 }
@@ -158,14 +150,7 @@ func (m settingsModel) moveCursorDown() settingsModel {
 			m.cursor = 0
 		}
 	case settingsAddRegistry:
-		if len(m.cfg.Folders) > 0 {
-			m.section = settingsFolders
-			m.cursor = 0
-		}
-	case settingsFolders:
-		if m.cursor < len(m.cfg.Folders)-1 {
-			m.cursor++
-		}
+		// No more sections below.
 	}
 	return m
 }
@@ -249,22 +234,6 @@ func (m settingsModel) handleDelete(app *App) (settingsModel, tea.Cmd) {
 			)
 			return m, nil
 		}
-
-	case settingsFolders:
-		if m.cursor < len(m.cfg.Folders) {
-			folder := m.cfg.Folders[m.cursor]
-			deleteCmd := func() tea.Msg {
-				if err := app.folders.Remove(folder.Path); err != nil {
-					return errMsg{err: err}
-				}
-				return app.reloadConfig()()
-			}
-			app.confirm = app.confirm.show(
-				fmt.Sprintf("Remove folder %s?", shortenPath(folder.Path)),
-				deleteCmd,
-			)
-			return m, nil
-		}
 	}
 	return m, nil
 }
@@ -319,34 +288,6 @@ func (m settingsModel) view() string {
 			b.WriteString(mutedStyle.Render("  + Add Registry"))
 		}
 	}
-	b.WriteString("\n\n")
-
-	// Folders section.
-	b.WriteString(renderSectionHeader("BOOKMARKS", m.width))
-	b.WriteString("\n")
-
-	if len(m.cfg.Folders) == 0 {
-		b.WriteString(mutedStyle.Render("    No bookmarks"))
-		b.WriteString("\n")
-	}
-
-	for i, folder := range m.cfg.Folders {
-		isSelected := !m.inputMode && m.section == settingsFolders && i == m.cursor
-		indicator := "    "
-		if isSelected {
-			indicator = "  > "
-		}
-		path := shortenPath(folder.Path)
-		if isSelected {
-			b.WriteString(indicator + selectedItemStyle.Render(path))
-		} else {
-			b.WriteString(indicator + normalItemStyle.Render(path))
-		}
-		b.WriteString("\n")
-	}
-
-	b.WriteString("\n")
-	b.WriteString(mutedStyle.Render("    To add a directory, launch ") + normalItemStyle.Render("duckrow") + mutedStyle.Render(" in that folder and press [b]"))
 	b.WriteString("\n")
 
 	return b.String()

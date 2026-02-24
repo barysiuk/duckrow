@@ -153,17 +153,17 @@ func (k folderHelpKeyMap) FullHelp() [][]key.Binding {
 	return [][]key.Binding{k.ShortHelp()}
 }
 
-// pickerHelpKeyMap is shown in the folder picker.
-type pickerHelpKeyMap struct{}
+// bookmarksHelpKeyMap is shown in the bookmarks view.
+type bookmarksHelpKeyMap struct{}
 
-func (k pickerHelpKeyMap) ShortHelp() []key.Binding {
+func (k bookmarksHelpKeyMap) ShortHelp() []key.Binding {
 	return []key.Binding{
 		keys.Up, keys.Down, keys.Enter, keys.Filter,
 		keys.Bookmark, keys.Delete, keys.Back,
 	}
 }
 
-func (k pickerHelpKeyMap) FullHelp() [][]key.Binding {
+func (k bookmarksHelpKeyMap) FullHelp() [][]key.Binding {
 	return [][]key.Binding{k.ShortHelp()}
 }
 

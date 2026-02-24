@@ -272,10 +272,12 @@ func (i registryMCPItem) FilterValue() string { return i.info.MCP.Name }
 // Folder items (folder picker)
 // ---------------------------------------------------------------------------
 
-// folderItem wraps a FolderStatus for the folder picker list.
+// folderItem wraps a FolderStatus for the bookmarks list.
 type folderItem struct {
-	status   core.FolderStatus
-	isActive bool
+	status    core.FolderStatus
+	isActive  bool
+	agents    []string // display names from DetectActiveAgents
+	installed int      // skills + MCPs managed by duckrow (from lock file)
 }
 
 func (i folderItem) FilterValue() string { return i.status.Folder.Path }
@@ -301,12 +303,11 @@ func (d folderDelegate) Render(w io.Writer, m list.Model, index int, item list.I
 	}
 
 	path := shortenPath(fi.status.Folder.Path)
-	skillCount := len(fi.status.Skills)
-	badge := badgeStyle.Render(fmt.Sprintf(" %d skills", skillCount))
+	badge := badgeStyle.Render(fmt.Sprintf(" %d installed", fi.installed))
 
 	agents := ""
-	if len(fi.status.Agents) > 0 {
-		agents = "  " + mutedStyle.Render(strings.Join(fi.status.Agents, ", "))
+	if len(fi.agents) > 0 {
+		agents = "  " + mutedStyle.Render(strings.Join(fi.agents, ", "))
 	}
 
 	active := ""
@@ -322,12 +323,21 @@ func (d folderDelegate) Render(w io.Writer, m list.Model, index int, item list.I
 }
 
 // foldersToItems converts folder statuses to list items.
-func foldersToItems(folders []core.FolderStatus, activeFolder string) []list.Item {
+// It calls DetectActiveAgents per folder so the bookmark list shows
+// agents based on config artifacts, not duckrow-managed skill directories.
+// The installed count comes from the lock file (skills + MCPs managed by duckrow).
+func foldersToItems(folders []core.FolderStatus, activeFolder string, agents []core.AgentDef) []list.Item {
 	items := make([]list.Item, len(folders))
 	for i, fs := range folders {
+		var installed int
+		if lf, err := core.ReadLockFile(fs.Folder.Path); err == nil && lf != nil {
+			installed = len(lf.Skills) + len(lf.MCPs)
+		}
 		items[i] = folderItem{
-			status:   fs,
-			isActive: fs.Folder.Path == activeFolder,
+			status:    fs,
+			isActive:  fs.Folder.Path == activeFolder,
+			agents:    core.DetectActiveAgents(agents, fs.Folder.Path),
+			installed: installed,
 		}
 	}
 	return items

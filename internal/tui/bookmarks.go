@@ -11,13 +11,13 @@ import (
 	"github.com/barysiuk/duckrow/internal/core"
 )
 
-// pickerModel is the folder picker overlay that lets users switch
-// the active folder context.
-type pickerModel struct {
+// bookmarksModel is the full-screen bookmarks view that lets users
+// browse, switch, add, and remove bookmarked folders.
+type bookmarksModel struct {
 	width  int
 	height int
 
-	// Bubbles list for tracked folders.
+	// Bubbles list for bookmarked folders.
 	list list.Model
 
 	// Data (set on activate).
@@ -25,7 +25,7 @@ type pickerModel struct {
 	folders      []core.FolderStatus
 }
 
-func newPickerModel() pickerModel {
+func newBookmarksModel() bookmarksModel {
 	l := list.New(nil, folderDelegate{}, 0, 0)
 	l.SetShowTitle(false)
 	l.SetShowStatusBar(false)
@@ -34,26 +34,26 @@ func newPickerModel() pickerModel {
 	l.DisableQuitKeybindings()
 	l.SetShowPagination(false)
 
-	return pickerModel{
+	return bookmarksModel{
 		list: l,
 	}
 }
 
-func (m pickerModel) setSize(width, height int) pickerModel {
+func (m bookmarksModel) setSize(width, height int) bookmarksModel {
 	m.width = width
 	m.height = height
-	// List sizing happens dynamically in view() via render-then-measure.
 	m.list.SetSize(width, max(1, height))
 	return m
 }
 
-// activate is called when the picker opens. It receives the currently
-// active folder path and the full list of tracked folder statuses.
-func (m pickerModel) activate(activeFolder string, folders []core.FolderStatus) pickerModel {
+// activate is called when the bookmarks view opens. It receives the currently
+// active folder path, the full list of bookmarked folder statuses, and agent
+// definitions for detecting active agents per folder.
+func (m bookmarksModel) activate(activeFolder string, folders []core.FolderStatus, agents []core.AgentDef) bookmarksModel {
 	m.activeFolder = activeFolder
 	m.folders = folders
 
-	items := foldersToItems(folders, activeFolder)
+	items := foldersToItems(folders, activeFolder, agents)
 	m.list.SetItems(items)
 	m.list.ResetFilter()
 
@@ -68,7 +68,7 @@ func (m pickerModel) activate(activeFolder string, folders []core.FolderStatus) 
 	return m
 }
 
-func (m pickerModel) update(msg tea.Msg, app *App) (pickerModel, tea.Cmd) {
+func (m bookmarksModel) update(msg tea.Msg, app *App) (bookmarksModel, tea.Cmd) {
 	switch msg := msg.(type) {
 	case tea.KeyMsg:
 		// Don't intercept keys while filtering.
@@ -101,40 +101,57 @@ func (m pickerModel) update(msg tea.Msg, app *App) (pickerModel, tea.Cmd) {
 	return m, cmd
 }
 
-func (m pickerModel) view() string {
-	// --- Render-then-measure ---
-
-	// 1. Render fixed chrome.
-	sectionHeader := renderSectionHeader("SELECT FOLDER", m.width) + "\n"
-
+func (m bookmarksModel) view() string {
 	if len(m.folders) == 0 {
-		return sectionHeader +
-			mutedStyle.Render("  No bookmarks yet.") + "\n" +
-			mutedStyle.Render("  Press [b] to bookmark the current directory.")
+		hint := "\n" + mutedStyle.Render("  No bookmarks yet.")
+		if !m.isActiveBookmarked() {
+			hint += "\n" + mutedStyle.Render("  Press [b] to bookmark "+shortenPath(m.activeFolder))
+		}
+		return hint
 	}
 
-	// 2. Measure chrome, size list to fill remaining space.
-	chromeH := lipgloss.Height(sectionHeader)
-	listH := m.height - chromeH
-	if listH < 1 {
-		listH = 1
+	var header string
+	listH := m.height
+	if !m.isActiveBookmarked() {
+		header = mutedStyle.Render("  "+shortenPath(m.activeFolder)) +
+			mutedStyle.Render(" is not bookmarked. Press [b] to add it.") + "\n"
+		listH = max(1, m.height-lipgloss.Height(header))
 	}
-	m.list.SetSize(m.width, listH)
 
-	// 3. Assemble.
-	return sectionHeader + m.list.View()
+	m.list.SetSize(m.width, max(1, listH))
+	return header + m.list.View()
 }
 
-func (m pickerModel) addCurrentDir(app *App) tea.Cmd {
+// isActiveBookmarked returns true if the active folder is in the bookmarks list.
+func (m bookmarksModel) isActiveBookmarked() bool {
+	for _, fs := range m.folders {
+		if fs.Folder.Path == m.activeFolder {
+			return true
+		}
+	}
+	return false
+}
+
+// bookmarkAddedMsg is sent after successfully adding a folder to bookmarks.
+type bookmarkAddedMsg struct {
+	path string
+}
+
+// bookmarkRemovedMsg is sent after successfully removing a folder from bookmarks.
+type bookmarkRemovedMsg struct {
+	path string
+}
+
+func (m bookmarksModel) addCurrentDir(app *App) tea.Cmd {
 	return func() tea.Msg {
 		if err := app.folders.Add(app.cwd); err != nil {
 			return errMsg{err: fmt.Errorf("adding folder: %w", err)}
 		}
-		return app.loadDataCmd()
+		return bookmarkAddedMsg{path: app.cwd}
 	}
 }
 
-func (m pickerModel) removeSelected(app *App) tea.Cmd {
+func (m bookmarksModel) removeSelected(app *App) tea.Cmd {
 	item := m.list.SelectedItem()
 	if item == nil {
 		return nil
@@ -150,6 +167,6 @@ func (m pickerModel) removeSelected(app *App) tea.Cmd {
 		if err := app.folders.Remove(path); err != nil {
 			return errMsg{err: fmt.Errorf("removing folder: %w", err)}
 		}
-		return app.loadDataCmd()
+		return bookmarkRemovedMsg{path: path}
 	}
 }
