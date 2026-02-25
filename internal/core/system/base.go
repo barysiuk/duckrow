@@ -379,7 +379,7 @@ func (b *BaseSystem) installMCP(a asset.Asset, projectDir string, opts InstallOp
 	}
 
 	// Build the MCP config value as JSON.
-	mcpValueJSON := b.buildMCPConfig(meta)
+	mcpValueJSON := b.buildMCPConfig(a.Name, meta)
 
 	// Determine the patch operation.
 	op := "add"
@@ -445,10 +445,10 @@ func (b *BaseSystem) removeMCP(name string, projectDir string) error {
 
 // buildMCPConfig produces the default MCP JSON value for stdio MCPs.
 // Systems with custom formats override Install() instead.
-func (b *BaseSystem) buildMCPConfig(meta asset.MCPMeta) string {
+func (b *BaseSystem) buildMCPConfig(name string, meta asset.MCPMeta) string {
 	if meta.IsStdio() {
 		// Default: { "command": "duckrow", "args": ["env", "--mcp", ...] }
-		wrapperArgs := []string{"env", "--mcp", meta.Command, "--"}
+		wrapperArgs := []string{"env", "--mcp", name, "--"}
 		wrapperArgs = append(wrapperArgs, meta.Command)
 		wrapperArgs = append(wrapperArgs, meta.Args...)
 

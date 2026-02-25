@@ -30,6 +30,12 @@ exists myproject/.cursor/mcp.json
 file-contains myproject/.cursor/mcp.json 'my-db'
 file-contains myproject/.cursor/mcp.json 'duckrow'
 file-contains myproject/.cursor/mcp.json 'env'
+# Verify the --mcp flag passes the MCP name (not the command binary).
+# The last arg ("psql") is the only place the command binary should appear,
+# without a trailing comma. If --mcp incorrectly received the command binary,
+# "psql" would appear twice — once with a comma (as the --mcp value) and
+# once without (as the final arg).
+! file-contains myproject/.cursor/mcp.json '"psql",'
 
 # Test: Install a second MCP
 exec duckrow mcp install simple-mcp -d myproject
