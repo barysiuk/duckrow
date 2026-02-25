@@ -11,26 +11,28 @@ cmd/duckrow/              CLI entrypoint and integration tests
   main.go                 Entrypoint
   main_test.go            TestMain + testscript runner + custom commands
 internal/core/            Core library (zero UI dependencies)
-  agents.json             Agent definitions (9 agents)
-  agents.go               Agent loading, detection, path resolution
+  asset/                  Asset handler interfaces and implementations (skill, MCP)
+  system/                 System interfaces and implementations (7 systems)
   auth.go                 Clone error classification, SSH/HTTPS hints
-  types.go                Domain types
+  compat.go               Legacy type adapters for backward compatibility
   config.go               Config management (~/.duckrow/)
+  env.go                  Environment variable resolution for MCP servers
   folder.go               Folder tracking
+  helpers.go              Shared utility functions
+  lockfile.go             Lock file v3 (unified assets array)
+  orchestrator.go         Coordination layer for install/remove/scan
+  registry.go             Private registry management (v1/v2 manifests)
   source.go               Source URL parsing
-  scanner.go              Agent detection + skill scanning
-  installer.go            Skill installation
-  remover.go              Skill removal
-  registry.go             Private registry management
+  types.go                Domain types
 internal/tui/             Interactive terminal UI (Bubble Tea)
   app.go                  Main TUI model, view routing, data loading
   folder.go               Folder view — skill list, preview, removal
   install.go              Install view — skill/MCP picking list
-  asset_wizard.go         Asset install wizard
+  asset_wizard.go         Asset install wizard (system selection, env vars)
   wizard.go               Shared wizard component
   registry_wizard.go      Registry add wizard
   bookmarks.go            Bookmarks view — folder switching
-  sidebar.go              Sidebar panel — folder info, agents
+  sidebar.go              Sidebar panel — folder info, systems
   tabs.go                 Tab bar component
   statusbar.go            Status bar (transient messages, spinner)
   settings.go             Settings view — registry management
@@ -44,10 +46,11 @@ internal/tui/             Interactive terminal UI (Bubble Tea)
 ## Design Rules
 
 1. **Core has zero UI dependencies** — no TUI/CLI imports in `internal/core/`
-2. **Core exposes clean interfaces** — functions, structs, errors
+2. **Core exposes clean interfaces** — `asset.Handler` and `system.System` interfaces
 3. **TUI consumes core** — `internal/tui/` builds the interactive UI on top of core
 4. **CLI commands are thin wrappers** — subcommands in `cmd/` delegate to core; the root command launches the TUI
 5. **Core is independently testable** — unit tests without CLI or TUI
+6. **Pluggable architecture** — new asset kinds (skill, MCP, future: rule) and systems are added by implementing interfaces, not by modifying switch blocks
 
 ## Running Tests
 
@@ -78,10 +81,13 @@ Custom testscript commands available:
 
 ## Key Concepts
 
-- **Universal agents** (OpenCode, Codex, Gemini CLI, GitHub Copilot) share `.agents/skills/`
-- **Non-universal agents** (Cursor, Claude Code, Goose, Windsurf, Cline) get symlinks from their own skills dir to `.agents/skills/`
+- **Universal systems** (OpenCode, Codex, Gemini CLI, GitHub Copilot) share `.agents/skills/`
+- **Non-universal systems** (Cursor, Claude Code, Goose) get symlinks from their own skills dir to `.agents/skills/`
 - **Skills** are directories containing a `SKILL.md` file with YAML frontmatter
-- **Registries** are git repos with a `duckrow.json` manifest listing available skills
+- **MCP servers** are config entries written into system-specific config files
+- **Registries** are git repos with a `duckrow.json` manifest listing available skills and MCPs
+- **Asset handlers** (`asset.Handler`) define how each kind is discovered, installed, and removed
+- **Systems** (`system.System`) define where assets are stored and how configs are written
 
 ## Branch Naming
 

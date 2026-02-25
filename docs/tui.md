@@ -11,7 +11,7 @@ duckrow includes an interactive terminal UI built with [Bubble Tea](https://gith
 The TUI uses a bordered panel layout:
 
 - **Content panel** — the main area showing the active view
-- **Sidebar** (right) — a fixed 38-column panel titled "Info" showing the current folder path, bookmark status, and detected agents. The sidebar is visible only in the folder view and hides automatically when the terminal is too narrow.
+- **Sidebar** (right) — a fixed 38-column panel titled "Info" showing the current folder path, bookmark status, and detected systems. The sidebar is visible only in the folder view and hides automatically when the terminal is too narrow.
 - **Status bar** (bottom) — a single-line bar with three zones: transient messages (left), help keybindings (center), and background task spinner (right)
 
 ## Views
@@ -30,12 +30,12 @@ The TUI has several views you navigate between:
 
 ### Folder View (Main)
 
-The folder view uses **tabs** to switch between **Skills** and **MCPs**. Each tab has its own independent list with filtering. Press `Tab` / `Shift+Tab` to switch tabs.
+The folder view uses **tabs** to switch between **Skills** and **MCP Servers**. Each tab has its own independent list with filtering. Press `Tab` / `Shift+Tab` to switch tabs.
 
 | Key | Action | Notes |
 |-----|--------|-------|
 | `j` / `k` | Move up/down | Arrow keys also work |
-| `Tab` / `Shift+Tab` | Switch tab | Cycles between Skills and MCPs tabs |
+| `Tab` / `Shift+Tab` | Switch tab | Cycles between Skills and MCP Servers tabs |
 | `enter` | Preview skill | Opens SKILL.md in a scrollable view (Skills tab only) |
 | `/` | Filter | Type to search, `esc` to clear |
 | `d` | Remove item | Removes selected skill or MCP; confirmation prompt before removal |
@@ -62,7 +62,7 @@ The bookmarks view is a full-screen list with built-in filtering. If duckrow was
 
 ### Install Picker
 
-The install picker is context-aware: pressing `i` from the **Skills** tab shows only skills, and pressing `i` from the **MCPs** tab shows only MCPs.
+The install picker is context-aware: pressing `i` from the **Skills** tab shows only skills, and pressing `i` from the **MCP Servers** tab shows only MCPs.
 
 | Key | Action |
 |-----|--------|
@@ -71,14 +71,14 @@ The install picker is context-aware: pressing `i` from the **Skills** tab shows 
 | `/` | Filter |
 | `esc` | Back to folder view |
 
-**Skill install wizard:** after selecting a skill, an agent selection step appears if non-universal agents are detected. Use `space`/`x` to toggle agents, `a` to select all/none, and `enter` to proceed with installation.
+**Skill install wizard:** after selecting a skill, a system selection step appears if non-universal systems are detected. Use `space`/`x` to toggle systems, `a` to select all/none, and `enter` to proceed with installation.
 
 **MCP install wizard:** selecting an MCP opens a multi-step wizard:
 
-1. **Agent selection** — choose which MCP-capable agents to configure (OpenCode, Claude Code, Cursor, GitHub Copilot). Detected agents are pre-selected; toggle with `space`/`x`.
+1. **System selection** — choose which MCP-capable systems to configure (OpenCode, Claude Code, Cursor, GitHub Copilot). Detected systems are pre-selected; toggle with `space`/`x`.
 2. **Preview** — shows the MCP details and the status of any required environment variables (already set, missing, etc.)
 3. **Env var entry** — if required env vars are missing, you are prompted to enter each value one at a time. After entering a value, choose whether to save it to the **project** `.env.duckrow` or to the **global** `~/.duckrow/.env.duckrow`.
-4. **Install** — duckrow writes the MCP config into each agent's config file and updates the lock file.
+4. **Install** — duckrow writes the MCP config into each system's config file and updates the lock file.
 
 ### Settings
 
@@ -106,7 +106,7 @@ The sidebar panel (titled "Info") is shown to the right of the folder view when 
 
 - **Folder:** the shortened path of the active folder
 - **Bookmarked:** Yes or No (with an italic `([b] to bookmark)` hint when not bookmarked)
-- **Agents:** list of detected agents in the active folder (based on config artifacts like `.cursor/`, `codex.md`, `.github/copilot-instructions.md`, etc.)
+- **Systems:** list of detected systems in the active folder (based on config artifacts like `.cursor/`, `codex.md`, `.github/copilot-instructions.md`, etc.)
 
 ## Update Detection
 
@@ -139,7 +139,7 @@ When updates are available:
 
 **All skills** — press `U` to update all skills with available updates at once. A confirmation dialog shows the total count. Updates are applied sequentially; if one fails, the rest continue. A status bar message shows the result (e.g., `Updated 3 skills` or `Updated 2 skills, 1 errors`).
 
-Updates preserve existing agent symlinks — no agent selection is needed during updates.
+Updates preserve existing system symlinks — no system selection is needed during updates.
 
 ### Refreshing
 
@@ -162,15 +162,15 @@ The status bar occupies the bottom line of the terminal and has three zones:
 
 ## MCP Management
 
-The folder view shows installed MCPs in the **MCPs** tab. Each row shows the MCP name, its description (if available from the registry), and the agents it is configured for.
+The folder view shows installed MCPs in the **MCP Servers** tab. Each row shows the MCP name, its description (if available from the registry), and the systems it is configured for.
 
 ### Installing MCPs
 
-Press `i` from the MCPs tab to open the install picker filtered to MCPs. Select an MCP and follow the multi-step install wizard (see [Install Picker](#install-picker) above).
+Press `i` from the MCP Servers tab to open the install picker filtered to MCPs. Select an MCP and follow the multi-step install wizard (see [Install Picker](#install-picker) above).
 
 ### Removing MCPs
 
-Switch to the MCPs tab with `Tab`, select the MCP, and press `d`. A confirmation prompt shows before removal. duckrow removes the MCP entry from all agent config files that contain it and updates the lock file.
+Switch to the MCP Servers tab with `Tab`, select the MCP, and press `d`. A confirmation prompt shows before removal. duckrow removes the MCP entry from all system config files that contain it and updates the lock file.
 
 ### Env Var Entry Flow
 

@@ -15,11 +15,11 @@ duckrow fixes this. It gives your team a single way to distribute, install, and 
 **How it works:**
 
 - **Set up a private registry** — a git repo with a manifest listing your team's approved skills and MCP servers
-- **Install skills by name** — `duckrow install --skill code-review` pulls the right version from the registry
+- **Install skills by name** — `duckrow skill install code-review` pulls the right version from the registry
 - **Install MCPs by name** — `duckrow mcp install internal-db` writes the MCP config into agent files automatically
 - **Pin with a lock file** — every install records the exact git commit (skills) or config hash (MCPs) in `duckrow.lock.json`, just like `package-lock.json` or `uv.lock`
 - **Sync across the team** — teammates run `duckrow sync` and get identical skills and MCP configs, no manual setup
-- **Update when ready** — `duckrow outdated` shows what changed, `duckrow update` moves forward
+- **Update when ready** — `duckrow skill outdated` shows what changed, `duckrow skill update` moves forward
 
 One binary, no dependencies. Works with any git host. Has a nice intuitive TUI.
 
@@ -32,8 +32,11 @@ brew install barysiuk/tap/duckrow
 # Bookmark a project
 duckrow bookmark add ~/code/my-app
 
-# Install a skill
-duckrow install acme/skills -d ~/code/my-app
+# Install a skill from a registry
+duckrow skill install code-review -d ~/code/my-app
+
+# Install a skill from a GitHub repo
+duckrow skill install acme/skills -d ~/code/my-app
 
 # Install an MCP server config
 duckrow mcp install internal-db -d ~/code/my-app
@@ -52,7 +55,7 @@ Run `duckrow` to launch the terminal UI. Browse installed skills and MCP configs
 
 Key actions: navigate with `j`/`k`, preview a skill with `enter`, install with `i`, remove with `d`, update with `u`/`U`, refresh registries with `r`, switch folders with `b` (bookmarks), and open settings with `s`. Press `?` for the full keybinding reference.
 
-The folder view uses tabs to switch between installed skills and MCPs. The install picker is context-aware — pressing `i` from the Skills tab shows available skills, and from the MCPs tab shows available MCPs, each with a multi-step wizard for agent selection and env var setup.
+The folder view uses tabs to switch between installed skills and MCPs. The install picker is context-aware — pressing `i` from the Skills tab shows available skills, and from the MCPs tab shows available MCPs, each with a multi-step wizard for system selection and env var setup.
 
 The TUI automatically detects available updates for registry-tracked skills and shows update badges inline. Registry data is refreshed asynchronously in the background — the UI is fully interactive from the first frame.
 
@@ -66,10 +69,10 @@ Every action in the TUI also works as a direct command — useful for scripting,
 $ duckrow bookmark add .
 Bookmarked: /Users/me/code/my-app
 
-$ duckrow install vercel/agents -d . --skill code-review
+$ duckrow skill install acme/skills -d .
 Installed: code-review
   Path: .agents/skills/code-review
-  Agents: OpenCode, Codex, Gemini CLI, GitHub Copilot
+  Systems: OpenCode, Codex, Gemini CLI, GitHub Copilot
 
 $ duckrow mcp install internal-db -d .
 Installing MCP "internal-db" from registry "my-org"...
@@ -91,16 +94,16 @@ Folder: /Users/me/code/my-app [tracked]
   MCPs (1):
     - internal-db          Query the internal database  [OpenCode, Claude Code, Cursor]
 
-$ duckrow uninstall code-review -d .
+$ duckrow skill uninstall code-review -d .
 Removed: code-review
 ```
 
-## Supported Agents
+## Supported Systems
 
-duckrow detects which agents you use and installs skills to the right directories automatically.
+duckrow detects which systems you use and installs skills to the right directories automatically.
 
-| Agent | Skills Directory | Type | MCP Config |
-|-------|-----------------|------|------------|
+| System | Skills Directory | Type | MCP Config |
+|--------|-----------------|------|------------|
 | OpenCode | `.agents/skills/` | Universal | `opencode.json` / `opencode.jsonc` |
 | Codex | `.agents/skills/` | Universal | — |
 | Gemini CLI | `.agents/skills/` | Universal | — |
@@ -108,14 +111,12 @@ duckrow detects which agents you use and installs skills to the right directorie
 | Claude Code | `.claude/skills/` | Symlinked | `.mcp.json` |
 | Cursor | `.cursor/skills/` | Symlinked | `.cursor/mcp.json` |
 | Goose | `.goose/skills/` | Symlinked | — |
-| Windsurf | `.windsurf/skills/` | Symlinked | — |
-| Cline | `.cline/skills/` | Symlinked | — |
 
-**Universal** agents share `.agents/skills/` — the skill is written there once.
+**Universal** systems share `.agents/skills/` — the skill is written there once.
 
-**Symlinked** agents have their own directory. duckrow creates symlinks from their directory back to `.agents/skills/`, so each skill exists in one place but works everywhere.
+**Symlinked** systems have their own directory. duckrow creates symlinks from their directory back to `.agents/skills/`, so each skill exists in one place but works everywhere.
 
-Agents with an MCP Config path support `duckrow mcp install` — duckrow writes MCP server configs directly into their config files, preserving existing content and comments.
+Systems with an MCP Config path support `duckrow mcp install` — duckrow writes MCP server configs directly into their config files, preserving existing content and comments.
 
 ## Commands
 
@@ -132,13 +133,15 @@ duckrow bookmark list           List all bookmarks
 ### Skills
 
 ```
-duckrow install [source]        Install skill(s) from a source or registry
-duckrow uninstall <skill-name>  Remove an installed skill
-duckrow uninstall-all           Remove all installed skills
-duckrow status [path]           Show skills and MCPs for a folder
-duckrow sync                    Install skills and MCPs from lock file at pinned versions
-duckrow outdated                Show skills with available updates
-duckrow update [skill-name]     Update skill(s) to the available commit
+duckrow skill install <source>    Install skill(s) from a source or registry
+duckrow skill uninstall <name>    Remove an installed skill
+duckrow skill uninstall --all     Remove all installed skills
+duckrow skill list                List installed skills
+duckrow skill outdated            Show skills with available updates
+duckrow skill update [name]       Update skill(s) to the available commit
+duckrow skill sync                Install skills from lock file
+duckrow status [path]             Show skills and MCPs for a folder
+duckrow sync                      Install skills and MCPs from lock file at pinned versions
 ```
 
 ### MCP Servers
@@ -146,6 +149,8 @@ duckrow update [skill-name]     Update skill(s) to the available commit
 ```
 duckrow mcp install <name>      Install an MCP server config from a registry
 duckrow mcp uninstall <name>    Remove an installed MCP server config
+duckrow mcp uninstall --all     Remove all installed MCP server configs
+duckrow mcp list                List installed MCP server configs
 duckrow mcp sync                Restore MCP configs from lock file
 ```
 
@@ -160,14 +165,14 @@ duckrow registry remove <name>  Remove a registry
 
 ### Install Sources
 
-The `install` command accepts multiple source formats:
+The `skill install` command accepts multiple source formats:
 
 ```bash
-duckrow install owner/repo                    # GitHub shorthand
-duckrow install owner/repo@skill-name         # Specific skill from a repo
-duckrow install https://github.com/owner/repo # Full URL
-duckrow install git@host:owner/repo.git       # SSH clone URL
-duckrow install --skill go-review             # Install from configured registries
+duckrow skill install owner/repo                    # GitHub shorthand
+duckrow skill install owner/repo@skill-name         # Specific skill from a repo
+duckrow skill install https://github.com/owner/repo # Full URL
+duckrow skill install git@host:owner/repo.git       # SSH clone URL
+duckrow skill install go-review                     # Install from configured registries
 ```
 
 **Flags:**
@@ -175,15 +180,14 @@ duckrow install --skill go-review             # Install from configured registri
 | Flag | Short | Description |
 |------|-------|-------------|
 | `--dir` | `-d` | Target directory (default: current directory) |
-| `--skill` | `-s` | Install only a specific skill by name |
-| `--registry` | `-r` | Registry to search (with `--skill`, no source) |
+| `--registry` | `-r` | Registry to search (disambiguates duplicates) |
 | `--internal` | | Include internal (hidden) skills |
-| `--agents` | | Comma-separated agent names for symlinks |
+| `--systems` | | Comma-separated system names for symlinks |
 | `--no-lock` | | Skip writing to the lock file |
 
 ## Bookmarks
 
-Bookmarks are project folders you want to manage with duckrow. Add any directory on your system and duckrow will keep track of which skills and agents are active there. This gives you a single view across your entire file system — no matter how many repos you work in.
+Bookmarks are project folders you want to manage with duckrow. Add any directory on your system and duckrow will keep track of which skills and systems are active there. This gives you a single view across your entire file system — no matter how many repos you work in.
 
 ```bash
 duckrow bookmark add ~/code/frontend
@@ -199,39 +203,43 @@ Teams can maintain a curated catalog of approved skills using a private git repo
 
 ### Setting up a registry
 
-Create a git repository with a `duckrow.json` file. Registries can list both skills and MCP server configurations:
+Create a git repository with a `duckrow.json` file. Registries can list both skills and MCP server configurations. The v2 manifest uses an `assets` map keyed by kind:
 
 ```json
 {
   "name": "my-org",
   "description": "Our team's approved skills and MCPs",
-  "skills": [
-    {
-      "name": "code-review",
-      "description": "Review code with our style guidelines",
-      "source": "github.com/my-org/skills/code-review",
-      "commit": "a1b2c3d4e5f6789012345678901234567890abcd"
-    }
-  ],
-  "mcps": [
-    {
-      "name": "internal-db",
-      "description": "Query the internal database",
-      "command": "npx",
-      "args": ["-y", "@my-org/mcp-db"],
-      "env": {
-        "DB_URL": ""
+  "assets": {
+    "skill": [
+      {
+        "name": "code-review",
+        "description": "Review code with our style guidelines",
+        "source": "github.com/my-org/skills/code-review",
+        "commit": "a1b2c3d4e5f6789012345678901234567890abcd"
       }
-    },
-    {
-      "name": "analytics-api",
-      "description": "Access the analytics API",
-      "url": "https://mcp.my-org.internal/analytics",
-      "type": "http"
-    }
-  ]
+    ],
+    "mcp": [
+      {
+        "name": "internal-db",
+        "description": "Query the internal database",
+        "command": "npx",
+        "args": ["-y", "@my-org/mcp-db"],
+        "env": {
+          "DB_URL": ""
+        }
+      },
+      {
+        "name": "analytics-api",
+        "description": "Access the analytics API",
+        "url": "https://mcp.my-org.internal/analytics",
+        "type": "http"
+      }
+    ]
+  }
 }
 ```
+
+The v1 format with top-level `skills` and `mcps` arrays is still supported for backward compatibility.
 
 MCP entries are either **stdio** (command-based) or **remote** (URL-based). For stdio MCPs with `env` fields, duckrow wraps the command with `duckrow env` at runtime to inject secret values from `.env.duckrow` files without committing them to the config.
 
@@ -270,21 +278,21 @@ metadata:
 Your skill instructions go here...
 ```
 
-When you run `duckrow install`, duckrow:
+When you run `duckrow skill install`, duckrow:
 
 1. Clones the source repo
 2. Walks the directory tree to discover all `SKILL.md` files
 3. Copies each skill to `.agents/skills/<name>/` (the canonical location)
-4. Creates symlinks in each requested agent's skills directory (e.g., `.cursor/skills/<name>/` -> `.agents/skills/<name>/`)
+4. Creates symlinks in each requested system's skills directory (e.g., `.cursor/skills/<name>/` -> `.agents/skills/<name>/`)
 5. Records the exact git commit in `duckrow.lock.json`
 
-This means each skill exists once on disk but is available to every agent.
+This means each skill exists once on disk but is available to every system.
 
 When you run `duckrow mcp install <name>`, duckrow:
 
 1. Looks up the MCP entry in configured registries
-2. Detects which agents in the project support MCP (or uses the `--agents` flag)
-3. Writes the MCP server entry into each agent's config file (e.g., `opencode.json`, `.mcp.json`, `.cursor/mcp.json`)
+2. Detects which systems in the project support MCP (or uses the `--systems` flag)
+3. Writes the MCP server entry into each system's config file (e.g., `opencode.json`, `.mcp.json`, `.cursor/mcp.json`)
 4. For stdio MCPs, wraps the command with `duckrow env --mcp <name>` so env var secrets are injected at runtime from `.env.duckrow`
 5. Records the MCP name, registry, and config hash in `duckrow.lock.json`
 
@@ -292,18 +300,18 @@ Skills can also be installed directly from a configured registry by name, withou
 
 ## Lock File
 
-Every `duckrow install` records the exact git commit in `duckrow.lock.json`. Every `duckrow mcp install` records the MCP name, registry, and a config hash. Commit this file to version control so your team gets reproducible installs.
+Every `duckrow skill install` records the exact git commit in `duckrow.lock.json`. Every `duckrow mcp install` records the MCP name, registry, and a config hash. Commit this file to version control so your team gets reproducible installs.
 
 ```bash
 # Teammates clone the repo and run sync to get identical skills and MCP configs
 duckrow sync
 
 # Check which skills have newer commits available
-duckrow outdated
+duckrow skill outdated
 
 # Update a specific skill (or all at once)
-duckrow update go-review
-duckrow update --all
+duckrow skill update go-review
+duckrow skill update --all
 ```
 
 See [docs/lock-file.md](docs/lock-file.md) for the full lock file reference.
