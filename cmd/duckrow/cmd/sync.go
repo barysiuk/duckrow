@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"os"
 
+	"github.com/barysiuk/duckrow/internal/core/asset"
 	"github.com/spf13/cobra"
 )
 
@@ -24,41 +25,36 @@ This is equivalent to running duckrow skill sync and duckrow mcp sync in sequenc
 		fmt.Fprintln(os.Stdout, "Syncing from duckrow.lock.json...")
 		fmt.Fprintln(os.Stdout)
 
-		// Sync skills.
-		skillResult, skillErr := runSkillSync(cmd)
-		if skillResult != nil {
-			fmt.Fprintf(os.Stdout, "Skills: %d installed, %d skipped, %d errors\n",
-				skillResult.installed, skillResult.skipped, skillResult.errors)
-		} else if skillErr != nil {
-			fmt.Fprintf(os.Stderr, "Skills: error: %v\n", skillErr)
+		var firstErr error
+
+		for _, kind := range asset.Kinds() {
+			result, err := runAssetSyncInner(cmd, kind)
+
+			handler, _ := asset.Get(kind)
+			display := handler.DisplayName()
+
+			if result != nil {
+				fmt.Fprintf(os.Stdout, "%ss: %d installed, %d skipped, %d errors\n",
+					display, result.installed, result.skipped, result.errors)
+				if kind == asset.KindMCP {
+					printRequiredEnvSummary(result.requiredEnv)
+				}
+				if firstErr == nil && result.errors > 0 {
+					firstErr = fmt.Errorf("%d %s(s) failed to sync", result.errors, display)
+				}
+			} else if err != nil {
+				fmt.Fprintf(os.Stderr, "%ss: error: %v\n", display, err)
+				if firstErr == nil {
+					firstErr = err
+				}
+			}
 		}
 
-		// Sync MCPs.
-		mcpResult, mcpErr := runMCPSync(cmd)
-		if mcpResult != nil {
-			fmt.Fprintf(os.Stdout, "MCPs:   %d installed, %d skipped, %d errors\n",
-				mcpResult.installed, mcpResult.skipped, mcpResult.errors)
-			printRequiredEnvSummary(mcpResult.requiredEnv)
-		} else if mcpErr != nil {
-			fmt.Fprintf(os.Stderr, "MCPs:   error: %v\n", mcpErr)
+		if firstErr == nil {
+			fmt.Fprintln(os.Stdout, "\nSynced successfully.")
 		}
 
-		fmt.Fprintln(os.Stdout, "\nSynced successfully.")
-
-		// Return the first error encountered.
-		if skillErr != nil {
-			return skillErr
-		}
-		if skillResult != nil && skillResult.errors > 0 {
-			return fmt.Errorf("%d skill(s) failed to sync", skillResult.errors)
-		}
-		if mcpErr != nil {
-			return mcpErr
-		}
-		if mcpResult != nil && mcpResult.errors > 0 {
-			return fmt.Errorf("%d MCP(s) failed to sync", mcpResult.errors)
-		}
-		return nil
+		return firstErr
 	},
 }
 
@@ -66,6 +62,6 @@ func init() {
 	syncCmd.Flags().StringP("dir", "d", "", "Target directory (default: current directory)")
 	syncCmd.Flags().Bool("dry-run", false, "Show what would be done without making changes")
 	syncCmd.Flags().Bool("force", false, "Overwrite existing MCP entries in agent config files")
-	syncCmd.Flags().String("agents", "", "Comma-separated agent names to target (e.g. cursor,claude-code)")
+	addSystemsFlag(syncCmd)
 	rootCmd.AddCommand(syncCmd)
 }

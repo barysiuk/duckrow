@@ -14,7 +14,7 @@ setup-config-override test-owner/test-repo skill-source
 # Install with --agents=cursor (only create cursor symlink)
 exec duckrow skill install https://github.com/test-owner/test-repo -d myproject --agents=cursor
 stdout 'Installed: agent-test'
-stdout 'Cursor'
+stdout 'cursor'
 exists myproject/.agents/skills/agent-test/SKILL.md
 exists myproject/.cursor/skills/agent-test
 is-symlink myproject/.cursor/skills/agent-test
@@ -36,8 +36,8 @@ is-symlink myproject/.cursor/skills/agent-test
 exists myproject/.claude/skills/agent-test
 is-symlink myproject/.claude/skills/agent-test
 
-# No windsurf dir should be created
-dir-not-exists myproject/.windsurf/skills
+# No goose dir should be created
+dir-not-exists myproject/.goose/skills
 
 # Clean up
 exec duckrow skill uninstall agent-test -d myproject
@@ -57,7 +57,7 @@ exec duckrow skill uninstall agent-test -d myproject
 
 # Install with invalid agent name should fail
 ! exec duckrow skill install https://github.com/test-owner/test-repo -d myproject --agents=nonexistent
-stderr 'unknown agent "nonexistent"'
+stderr 'unknown system "nonexistent"'
 
 -- skill-md --
 ---

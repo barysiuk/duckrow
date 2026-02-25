@@ -23,7 +23,6 @@ stdout 'sync'
 # Test help for skill install
 exec duckrow skill install --help
 stdout 'source-or-name'
-stdout 'git URL'
 stdout 'registry'
 
 # Test help for mcp subcommand

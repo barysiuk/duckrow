@@ -33,7 +33,7 @@ Run without arguments to launch the interactive TUI.`,
 			return err
 		}
 
-		app := tui.NewApp(d.config, d.agents, Version)
+		app := tui.NewApp(d.config, Version)
 		p := tea.NewProgram(app, tea.WithAltScreen())
 		_, err = p.Run()
 		return err
@@ -50,6 +50,7 @@ var versionCmd = &cobra.Command{
 
 func init() {
 	rootCmd.AddCommand(versionCmd)
+	registerAssetCommands()
 }
 
 // Execute runs the root command.

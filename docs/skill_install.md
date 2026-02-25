@@ -29,7 +29,7 @@ Only `name` is mandatory. Skills without a valid `name` field are silently skipp
 
 ## Source Formats
 
-duckrow accepts several source formats for `duckrow install`:
+duckrow accepts several source formats for `duckrow skill install`:
 
 | Format | Example | What Happens |
 |--------|---------|-------------|
@@ -38,7 +38,7 @@ duckrow accepts several source formats for `duckrow install`:
 | Subpath syntax | `acme/skills/path/to/skill` | Clones repo, searches only within subpath |
 | HTTPS URL | `https://github.com/acme/skills.git` | Clones from full URL |
 | SSH URL | `git@github.com:acme/skills.git` | Clones via SSH |
-| Registry skill | `--skill go-review` (no source) | Looks up skill in configured registries |
+| Registry skill name | `go-review` (no source prefix) | Looks up skill in configured registries |
 
 GitHub and GitLab hosts are auto-detected from URLs. Other hosts fall back to generic git.
 
@@ -114,14 +114,14 @@ my-repo/
 | Source type | Action |
 |-------------|--------|
 | Git repo (GitHub/GitLab/SSH/HTTPS) | Shallow clone (`--depth 1`) to temp directory |
-| Registry (`--skill` without source) | Looks up `Source` field in registry manifest, then clones that repo |
+| Registry (name without source prefix) | Looks up `Source` field in registry manifest, then clones that repo |
 | Lock file commit | Uses `git init` + `git fetch --depth 1 origin <commit>` to clone at exact commit |
 
 Git clones use `GIT_TERMINAL_PROMPT=0` to prevent interactive auth prompts and have a 60-second timeout.
 
 ### Step 2: Apply Skill Filter
 
-If `--skill <name>` or `@skill-name` syntax was used, only skills matching that exact name (case-sensitive) are kept. If no match is found, an error lists all available skill names.
+If `@skill-name` syntax was used, only skills matching that exact name (case-sensitive) are kept. If no match is found, an error lists all available skill names.
 
 ### Step 3: Copy to Canonical Location
 
@@ -141,9 +141,9 @@ The name is sanitized: lowercased, non-alphanumeric characters replaced with `-`
 
 Install is always a full overwrite -- the target directory is deleted and recreated.
 
-### Step 4: Create Agent Symlinks
+### Step 4: Create System Symlinks
 
-For non-universal agents specified via `--agents`, relative symlinks are created from the agent's skill directory back to the canonical location:
+For non-universal systems specified via `--systems`, relative symlinks are created from the system's skill directory back to the canonical location:
 
 ```
 .cursor/skills/go-review -> ../../.agents/skills/go-review
@@ -151,40 +151,38 @@ For non-universal agents specified via `--agents`, relative symlinks are created
 
 If symlink creation fails (e.g., on Windows), falls back to a full directory copy.
 
-## Agents
+## Systems
 
-duckrow knows about 9 AI coding agents, split into two categories.
+duckrow knows about 7 AI coding systems, split into two categories.
 
-### Universal Agents
+### Universal Systems
 
 These read directly from `.agents/skills/` -- they always receive installed skills with no extra setup:
 
-| Agent | Skills Directory | Alt Directories |
-|-------|-----------------|-----------------|
+| System | Skills Directory | Alt Directories |
+|--------|-----------------|-----------------|
 | OpenCode | `.agents/skills` | `.opencode/skills` |
 | Codex | `.agents/skills` | - |
 | Gemini CLI | `.agents/skills` | - |
 | GitHub Copilot | `.agents/skills` | `.github/skills` |
 
-### Non-Universal Agents
+### Non-Universal Systems
 
-These have their own skill directories. They only receive skills when explicitly requested via `--agents`:
+These have their own skill directories. They only receive skills when explicitly requested via `--systems`:
 
-| Agent | Skills Directory |
-|-------|-----------------|
+| System | Skills Directory |
+|--------|-----------------|
 | Claude Code | `.claude/skills` |
 | Cursor | `.cursor/skills` |
 | Goose | `.goose/skills` |
-| Windsurf | `.windsurf/skills` |
-| Cline | `.cline/skills` |
 
-When `--agents cursor,claude-code` is passed, duckrow:
+When `--systems cursor,claude-code` is passed, duckrow:
 1. Copies files to `.agents/skills/<skill>/` (canonical)
 2. Creates symlinks from `.cursor/skills/<skill>` and `.claude/skills/<skill>` to the canonical location
 
 ### Resulting Directory Structure
 
-After `duckrow install acme/skills --agents cursor,claude-code`:
+After `duckrow skill install acme/skills --systems cursor,claude-code`:
 
 ```
 project/
@@ -208,15 +206,15 @@ project/
 
 ## Internal Skills
 
-Skills can declare `metadata.internal: true` in their SKILL.md frontmatter. These are hidden by default -- `duckrow install` and `duckrow status` will not show them.
+Skills can declare `metadata.internal: true` in their SKILL.md frontmatter. These are hidden by default -- `duckrow skill install` and `duckrow status` will not show them.
 
 To include internal skills, pass `--internal`:
 
 ```bash
-duckrow install acme/skills --internal
+duckrow skill install acme/skills --internal
 ```
 
-When installing from a registry (via `--skill` without a source), internal skills are automatically included.
+When installing from a registry by name, internal skills are automatically included.
 
 Use case: organization-private registries with sensitive or specialized instructions that should not be surfaced to general users browsing a repo.
 
@@ -226,39 +224,45 @@ Registries are git repos containing a `duckrow.json` manifest that catalogs avai
 
 ### Registry Manifest Format
 
+The v2 manifest uses an `assets` map keyed by kind:
+
 ```json
 {
   "name": "my-org",
   "description": "Our team skills and MCPs",
-  "skills": [
-    {
-      "name": "go-review",
-      "description": "Reviews Go code for best practices",
-      "source": "github.com/acme/go-skills/skills/go-review",
-      "commit": "a1b2c3d4e5f6789012345678901234567890abcd"
-    }
-  ],
-  "mcps": [
-    {
-      "name": "internal-db",
-      "description": "Query the internal database",
-      "command": "npx",
-      "args": ["-y", "@acme/mcp-db"],
-      "env": {
-        "DB_URL": ""
+  "assets": {
+    "skill": [
+      {
+        "name": "go-review",
+        "description": "Reviews Go code for best practices",
+        "source": "github.com/acme/go-skills/skills/go-review",
+        "commit": "a1b2c3d4e5f6789012345678901234567890abcd"
       }
-    },
-    {
-      "name": "analytics-api",
-      "description": "Access the analytics API",
-      "url": "https://mcp.acme.internal/analytics",
-      "type": "http"
-    }
-  ]
+    ],
+    "mcp": [
+      {
+        "name": "internal-db",
+        "description": "Query the internal database",
+        "command": "npx",
+        "args": ["-y", "@acme/mcp-db"],
+        "env": {
+          "DB_URL": ""
+        }
+      },
+      {
+        "name": "analytics-api",
+        "description": "Access the analytics API",
+        "url": "https://mcp.acme.internal/analytics",
+        "type": "http"
+      }
+    ]
+  }
 }
 ```
 
-The `skills[].source` field should use canonical format (`host/owner/repo/path`). The `skills[].commit` field is optional — when present, it pins the skill to that exact git commit.
+The v1 format with top-level `skills` and `mcps` arrays is still supported for backward compatibility.
+
+The `skill[].source` field should use canonical format (`host/owner/repo/path`). The `skill[].commit` field is optional — when present, it pins the skill to that exact git commit.
 
 MCP entries are either **stdio** (with `command` and optional `args`/`env`) or **remote** (with `url` and optional `type`). The `env` object lists env vars required at runtime — values in the manifest are ignored; only the key names matter.
 
@@ -272,16 +276,16 @@ duckrow registry add https://github.com/acme/skill-registry.git
 duckrow registry list --verbose
 
 # 3. Install a skill by name — no need to know the repo
-duckrow install --skill go-review
+duckrow skill install go-review
 
 # 4. If the same skill name exists in multiple registries, disambiguate
-duckrow install --skill go-review --registry my-org
+duckrow skill install go-review --registry my-org
 
 # 5. Install an MCP server from the registry
 duckrow mcp install internal-db
 ```
 
-When `--skill` is used without a source argument:
+When a registry skill name is used without a URL/shorthand source:
 1. duckrow searches all configured registries for the skill name
 2. If found in exactly one registry, it reads the `Source` field
 3. Parses the source and clones/installs normally
@@ -306,17 +310,17 @@ The key is `owner/repo` (lowercase). When duckrow resolves a source matching tha
 ## Uninstalling
 
 ```bash
-# Remove a specific skill (canonical copy + all agent symlinks)
-duckrow uninstall go-review
+# Remove a specific skill (canonical copy + all system symlinks)
+duckrow skill uninstall go-review
 
 # Remove all skills
-duckrow uninstall-all
+duckrow skill uninstall --all
 ```
 
 Both commands accept `--dir` to target a specific directory and `--no-lock` to skip updating the lock file.
 
 ## Lock File
 
-Every install records the exact git commit in `duckrow.lock.json`. This enables reproducible installs via `duckrow sync`, update detection via `duckrow outdated`, and controlled updates via `duckrow update`.
+Every install records the exact git commit in `duckrow.lock.json`. This enables reproducible installs via `duckrow sync`, update detection via `duckrow skill outdated`, and controlled updates via `duckrow skill update`.
 
 See [lock-file.md](lock-file.md) for the full reference.

@@ -9,56 +9,106 @@ import (
 	tea "github.com/charmbracelet/bubbletea"
 
 	"github.com/barysiuk/duckrow/internal/core"
+	"github.com/barysiuk/duckrow/internal/core/asset"
+	"github.com/barysiuk/duckrow/internal/core/system"
 )
 
 // ---------------------------------------------------------------------------
-// Skill items (folder view — installed skills)
+// Installed asset items (folder view — unified for all asset kinds)
 // ---------------------------------------------------------------------------
 
-// skillItem wraps an InstalledSkill for the bubbles list.
+// assetItem represents an installed asset for display in the folder view.
+// It handles both disk-scanned assets (skills) and lock-file-only assets (MCPs).
 // Implements list.DefaultItem (Title + Description + FilterValue).
-type skillItem struct {
-	skill     core.InstalledSkill
-	hasUpdate bool
+type assetItem struct {
+	kind      asset.Kind
+	name      string
+	desc      string
+	path      string                // On-disk path (for skills with disk presence)
+	hasUpdate bool                  // Whether an update is available
+	installed *asset.InstalledAsset // Set for disk-scanned assets (skills)
+	locked    *asset.LockedAsset    // Set for lock-file-only assets (MCPs)
 }
 
-func (i skillItem) Title() string {
+func (i assetItem) Title() string {
 	if i.hasUpdate {
-		return i.skill.Name + "  " + warningStyle.Render("↓")
+		return i.name + "  " + warningStyle.Render("↓")
 	}
-	return i.skill.Name
+	return i.name
 }
 
-func (i skillItem) Description() string {
-	if i.skill.Description != "" {
-		return i.skill.Description
+func (i assetItem) Description() string {
+	// For lock-file items, show system names.
+	if i.locked != nil {
+		parts := []string{}
+		if i.desc != "" {
+			parts = append(parts, i.desc)
+		}
+		if systems := displaySystemNames(lockedSystems(*i.locked)); len(systems) > 0 {
+			parts = append(parts, strings.Join(systems, ", "))
+		}
+		if len(parts) == 0 {
+			handler, _ := asset.Get(i.kind)
+			if handler != nil {
+				return handler.DisplayName()
+			}
+			return string(i.kind)
+		}
+		return strings.Join(parts, " · ")
+	}
+
+	// For disk-scanned items.
+	if i.desc != "" {
+		return i.desc
 	}
 	return "No description"
 }
 
-func (i skillItem) FilterValue() string { return i.skill.Name }
+func (i assetItem) FilterValue() string { return i.name }
 
-// skillsToItems converts a slice of InstalledSkill to list items,
+// installedAssetsToItems converts a slice of InstalledAsset to list items,
 // optionally marking items that have updates available.
-func skillsToItems(skills []core.InstalledSkill, updateInfo map[string]core.UpdateInfo) []list.Item {
-	items := make([]list.Item, len(skills))
-	for i, s := range skills {
-		_, hasUpdate := updateInfo[s.Name]
-		items[i] = skillItem{skill: s, hasUpdate: hasUpdate}
+func installedAssetsToItems(kind asset.Kind, assets []asset.InstalledAsset, updateInfo map[string]core.UpdateInfo) []list.Item {
+	items := make([]list.Item, len(assets))
+	for i, a := range assets {
+		_, hasUpdate := updateInfo[a.Name]
+		items[i] = assetItem{
+			kind:      kind,
+			name:      a.Name,
+			desc:      a.Description,
+			path:      a.Path,
+			hasUpdate: hasUpdate,
+			installed: &assets[i],
+		}
+	}
+	return items
+}
+
+// lockedAssetsToItems converts locked assets (from lock file) to list items.
+// The descLookup provides descriptions from registry data keyed by asset name.
+func lockedAssetsToItems(kind asset.Kind, locked []asset.LockedAsset, descLookup map[string]string) []list.Item {
+	items := make([]list.Item, len(locked))
+	for i, la := range locked {
+		items[i] = assetItem{
+			kind:   kind,
+			name:   la.Name,
+			desc:   descLookup[la.Name],
+			locked: &locked[i],
+		}
 	}
 	return items
 }
 
 // ---------------------------------------------------------------------------
-// Registry skill items (install picker)
+// Registry asset items (install picker)
 // ---------------------------------------------------------------------------
 
-// registrySkillItem wraps a RegistrySkillInfo for the install picker list.
-type registrySkillItem struct {
-	info core.RegistrySkillInfo
+// registryAssetItem wraps a core.RegistryAssetInfo for the install picker list.
+type registryAssetItem struct {
+	info core.RegistryAssetInfo
 }
 
-func (i registrySkillItem) FilterValue() string { return i.info.Skill.Name }
+func (i registryAssetItem) FilterValue() string { return i.info.Entry.Name }
 
 // registrySeparatorItem is a non-selectable group header for registry names.
 type registrySeparatorItem struct {
@@ -68,19 +118,19 @@ type registrySeparatorItem struct {
 // FilterValue returns empty so separators are excluded from filter results.
 func (i registrySeparatorItem) FilterValue() string { return "" }
 
-// registrySkillDelegate renders registry skills and separator headers.
-type registrySkillDelegate struct{}
+// registryAssetDelegate renders registry assets and separator headers.
+type registryAssetDelegate struct{}
 
-func (d registrySkillDelegate) Height() int                             { return 1 }
-func (d registrySkillDelegate) Spacing() int                            { return 0 }
-func (d registrySkillDelegate) Update(_ tea.Msg, _ *list.Model) tea.Cmd { return nil }
+func (d registryAssetDelegate) Height() int                             { return 1 }
+func (d registryAssetDelegate) Spacing() int                            { return 0 }
+func (d registryAssetDelegate) Update(_ tea.Msg, _ *list.Model) tea.Cmd { return nil }
 
-func (d registrySkillDelegate) Render(w io.Writer, m list.Model, index int, item list.Item) {
+func (d registryAssetDelegate) Render(w io.Writer, m list.Model, index int, item list.Item) {
 	switch it := item.(type) {
 	case registrySeparatorItem:
 		_, _ = fmt.Fprint(w, renderSectionHeader(it.registryName, m.Width()))
 
-	case registrySkillItem:
+	case registryAssetItem:
 		isSelected := index == m.Index()
 
 		indicator := "    "
@@ -88,7 +138,7 @@ func (d registrySkillDelegate) Render(w io.Writer, m list.Model, index int, item
 			indicator = "  > "
 		}
 
-		name := it.info.Skill.Name
+		name := it.info.Entry.Name
 		var parts []string
 		if isSelected {
 			parts = append(parts, selectedItemStyle.Render(name))
@@ -96,148 +146,52 @@ func (d registrySkillDelegate) Render(w io.Writer, m list.Model, index int, item
 			parts = append(parts, normalItemStyle.Render(name))
 		}
 
-		if it.info.Skill.Description != "" {
-			parts = append(parts, mutedStyle.Render(it.info.Skill.Description))
+		if it.info.Entry.Description != "" {
+			parts = append(parts, mutedStyle.Render(it.info.Entry.Description))
 		}
 
-		_, _ = fmt.Fprint(w, indicator+strings.Join(parts, "  "))
-
-	case registryMCPItem:
-		isSelected := index == m.Index()
-
-		indicator := "    "
-		if isSelected {
-			indicator = "  > "
-		}
-
-		name := it.info.MCP.Name
-		var parts []string
-		if isSelected {
-			parts = append(parts, selectedItemStyle.Render(name))
-		} else {
-			parts = append(parts, normalItemStyle.Render(name))
-		}
-
-		if it.info.MCP.Description != "" {
-			parts = append(parts, mutedStyle.Render(it.info.MCP.Description))
-		}
-
-		// Show type indicator for MCPs.
-		if it.info.MCP.URL != "" {
-			parts = append(parts, mutedStyle.Render("(remote)"))
+		// Show type indicator for MCPs with remote URLs.
+		if it.info.Kind == asset.KindMCP {
+			if meta, ok := it.info.Entry.Meta.(asset.MCPMeta); ok && meta.URL != "" {
+				parts = append(parts, mutedStyle.Render("(remote)"))
+			}
 		}
 
 		_, _ = fmt.Fprint(w, indicator+strings.Join(parts, "  "))
 	}
 }
 
-// registrySkillsToItems converts registry skills to list items, inserting
+// registryAssetsToItems converts registry assets to list items, inserting
 // separator items between different registries.
 // Groups by RegistryRepo (unique) but displays RegistryName.
-func registrySkillsToItems(available []core.RegistrySkillInfo) []list.Item {
+func registryAssetsToItems(available []core.RegistryAssetInfo) []list.Item {
 	// Group by registry repo URL, preserving order.
 	type group struct {
 		name   string
-		skills []core.RegistrySkillInfo
+		assets []core.RegistryAssetInfo
 	}
 	groupMap := make(map[string]*group)
 	var order []string
-	for _, s := range available {
-		g, ok := groupMap[s.RegistryRepo]
+	for _, entry := range available {
+		g, ok := groupMap[entry.RegistryRepo]
 		if !ok {
-			g = &group{name: s.RegistryName}
-			groupMap[s.RegistryRepo] = g
-			order = append(order, s.RegistryRepo)
+			g = &group{name: entry.RegistryName}
+			groupMap[entry.RegistryRepo] = g
+			order = append(order, entry.RegistryRepo)
 		}
-		g.skills = append(g.skills, s)
+		g.assets = append(g.assets, entry)
 	}
 
 	var items []list.Item
 	for _, repoURL := range order {
 		g := groupMap[repoURL]
 		items = append(items, registrySeparatorItem{registryName: g.name})
-		for _, skill := range g.skills {
-			items = append(items, registrySkillItem{info: skill})
+		for _, entry := range g.assets {
+			items = append(items, registryAssetItem{info: entry})
 		}
 	}
 	return items
 }
-
-// registryMCPsToItems converts registry MCPs to list items, inserting
-// separator items between different registries.
-// Groups by RegistryRepo (unique) but displays RegistryName.
-func registryMCPsToItems(available []core.RegistryMCPInfo) []list.Item {
-	// Group by registry repo URL, preserving order.
-	type group struct {
-		name string
-		mcps []core.RegistryMCPInfo
-	}
-	groupMap := make(map[string]*group)
-	var order []string
-	for _, m := range available {
-		g, ok := groupMap[m.RegistryRepo]
-		if !ok {
-			g = &group{name: m.RegistryName}
-			groupMap[m.RegistryRepo] = g
-			order = append(order, m.RegistryRepo)
-		}
-		g.mcps = append(g.mcps, m)
-	}
-
-	var items []list.Item
-	for _, repoURL := range order {
-		g := groupMap[repoURL]
-		items = append(items, registrySeparatorItem{registryName: g.name})
-		for _, mcp := range g.mcps {
-			items = append(items, registryMCPItem{info: mcp})
-		}
-	}
-	return items
-}
-
-// ---------------------------------------------------------------------------
-// MCP items (folder view — installed MCPs from lock file)
-// ---------------------------------------------------------------------------
-
-// mcpItem represents an installed MCP for display in the folder view.
-// Implements list.DefaultItem (Title + Description + FilterValue).
-type mcpItem struct {
-	locked core.LockedMCP
-	desc   string // Description from registry, if available
-}
-
-func (i mcpItem) Title() string       { return i.locked.Name }
-func (i mcpItem) FilterValue() string { return i.locked.Name }
-
-func (i mcpItem) Description() string {
-	parts := []string{}
-	if i.desc != "" {
-		parts = append(parts, i.desc)
-	}
-	if len(i.locked.Agents) > 0 {
-		parts = append(parts, strings.Join(i.locked.Agents, ", "))
-	}
-	if len(parts) == 0 {
-		return "MCP server"
-	}
-	return strings.Join(parts, " · ")
-}
-
-// mcpsToItems converts a slice of mcpItem to list items.
-func mcpsToItems(mcps []mcpItem) []list.Item {
-	items := make([]list.Item, len(mcps))
-	for i, m := range mcps {
-		items[i] = m
-	}
-	return items
-}
-
-// registryMCPItem wraps a RegistryMCPInfo for the install picker list.
-type registryMCPItem struct {
-	info core.RegistryMCPInfo
-}
-
-func (i registryMCPItem) FilterValue() string { return i.info.MCP.Name }
 
 // ---------------------------------------------------------------------------
 // Folder items (folder picker)
@@ -248,7 +202,7 @@ type folderItem struct {
 	status    core.FolderStatus
 	isActive  bool     // this folder is currently being viewed
 	isCurrent bool     // synthetic entry for the cwd (not bookmarked)
-	agents    []string // display names from DetectActiveAgents
+	systems   []string // display names from system detection
 	installed int      // skills + MCPs managed by duckrow (from lock file)
 }
 
@@ -277,9 +231,9 @@ func (d folderDelegate) Render(w io.Writer, m list.Model, index int, item list.I
 	path := shortenPath(fi.status.Folder.Path)
 	badge := badgeStyle.Render(fmt.Sprintf(" %d installed", fi.installed))
 
-	agents := ""
-	if len(fi.agents) > 0 {
-		agents = "  " + mutedStyle.Render(strings.Join(fi.agents, ", "))
+	systems := ""
+	if len(fi.systems) > 0 {
+		systems = "  " + mutedStyle.Render(strings.Join(fi.systems, ", "))
 	}
 
 	active := ""
@@ -290,29 +244,88 @@ func (d folderDelegate) Render(w io.Writer, m list.Model, index int, item list.I
 	}
 
 	if isSelected {
-		_, _ = fmt.Fprint(w, indicator+selectedItemStyle.Render(path)+badge+agents+active)
+		_, _ = fmt.Fprint(w, indicator+selectedItemStyle.Render(path)+badge+systems+active)
 	} else {
-		_, _ = fmt.Fprint(w, indicator+normalItemStyle.Render(path)+badge+agents+active)
+		_, _ = fmt.Fprint(w, indicator+normalItemStyle.Render(path)+badge+systems+active)
 	}
 }
 
 // foldersToItems converts folder statuses to list items.
-// It calls DetectActiveAgents per folder so the bookmark list shows
-// agents based on config artifacts, not duckrow-managed skill directories.
-// The installed count comes from the lock file (skills + MCPs managed by duckrow).
-func foldersToItems(folders []core.FolderStatus, activeFolder string, agents []core.AgentDef) []list.Item {
+// It detects active systems per folder so the bookmark list shows
+// systems based on config artifacts, not duckrow-managed skill directories.
+// The installed count comes from the lock file (all asset kinds managed by duckrow).
+func foldersToItems(folders []core.FolderStatus, activeFolder string) []list.Item {
 	items := make([]list.Item, len(folders))
 	for i, fs := range folders {
 		var installed int
 		if lf, err := core.ReadLockFile(fs.Folder.Path); err == nil && lf != nil {
-			installed = len(lf.Skills) + len(lf.MCPs)
+			installed = len(lf.Assets)
 		}
 		items[i] = folderItem{
 			status:    fs,
 			isActive:  fs.Folder.Path == activeFolder,
-			agents:    core.DetectActiveAgents(agents, fs.Folder.Path),
+			systems:   system.DisplayNames(system.DetectInFolder(fs.Folder.Path)),
 			installed: installed,
 		}
 	}
 	return items
+}
+
+// lockedFromAssetItems extracts the LockedAsset values from a slice of assetItem.
+// Used when converting pre-built assetItem lists back to LockedAsset slices.
+func lockedFromAssetItems(items []assetItem) []asset.LockedAsset {
+	locked := make([]asset.LockedAsset, 0, len(items))
+	for _, it := range items {
+		if it.locked != nil {
+			locked = append(locked, *it.locked)
+		}
+	}
+	return locked
+}
+
+// descLookupFromAssetItems builds a name->description map from assetItem slices.
+func descLookupFromAssetItems(items []assetItem) map[string]string {
+	m := make(map[string]string, len(items))
+	for _, it := range items {
+		if it.desc != "" {
+			m[it.name] = it.desc
+		}
+	}
+	return m
+}
+
+func lockedSystems(locked asset.LockedAsset) []string {
+	if locked.Data == nil {
+		return nil
+	}
+	if systems, ok := locked.Data["systems"]; ok {
+		switch v := systems.(type) {
+		case []string:
+			return v
+		case []interface{}:
+			result := make([]string, 0, len(v))
+			for _, item := range v {
+				if s, ok := item.(string); ok {
+					result = append(result, s)
+				}
+			}
+			return result
+		}
+	}
+	return nil
+}
+
+func displaySystemNames(names []string) []string {
+	if len(names) == 0 {
+		return nil
+	}
+	result := make([]string, 0, len(names))
+	for _, name := range names {
+		if sys, ok := system.ByName(name); ok {
+			result = append(result, sys.DisplayName())
+		} else {
+			result = append(result, name)
+		}
+	}
+	return result
 }

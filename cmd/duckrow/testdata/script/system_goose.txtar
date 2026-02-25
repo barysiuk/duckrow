@@ -1,0 +1,81 @@
+# Full lifecycle test for Goose (non-universal, skills-only)
+#
+# Goose is a non-universal system. Skills get a symlink from
+# .goose/skills/<name> pointing to the canonical .agents/skills/<name>.
+# Goose does not support MCP configurations.
+
+# --- Setup ---
+
+mkdir myproject
+
+# Skill source repo
+mkdir skill-source
+cp skill-md skill-source/SKILL.md
+setup-git-repo skill-source test-skills goose-test
+setup-config-override test-owner/test-repo skill-source
+
+# === SKILL LIFECYCLE ===
+
+# Install skill targeting only goose
+exec duckrow skill install https://github.com/test-owner/test-repo -d myproject --systems=goose
+stdout 'Installed: goose-test'
+
+# Canonical dir must exist
+exists myproject/.agents/skills/goose-test/SKILL.md
+file-contains myproject/.agents/skills/goose-test/SKILL.md 'goose-test'
+
+# Goose-specific symlink must exist
+exists myproject/.goose/skills/goose-test
+is-symlink myproject/.goose/skills/goose-test
+
+# No other non-universal system dirs should be created
+dir-not-exists myproject/.cursor/skills
+dir-not-exists myproject/.claude/skills
+
+# Lock file
+exists myproject/duckrow.lock.json
+file-contains myproject/duckrow.lock.json '"name": "goose-test"'
+file-contains myproject/duckrow.lock.json '"kind": "skill"'
+
+# Uninstall skill
+exec duckrow skill uninstall goose-test -d myproject
+dir-not-exists myproject/.agents/skills/goose-test
+dir-not-exists myproject/.goose/skills/goose-test
+
+# Re-install so we can test sync (uninstall removes the lock entry too)
+exec duckrow skill install https://github.com/test-owner/test-repo -d myproject --systems=goose
+exists myproject/.agents/skills/goose-test/SKILL.md
+
+# Delete skill dir manually (simulates fresh checkout, lock file preserved)
+exec rm -rf myproject/.agents/skills/goose-test
+exec rm -rf myproject/.goose/skills/goose-test
+dir-not-exists myproject/.agents/skills/goose-test
+
+# Sync restores skill from lock file
+exec duckrow skill sync -d myproject --systems=goose
+stdout 'Installed: goose-test'
+exists myproject/.agents/skills/goose-test/SKILL.md
+exists myproject/.goose/skills/goose-test
+is-symlink myproject/.goose/skills/goose-test
+
+# Clean up
+exec duckrow skill uninstall goose-test -d myproject
+
+# === MCP NOT SUPPORTED ===
+
+# Goose does not support MCP; installing with --systems=goose should fail
+setup-mcp-registry mcp-registry my-mcps my-db:psql
+exec duckrow registry add mcp-registry
+! exec duckrow mcp install my-db -d myproject --systems=goose
+stderr 'none of the specified systems support MCP'
+
+-- skill-md --
+---
+name: goose-test
+description: A skill for testing Goose integration
+metadata:
+  version: "1.0.0"
+---
+# Goose Test Skill
+
+Instructions for the goose-test skill.

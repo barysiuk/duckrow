@@ -20,7 +20,7 @@ stdout 'Installed: test-skill'
 exists myproject/duckrow.lock.json
 
 # Verify lock file has correct structure
-file-contains myproject/duckrow.lock.json '"lockVersion": 1'
+file-contains myproject/duckrow.lock.json '"lockVersion": 3'
 file-contains myproject/duckrow.lock.json '"name": "test-skill"'
 file-contains myproject/duckrow.lock.json '"source": "github.com/test-owner/test-repo"'
 file-contains myproject/duckrow.lock.json '"commit":'

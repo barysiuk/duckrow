@@ -35,7 +35,7 @@ exec duckrow skill uninstall beta -d myproject
 stdout 'Removed: beta'
 
 # Lock file should exist but have empty skills array
-file-contains myproject/duckrow.lock.json '"lockVersion": 1'
+file-contains myproject/duckrow.lock.json '"lockVersion": 3'
 ! file-contains myproject/duckrow.lock.json '"name": "beta"'
 
 # uninstall --all should leave an empty lock file
@@ -44,9 +44,9 @@ exec duckrow skill install https://github.com/test-owner/source-b -d myproject
 exec duckrow skill uninstall --all -d myproject
 stdout 'Removed 2 skill'
 
-# Lock file should exist with empty skills
-file-contains myproject/duckrow.lock.json '"lockVersion": 1'
-file-contains myproject/duckrow.lock.json '"skills": []'
+# Lock file should exist with empty assets
+file-contains myproject/duckrow.lock.json '"lockVersion": 3'
+file-contains myproject/duckrow.lock.json '"assets": []'
 
 -- alpha-md --
 ---

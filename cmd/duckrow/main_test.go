@@ -62,9 +62,9 @@ func TestScript(t *testing.T) {
 			"setup-registry-config": cmdSetupRegistryConfig,
 
 			// setup-mcp-registry creates a git repo with a duckrow.json containing MCP entries.
-			// Usage: setup-mcp-registry <dir> <registry-name> <mcp-name:command> [mcp-name:command...]
-			// Each MCP entry is specified as "name:command" (e.g., "my-db:psql").
-			// Optional env vars can be added as "name:command:ENV_VAR1,ENV_VAR2".
+			// Usage: setup-mcp-registry <dir> <registry-name> <mcp-spec> [mcp-spec...]
+			// Stdio:  "name:command" or "name:command:ENV1,ENV2"
+			// Remote: "name:remote:url" or "name:remote:url:type"
 			"setup-mcp-registry": cmdSetupMCPRegistry,
 
 			// write-env-file writes key=value pairs to a .env.duckrow file.
@@ -335,7 +335,9 @@ func cmdSetupRegistryConfig(ts *testscript.TestScript, neg bool, args []string) 
 
 // cmdSetupMCPRegistry creates a local git repo with a duckrow.json manifest containing MCP entries.
 // Usage: setup-mcp-registry <dir> <registry-name> <mcp-spec> [mcp-spec...]
-// Each mcp-spec is "name:command" or "name:command:ENV1,ENV2" for required env vars.
+//
+// Stdio MCP spec:  "name:command" or "name:command:ENV1,ENV2"
+// Remote MCP spec: "name:remote:url" or "name:remote:url:type" (type defaults to "http")
 func cmdSetupMCPRegistry(ts *testscript.TestScript, neg bool, args []string) {
 	if neg {
 		ts.Fatalf("setup-mcp-registry does not support negation")
@@ -356,9 +358,11 @@ func cmdSetupMCPRegistry(ts *testscript.TestScript, neg bool, args []string) {
 	type mcpEntry struct {
 		Name        string            `json:"name"`
 		Description string            `json:"description,omitempty"`
-		Command     string            `json:"command"`
+		Command     string            `json:"command,omitempty"`
 		Args        []string          `json:"args,omitempty"`
 		Env         map[string]string `json:"env,omitempty"`
+		URL         string            `json:"url,omitempty"`
+		Type        string            `json:"type,omitempty"`
 	}
 	type manifest struct {
 		Name        string     `json:"name"`
@@ -376,27 +380,55 @@ func cmdSetupMCPRegistry(ts *testscript.TestScript, neg bool, args []string) {
 	for _, spec := range mcpSpecs {
 		parts := splitN(spec, ":", 3)
 		if len(parts) < 2 {
-			ts.Fatalf("invalid mcp-spec %q: expected name:command[:ENV1,ENV2]", spec)
+			ts.Fatalf("invalid mcp-spec %q: expected name:command[:ENV1,ENV2] or name:remote:url[:type]", spec)
 		}
 		name := parts[0]
-		command := parts[1]
 
-		entry := mcpEntry{
-			Name:        name,
-			Description: name + " MCP server",
-			Command:     command,
-		}
-
-		// Parse env vars if present
-		if len(parts) == 3 && parts[2] != "" {
-			envVars := splitN(parts[2], ",", -1)
-			entry.Env = make(map[string]string)
-			for _, v := range envVars {
-				entry.Env[v] = "$" + v
+		if parts[1] == "remote" {
+			// Remote MCP: name:remote:url[:type]
+			// The URL may contain colons (e.g., https://...), so we split
+			// the rest into URL and optional transport by looking for a
+			// known transport suffix after the last colon.
+			if len(parts) < 3 {
+				ts.Fatalf("invalid remote mcp-spec %q: expected name:remote:url[:type]", spec)
 			}
-		}
+			rest := parts[2]
+			transport := "http"
+			url := rest
+			// Check if the rest ends with :type where type is a known transport
+			if lastColon := lastIndexOf(rest, ":"); lastColon >= 0 {
+				suffix := rest[lastColon+1:]
+				if suffix == "http" || suffix == "sse" || suffix == "streamable-http" {
+					transport = suffix
+					url = rest[:lastColon]
+				}
+			}
+			m.MCPs = append(m.MCPs, mcpEntry{
+				Name:        name,
+				Description: name + " remote MCP server",
+				URL:         url,
+				Type:        transport,
+			})
+		} else {
+			// Stdio MCP: name:command[:ENV1,ENV2]
+			command := parts[1]
+			entry := mcpEntry{
+				Name:        name,
+				Description: name + " MCP server",
+				Command:     command,
+			}
 
-		m.MCPs = append(m.MCPs, entry)
+			// Parse env vars if present
+			if len(parts) >= 3 && parts[2] != "" {
+				envVars := splitN(parts[2], ",", -1)
+				entry.Env = make(map[string]string)
+				for _, v := range envVars {
+					entry.Env[v] = "$" + v
+				}
+			}
+
+			m.MCPs = append(m.MCPs, entry)
+		}
 	}
 
 	data, err := json.MarshalIndent(m, "", "  ")
@@ -489,6 +521,15 @@ func splitN(s, sep string, n int) []string {
 
 func indexOf(s, substr string) int {
 	for i := 0; i <= len(s)-len(substr); i++ {
+		if s[i:i+len(substr)] == substr {
+			return i
+		}
+	}
+	return -1
+}
+
+func lastIndexOf(s, substr string) int {
+	for i := len(s) - len(substr); i >= 0; i-- {
 		if s[i:i+len(substr)] == substr {
 			return i
 		}

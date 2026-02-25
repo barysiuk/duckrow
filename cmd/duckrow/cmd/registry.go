@@ -6,6 +6,7 @@ import (
 	"strings"
 
 	"github.com/barysiuk/duckrow/internal/core"
+	"github.com/barysiuk/duckrow/internal/core/asset"
 	"github.com/spf13/cobra"
 )
 
@@ -97,13 +98,21 @@ var registryListCmd = &cobra.Command{
 				continue
 			}
 
+			parsed, parseErr := core.ParseManifest(manifest)
+			if parseErr != nil {
+				fmt.Fprintf(os.Stdout, "  %s  %s  (parse error: %v)\n", reg.Name, reg.Repo, parseErr)
+				continue
+			}
+
 			// Build summary counts.
 			parts := []string{}
-			if len(manifest.Skills) > 0 {
-				parts = append(parts, fmt.Sprintf("%d skills", len(manifest.Skills)))
+			skills := parsed.Entries[asset.KindSkill]
+			mcps := parsed.Entries[asset.KindMCP]
+			if len(skills) > 0 {
+				parts = append(parts, fmt.Sprintf("%d skills", len(skills)))
 			}
-			if len(manifest.MCPs) > 0 {
-				parts = append(parts, fmt.Sprintf("%d MCPs", len(manifest.MCPs)))
+			if len(mcps) > 0 {
+				parts = append(parts, fmt.Sprintf("%d MCPs", len(mcps)))
 			}
 			summary := "empty"
 			if len(parts) > 0 {
@@ -113,15 +122,15 @@ var registryListCmd = &cobra.Command{
 			fmt.Fprintf(os.Stdout, "  %s  %s  (%s)\n", reg.Name, reg.Repo, summary)
 
 			if verbose {
-				if len(manifest.Skills) > 0 {
+				if len(skills) > 0 {
 					fmt.Fprintln(os.Stdout, "    Skills:")
-					for _, s := range manifest.Skills {
+					for _, s := range skills {
 						fmt.Fprintf(os.Stdout, "      - %s: %s\n", s.Name, s.Description)
 					}
 				}
-				if len(manifest.MCPs) > 0 {
+				if len(mcps) > 0 {
 					fmt.Fprintln(os.Stdout, "    MCPs:")
-					for _, m := range manifest.MCPs {
+					for _, m := range mcps {
 						fmt.Fprintf(os.Stdout, "      - %s: %s\n", m.Name, m.Description)
 					}
 				}

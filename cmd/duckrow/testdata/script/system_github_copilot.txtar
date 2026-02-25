@@ -1,0 +1,129 @@
+# Full lifecycle test for GitHub Copilot (universal, skills + MCP)
+#
+# GitHub Copilot is a universal system. Skills go directly into
+# .agents/skills/<name> with no symlinks needed.
+# MCP configs go into .vscode/mcp.json under the "servers" key.
+# GitHub Copilot uses a custom format: stdio MCPs have "type": "stdio"
+# and "command" as a string (not an array).
+
+# --- Setup ---
+
+mkdir myproject
+
+# Skill source repo
+mkdir skill-source
+cp skill-md skill-source/SKILL.md
+setup-git-repo skill-source test-skills copilot-test
+setup-config-override test-owner/test-repo skill-source
+
+# MCP registry with stdio + remote entries
+setup-mcp-registry mcp-registry my-mcps my-db:psql:DB_HOST analytics:remote:https://mcp.example.com/analytics:http
+exec duckrow registry add mcp-registry
+stdout 'Added registry: my-mcps'
+
+# === SKILL LIFECYCLE ===
+
+# Install skill targeting only github-copilot
+exec duckrow skill install https://github.com/test-owner/test-repo -d myproject --systems=github-copilot
+stdout 'Installed: copilot-test'
+
+# Canonical dir must exist
+exists myproject/.agents/skills/copilot-test/SKILL.md
+file-contains myproject/.agents/skills/copilot-test/SKILL.md 'copilot-test'
+
+# Universal systems do NOT create symlinks
+! is-symlink myproject/.agents/skills/copilot-test
+
+# No non-universal system dirs
+dir-not-exists myproject/.cursor/skills
+dir-not-exists myproject/.claude/skills
+dir-not-exists myproject/.goose/skills
+
+# Lock file
+exists myproject/duckrow.lock.json
+file-contains myproject/duckrow.lock.json '"name": "copilot-test"'
+file-contains myproject/duckrow.lock.json '"kind": "skill"'
+
+# Uninstall skill
+exec duckrow skill uninstall copilot-test -d myproject
+dir-not-exists myproject/.agents/skills/copilot-test
+
+# Re-install so we can test sync (uninstall removes the lock entry too)
+exec duckrow skill install https://github.com/test-owner/test-repo -d myproject --systems=github-copilot
+exists myproject/.agents/skills/copilot-test/SKILL.md
+
+# Delete skill dir manually (simulates fresh checkout, lock file preserved)
+exec rm -rf myproject/.agents/skills/copilot-test
+dir-not-exists myproject/.agents/skills/copilot-test
+
+# Sync restores skill from lock file
+exec duckrow skill sync -d myproject --systems=github-copilot
+stdout 'Installed: copilot-test'
+exists myproject/.agents/skills/copilot-test/SKILL.md
+
+# Clean up
+exec duckrow skill uninstall copilot-test -d myproject
+
+# === STDIO MCP LIFECYCLE ===
+
+# Install stdio MCP targeting only github-copilot
+exec duckrow mcp install my-db -d myproject --systems=github-copilot
+stdout 'MCP "my-db" installed successfully'
+
+# Config file at .vscode/mcp.json
+exists myproject/.vscode/mcp.json
+
+# Verify GitHub Copilot-specific format:
+#   - top-level key is "servers" (not "mcpServers" or "mcp")
+#   - stdio type is "stdio" (not "local")
+#   - command is a string "duckrow" (not an array)
+file-contains myproject/.vscode/mcp.json '"servers"'
+file-contains myproject/.vscode/mcp.json '"my-db"'
+# hujson may align values, so check "stdio" and "command" separately
+file-contains myproject/.vscode/mcp.json '"stdio"'
+file-contains myproject/.vscode/mcp.json '"command"'
+file-contains myproject/.vscode/mcp.json '"duckrow"'
+
+# Verify env wrapping args
+file-contains myproject/.vscode/mcp.json '"env"'
+file-contains myproject/.vscode/mcp.json '"--mcp"'
+file-contains myproject/.vscode/mcp.json '"psql"'
+
+# Lock file has MCP entry with github-copilot in systems
+file-contains myproject/duckrow.lock.json '"kind": "mcp"'
+file-contains myproject/duckrow.lock.json '"name": "my-db"'
+file-contains myproject/duckrow.lock.json '"github-copilot"'
+file-contains myproject/duckrow.lock.json 'DB_HOST'
+
+# Delete config file to simulate fresh checkout (lock file preserved)
+exec rm -f myproject/.vscode/mcp.json
+
+# Sync restores MCP config with correct Copilot format
+exec duckrow mcp sync -d myproject --force
+stdout 'Installed: my-db'
+exists myproject/.vscode/mcp.json
+file-contains myproject/.vscode/mcp.json '"stdio"'
+file-contains myproject/.vscode/mcp.json '"duckrow"'
+file-contains myproject/.vscode/mcp.json '"my-db"'
+
+# === REMOTE MCP ===
+
+# Install remote MCP
+exec duckrow mcp install analytics -d myproject --systems=github-copilot --force
+stdout 'MCP "analytics" installed successfully'
+
+# Remote entry should have type + url
+file-contains myproject/.vscode/mcp.json '"analytics"'
+file-contains myproject/.vscode/mcp.json '"http"'
+file-contains myproject/.vscode/mcp.json 'https://mcp.example.com/analytics'
+
+-- skill-md --
+---
+name: copilot-test
+description: A skill for testing GitHub Copilot integration
+metadata:
+  version: "1.0.0"
+---
+# GitHub Copilot Test Skill
+
+Instructions for the copilot-test skill.

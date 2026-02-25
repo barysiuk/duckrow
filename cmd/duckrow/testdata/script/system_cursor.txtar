@@ -1,0 +1,127 @@
+# Full lifecycle test for Cursor (non-universal, skills + MCP)
+#
+# Cursor is a non-universal system. Skills get a symlink from
+# .cursor/skills/<name> pointing to the canonical .agents/skills/<name>.
+# MCP configs go into .cursor/mcp.json under the "mcpServers" key
+# using the default BaseSystem format (no type field for stdio).
+
+# --- Setup ---
+
+mkdir myproject
+
+# Skill source repo
+mkdir skill-source
+cp skill-md skill-source/SKILL.md
+setup-git-repo skill-source test-skills cursor-test
+setup-config-override test-owner/test-repo skill-source
+
+# MCP registry with stdio + remote entries
+setup-mcp-registry mcp-registry my-mcps my-db:psql:DB_HOST analytics:remote:https://mcp.example.com/analytics:http
+exec duckrow registry add mcp-registry
+stdout 'Added registry: my-mcps'
+
+# === SKILL LIFECYCLE ===
+
+# Install skill targeting only cursor
+exec duckrow skill install https://github.com/test-owner/test-repo -d myproject --systems=cursor
+stdout 'Installed: cursor-test'
+
+# Canonical dir must exist
+exists myproject/.agents/skills/cursor-test/SKILL.md
+file-contains myproject/.agents/skills/cursor-test/SKILL.md 'cursor-test'
+
+# Cursor-specific symlink must exist
+exists myproject/.cursor/skills/cursor-test
+is-symlink myproject/.cursor/skills/cursor-test
+
+# No other non-universal system dirs should be created
+dir-not-exists myproject/.claude/skills
+dir-not-exists myproject/.goose/skills
+
+# Lock file created with correct entry
+exists myproject/duckrow.lock.json
+file-contains myproject/duckrow.lock.json '"name": "cursor-test"'
+file-contains myproject/duckrow.lock.json '"kind": "skill"'
+
+# Uninstall skill
+exec duckrow skill uninstall cursor-test -d myproject
+dir-not-exists myproject/.agents/skills/cursor-test
+dir-not-exists myproject/.cursor/skills/cursor-test
+
+# Re-install so we can test sync (uninstall removes the lock entry too)
+exec duckrow skill install https://github.com/test-owner/test-repo -d myproject --systems=cursor
+exists myproject/.agents/skills/cursor-test/SKILL.md
+
+# Delete skill dir manually (simulates fresh checkout, lock file preserved)
+exec rm -rf myproject/.agents/skills/cursor-test
+exec rm -rf myproject/.cursor/skills/cursor-test
+dir-not-exists myproject/.agents/skills/cursor-test
+
+# Sync restores skill from lock file
+exec duckrow skill sync -d myproject --systems=cursor
+stdout 'Installed: cursor-test'
+exists myproject/.agents/skills/cursor-test/SKILL.md
+exists myproject/.cursor/skills/cursor-test
+is-symlink myproject/.cursor/skills/cursor-test
+
+# Final clean up skill for MCP tests
+exec duckrow skill uninstall cursor-test -d myproject
+
+# === STDIO MCP LIFECYCLE ===
+
+# Install stdio MCP targeting only cursor
+exec duckrow mcp install my-db -d myproject --systems=cursor
+stdout 'MCP "my-db" installed successfully'
+
+# Config file must exist at the correct path
+exists myproject/.cursor/mcp.json
+
+# Verify config structure: "mcpServers" key, no "type" field for stdio
+file-contains myproject/.cursor/mcp.json 'mcpServers'
+file-contains myproject/.cursor/mcp.json '"my-db"'
+file-contains myproject/.cursor/mcp.json '"command": "duckrow"'
+# --mcp flag must use asset name, not command binary
+! file-contains myproject/.cursor/mcp.json '"psql",'
+
+# Verify env wrapping args
+file-contains myproject/.cursor/mcp.json '"env"'
+file-contains myproject/.cursor/mcp.json '"--mcp"'
+file-contains myproject/.cursor/mcp.json '"psql"'
+
+# Lock file has MCP entry with cursor in systems
+file-contains myproject/duckrow.lock.json '"kind": "mcp"'
+file-contains myproject/duckrow.lock.json '"name": "my-db"'
+file-contains myproject/duckrow.lock.json '"cursor"'
+file-contains myproject/duckrow.lock.json 'DB_HOST'
+
+# Delete config file to simulate fresh checkout (lock file preserved)
+exec rm -f myproject/.cursor/mcp.json
+
+# Sync restores MCP config from lock file
+exec duckrow mcp sync -d myproject --force
+stdout 'Installed: my-db'
+exists myproject/.cursor/mcp.json
+file-contains myproject/.cursor/mcp.json 'my-db'
+file-contains myproject/.cursor/mcp.json '"command": "duckrow"'
+
+# === REMOTE MCP ===
+
+# Install remote MCP
+exec duckrow mcp install analytics -d myproject --systems=cursor --force
+stdout 'MCP "analytics" installed successfully'
+
+# Remote entry should have type + url, no command wrapping
+file-contains myproject/.cursor/mcp.json '"analytics"'
+file-contains myproject/.cursor/mcp.json '"http"'
+file-contains myproject/.cursor/mcp.json 'https://mcp.example.com/analytics'
+
+-- skill-md --
+---
+name: cursor-test
+description: A skill for testing Cursor integration
+metadata:
+  version: "1.0.0"
+---
+# Cursor Test Skill
+
+Instructions for the cursor-test skill.
