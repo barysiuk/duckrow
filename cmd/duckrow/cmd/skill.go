@@ -9,6 +9,7 @@ import (
 	"text/tabwriter"
 
 	"github.com/barysiuk/duckrow/internal/core"
+	"github.com/barysiuk/duckrow/internal/core/asset"
 	"github.com/spf13/cobra"
 )
 
@@ -232,8 +233,7 @@ Use --all to remove all installed skills.`,
 			// Write empty lock file unless --no-lock is set.
 			if !noLock {
 				emptyLock := &core.LockFile{
-					LockVersion: 1,
-					Skills:      []core.LockedSkill{},
+					Assets: []asset.LockedAsset{},
 				}
 				if lockErr := core.WriteLockFile(targetDir, emptyLock); lockErr != nil {
 					fmt.Fprintf(os.Stderr, "Warning: failed to update lock file: %v\n", lockErr)
@@ -440,10 +440,7 @@ Either a skill name or --all is required.`,
 			if found == nil {
 				return fmt.Errorf("skill %q not found in lock file", skillName)
 			}
-			skillsToCheck = &core.LockFile{
-				LockVersion: lf.LockVersion,
-				Skills:      []core.LockedSkill{*found},
-			}
+			skillsToCheck = core.LockFileForSkills(lf.LockVersion, []core.LockedSkill{*found})
 		}
 
 		// Check for updates.

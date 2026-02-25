@@ -9,6 +9,64 @@ import (
 	"testing"
 )
 
+// testSkillEntry is a test helper that mirrors the old SkillEntry for constructing test manifests.
+type testSkillEntry struct {
+	Name        string `json:"name"`
+	Description string `json:"description,omitempty"`
+	Source      string `json:"source,omitempty"`
+	Commit      string `json:"commit,omitempty"`
+	Internal    bool   `json:"internal,omitempty"`
+}
+
+func skillEntriesToRaw(entries []testSkillEntry) []json.RawMessage {
+	result := make([]json.RawMessage, len(entries))
+	for i, e := range entries {
+		data, _ := json.Marshal(e)
+		result[i] = data
+	}
+	return result
+}
+
+// testMCPEntry is a test helper for constructing MCP manifest entries.
+type testMCPEntry struct {
+	Name        string            `json:"name"`
+	Description string            `json:"description,omitempty"`
+	Command     string            `json:"command,omitempty"`
+	Args        []string          `json:"args,omitempty"`
+	Env         map[string]string `json:"env,omitempty"`
+	URL         string            `json:"url,omitempty"`
+	Type        string            `json:"type,omitempty"`
+}
+
+func mcpEntriesToRaw(entries []testMCPEntry) []json.RawMessage {
+	result := make([]json.RawMessage, len(entries))
+	for i, e := range entries {
+		data, _ := json.Marshal(e)
+		result[i] = data
+	}
+	return result
+}
+
+// parseRawSkill unmarshals a json.RawMessage into a testSkillEntry for test assertions.
+func parseRawSkill(t *testing.T, raw json.RawMessage) testSkillEntry {
+	t.Helper()
+	var e testSkillEntry
+	if err := json.Unmarshal(raw, &e); err != nil {
+		t.Fatalf("failed to parse skill entry: %v", err)
+	}
+	return e
+}
+
+// parseRawMCP unmarshals a json.RawMessage into a testMCPEntry for test assertions.
+func parseRawMCP(t *testing.T, raw json.RawMessage) testMCPEntry {
+	t.Helper()
+	var e testMCPEntry
+	if err := json.Unmarshal(raw, &e); err != nil {
+		t.Fatalf("failed to parse MCP entry: %v", err)
+	}
+	return e
+}
+
 // createTestManifest writes a duckrow.json manifest to the given directory.
 func createTestManifest(t *testing.T, dir string, manifest RegistryManifest) {
 	t.Helper()
@@ -73,7 +131,7 @@ func TestReadManifest(t *testing.T) {
 		expected := RegistryManifest{
 			Name:        "test-registry",
 			Description: "A test registry",
-			Skills: []SkillEntry{
+			Skills: skillEntriesToRaw([]testSkillEntry{
 				{
 					Name:        "skill-a",
 					Description: "Skill A",
@@ -84,7 +142,7 @@ func TestReadManifest(t *testing.T) {
 					Description: "Skill B",
 					Source:      "owner/other-repo",
 				},
-			},
+			}),
 		}
 		createTestManifest(t, dir, expected)
 
@@ -102,11 +160,13 @@ func TestReadManifest(t *testing.T) {
 		if len(manifest.Skills) != 2 {
 			t.Fatalf("len(Skills) = %d, want 2", len(manifest.Skills))
 		}
-		if manifest.Skills[0].Name != "skill-a" {
-			t.Errorf("Skills[0].Name = %q, want %q", manifest.Skills[0].Name, "skill-a")
+		s0 := parseRawSkill(t, manifest.Skills[0])
+		if s0.Name != "skill-a" {
+			t.Errorf("Skills[0].Name = %q, want %q", s0.Name, "skill-a")
 		}
-		if manifest.Skills[1].Source != "owner/other-repo" {
-			t.Errorf("Skills[1].Source = %q, want %q", manifest.Skills[1].Source, "owner/other-repo")
+		s1 := parseRawSkill(t, manifest.Skills[1])
+		if s1.Source != "owner/other-repo" {
+			t.Errorf("Skills[1].Source = %q, want %q", s1.Source, "owner/other-repo")
 		}
 	})
 
@@ -133,7 +193,7 @@ func TestReadManifest(t *testing.T) {
 		dir := t.TempDir()
 		createTestManifest(t, dir, RegistryManifest{
 			Name:   "empty-registry",
-			Skills: []SkillEntry{},
+			Skills: skillEntriesToRaw([]testSkillEntry{}),
 		})
 
 		manifest, err := readManifest(dir)
@@ -155,9 +215,9 @@ func TestRegistryManager_LoadManifest(t *testing.T) {
 		createTestRegistryClone(t, registriesDir, repoURL, RegistryManifest{
 			Name:        "my-org",
 			Description: "My org skills",
-			Skills: []SkillEntry{
+			Skills: skillEntriesToRaw([]testSkillEntry{
 				{Name: "lint-rules", Description: "Linting", Source: "org/lint"},
-			},
+			}),
 		})
 
 		manifest, err := rm.LoadManifest(repoURL)
@@ -193,11 +253,11 @@ func TestRegistryManager_LoadAllManifests(t *testing.T) {
 
 	createTestRegistryClone(t, registriesDir, repoA, RegistryManifest{
 		Name:   "org-a",
-		Skills: []SkillEntry{{Name: "s1", Description: "S1", Source: "a/s1"}},
+		Skills: skillEntriesToRaw([]testSkillEntry{{Name: "s1", Description: "S1", Source: "a/s1"}}),
 	})
 	createTestRegistryClone(t, registriesDir, repoB, RegistryManifest{
 		Name:   "org-b",
-		Skills: []SkillEntry{{Name: "s2", Description: "S2", Source: "b/s2"}},
+		Skills: skillEntriesToRaw([]testSkillEntry{{Name: "s2", Description: "S2", Source: "b/s2"}}),
 	})
 
 	registries := []Registry{
@@ -227,16 +287,16 @@ func TestRegistryManager_ListSkills(t *testing.T) {
 
 	createTestRegistryClone(t, registriesDir, repoA, RegistryManifest{
 		Name: "org-a",
-		Skills: []SkillEntry{
+		Skills: skillEntriesToRaw([]testSkillEntry{
 			{Name: "s1", Description: "S1", Source: "a/s1"},
 			{Name: "s2", Description: "S2", Source: "a/s2"},
-		},
+		}),
 	})
 	createTestRegistryClone(t, registriesDir, repoB, RegistryManifest{
 		Name: "org-b",
-		Skills: []SkillEntry{
+		Skills: skillEntriesToRaw([]testSkillEntry{
 			{Name: "s3", Description: "S3", Source: "b/s3"},
-		},
+		}),
 	})
 
 	registries := []Registry{
@@ -277,15 +337,15 @@ func TestRegistryManager_ListSkills_SameNameDifferentRepos(t *testing.T) {
 	// Both registries have the same manifest name but different repos
 	createTestRegistryClone(t, registriesDir, repoA, RegistryManifest{
 		Name: "same-name",
-		Skills: []SkillEntry{
+		Skills: skillEntriesToRaw([]testSkillEntry{
 			{Name: "skill-from-a", Description: "From A", Source: "a/skill"},
-		},
+		}),
 	})
 	createTestRegistryClone(t, registriesDir, repoB, RegistryManifest{
 		Name: "same-name",
-		Skills: []SkillEntry{
+		Skills: skillEntriesToRaw([]testSkillEntry{
 			{Name: "skill-from-b", Description: "From B", Source: "b/skill"},
-		},
+		}),
 	})
 
 	registries := []Registry{
@@ -322,17 +382,17 @@ func TestRegistryManager_FindSkill(t *testing.T) {
 
 	createTestRegistryClone(t, registriesDir, repoA, RegistryManifest{
 		Name: "org-a",
-		Skills: []SkillEntry{
+		Skills: skillEntriesToRaw([]testSkillEntry{
 			{Name: "go-review", Description: "Go review", Source: "org-a/go-review"},
 			{Name: "shared-lint", Description: "Shared lint", Source: "org-a/shared-lint"},
-		},
+		}),
 	})
 	createTestRegistryClone(t, registriesDir, repoB, RegistryManifest{
 		Name: "org-b",
-		Skills: []SkillEntry{
+		Skills: skillEntriesToRaw([]testSkillEntry{
 			{Name: "py-review", Description: "Python review", Source: "org-b/py-review"},
 			{Name: "shared-lint", Description: "Shared lint B", Source: "org-b/shared-lint"},
-		},
+		}),
 	})
 
 	registries := []Registry{
@@ -720,13 +780,13 @@ func setupTestGitRepo(t *testing.T, dir string) {
 	manifest := RegistryManifest{
 		Name:        "test-org",
 		Description: "Test organization skills",
-		Skills: []SkillEntry{
+		Skills: skillEntriesToRaw([]testSkillEntry{
 			{
 				Name:        "test-skill",
 				Description: "A test skill",
 				Source:      "test-org/skills",
 			},
-		},
+		}),
 	}
 	data, _ := json.MarshalIndent(manifest, "", "  ")
 	if err := os.WriteFile(filepath.Join(dir, "duckrow.json"), data, 0o644); err != nil {
@@ -778,16 +838,16 @@ func TestBuildRegistryCommitMap(t *testing.T) {
 
 		createTestRegistryClone(t, registriesDir, repoA, RegistryManifest{
 			Name: "org-a",
-			Skills: []SkillEntry{
+			Skills: skillEntriesToRaw([]testSkillEntry{
 				{Name: "skill-1", Source: "github.com/org/repo/skill-1", Commit: "abc1234"},
 				{Name: "skill-2", Source: "github.com/org/repo/skill-2", Commit: "def5678"},
-			},
+			}),
 		})
 		createTestRegistryClone(t, registriesDir, repoB, RegistryManifest{
 			Name: "org-b",
-			Skills: []SkillEntry{
+			Skills: skillEntriesToRaw([]testSkillEntry{
 				{Name: "skill-3", Source: "github.com/other/repo/skill-3", Commit: "ghi9012"},
-			},
+			}),
 		})
 
 		registries := []Registry{
@@ -818,10 +878,10 @@ func TestBuildRegistryCommitMap(t *testing.T) {
 		repoURL := "git@example.com:org/reg.git"
 		createTestRegistryClone(t, registriesDir, repoURL, RegistryManifest{
 			Name: "org",
-			Skills: []SkillEntry{
+			Skills: skillEntriesToRaw([]testSkillEntry{
 				{Name: "has-commit", Source: "github.com/org/repo/has-commit", Commit: "abc1234"},
 				{Name: "no-commit", Source: "github.com/org/repo/no-commit", Commit: ""},
-			},
+			}),
 		})
 
 		registries := []Registry{{Name: "org", Repo: repoURL}}
@@ -842,10 +902,10 @@ func TestBuildRegistryCommitMap(t *testing.T) {
 		repoURL := "git@example.com:org/reg.git"
 		createTestRegistryClone(t, registriesDir, repoURL, RegistryManifest{
 			Name: "org",
-			Skills: []SkillEntry{
+			Skills: skillEntriesToRaw([]testSkillEntry{
 				{Name: "has-source", Source: "github.com/org/repo/has-source", Commit: "abc1234"},
 				{Name: "no-source", Source: "", Commit: "def5678"},
-			},
+			}),
 		})
 
 		registries := []Registry{{Name: "org", Repo: repoURL}}
@@ -873,9 +933,9 @@ func TestBuildRegistryCommitMap(t *testing.T) {
 		repoURL := "git@example.com:org/reg.git"
 		createTestRegistryClone(t, registriesDir, repoURL, RegistryManifest{
 			Name: "org",
-			Skills: []SkillEntry{
+			Skills: skillEntriesToRaw([]testSkillEntry{
 				{Name: "skill-1", Source: "github.com/org/repo/skill-1", Commit: "abc1234"},
-			},
+			}),
 		})
 
 		registries := []Registry{
@@ -898,15 +958,15 @@ func TestBuildRegistryCommitMap(t *testing.T) {
 
 		createTestRegistryClone(t, registriesDir, repoA, RegistryManifest{
 			Name: "org-a",
-			Skills: []SkillEntry{
+			Skills: skillEntriesToRaw([]testSkillEntry{
 				{Name: "shared", Source: "github.com/org/repo/shared", Commit: "old-commit"},
-			},
+			}),
 		})
 		createTestRegistryClone(t, registriesDir, repoB, RegistryManifest{
 			Name: "org-b",
-			Skills: []SkillEntry{
+			Skills: skillEntriesToRaw([]testSkillEntry{
 				{Name: "shared", Source: "github.com/org/repo/shared", Commit: "new-commit"},
-			},
+			}),
 		})
 
 		registries := []Registry{
@@ -1042,10 +1102,10 @@ func TestBuildRegistryCommitMap_WithCachedCommits(t *testing.T) {
 		repoURL := "git@example.com:org/reg.git"
 		regDir := createTestRegistryClone(t, registriesDir, repoURL, RegistryManifest{
 			Name: "org",
-			Skills: []SkillEntry{
+			Skills: skillEntriesToRaw([]testSkillEntry{
 				{Name: "pinned", Source: "github.com/org/repo/pinned", Commit: "pinned-sha"},
 				{Name: "unpinned", Source: "github.com/org/repo/unpinned"}, // no commit
-			},
+			}),
 		})
 
 		// Write cached commit for the unpinned skill.
@@ -1076,9 +1136,9 @@ func TestBuildRegistryCommitMap_WithCachedCommits(t *testing.T) {
 		repoURL := "git@example.com:org/reg.git"
 		regDir := createTestRegistryClone(t, registriesDir, repoURL, RegistryManifest{
 			Name: "org",
-			Skills: []SkillEntry{
+			Skills: skillEntriesToRaw([]testSkillEntry{
 				{Name: "skill", Source: "github.com/org/repo/skill", Commit: "pinned-sha"},
-			},
+			}),
 		})
 
 		// Write a different cached commit for the same skill.
@@ -1103,9 +1163,9 @@ func TestBuildRegistryCommitMap_WithCachedCommits(t *testing.T) {
 		repoURL := "git@example.com:org/reg.git"
 		createTestRegistryClone(t, registriesDir, repoURL, RegistryManifest{
 			Name: "org",
-			Skills: []SkillEntry{
+			Skills: skillEntriesToRaw([]testSkillEntry{
 				{Name: "skill", Source: "github.com/org/repo/skill", Commit: "abc123"},
-			},
+			}),
 		})
 
 		registries := []Registry{{Name: "org", Repo: repoURL}}
@@ -1154,11 +1214,11 @@ func TestHydrateRegistryCommits(t *testing.T) {
 		regRepoURL := "git@example.com:org/reg.git"
 		regDir := createTestRegistryClone(t, registriesDir, regRepoURL, RegistryManifest{
 			Name: "org",
-			Skills: []SkillEntry{
+			Skills: skillEntriesToRaw([]testSkillEntry{
 				{Name: "skill-a", Source: "localhost/testorg/testrepo/skills/skill-a"},       // unpinned
 				{Name: "skill-b", Source: "localhost/testorg/testrepo/skills/skill-b"},       // unpinned
 				{Name: "pinned", Source: "localhost/testorg/testrepo/pinned", Commit: "abc"}, // pinned — should be skipped
-			},
+			}),
 		})
 
 		registries := []Registry{{Name: "org", Repo: regRepoURL}}
@@ -1203,9 +1263,9 @@ func TestHydrateRegistryCommits(t *testing.T) {
 		regRepoURL := "git@example.com:org/reg.git"
 		regDir := createTestRegistryClone(t, registriesDir, regRepoURL, RegistryManifest{
 			Name: "org",
-			Skills: []SkillEntry{
+			Skills: skillEntriesToRaw([]testSkillEntry{
 				{Name: "skill", Source: "github.com/org/repo/skill", Commit: "abc123"},
-			},
+			}),
 		})
 
 		registries := []Registry{{Name: "org", Repo: regRepoURL}}
@@ -1225,10 +1285,10 @@ func TestHydrateRegistryCommits(t *testing.T) {
 		regRepoURL := "git@example.com:org/reg.git"
 		createTestRegistryClone(t, registriesDir, regRepoURL, RegistryManifest{
 			Name: "org",
-			Skills: []SkillEntry{
+			Skills: skillEntriesToRaw([]testSkillEntry{
 				// Source points to a non-existent repo — clone will fail.
 				{Name: "unreachable", Source: "localhost/no/such-repo/skill"},
-			},
+			}),
 		})
 
 		registries := []Registry{{Name: "org", Repo: regRepoURL}}
@@ -1256,10 +1316,10 @@ func TestHydrateRegistryCommits(t *testing.T) {
 		regRepoURL := "git@example.com:org/reg.git"
 		createTestRegistryClone(t, registriesDir, regRepoURL, RegistryManifest{
 			Name: "org",
-			Skills: []SkillEntry{
+			Skills: skillEntriesToRaw([]testSkillEntry{
 				{Name: "pinned-skill", Source: "github.com/org/other/pinned-skill", Commit: "pinned-sha"},
 				{Name: "my-skill", Source: "localhost/testorg/testrepo/my-skill"}, // unpinned
-			},
+			}),
 		})
 
 		registries := []Registry{{Name: "org", Repo: regRepoURL}}
@@ -1295,10 +1355,10 @@ func TestReadManifest_WithMCPs(t *testing.T) {
 		manifest := RegistryManifest{
 			Name:        "test-registry",
 			Description: "Registry with MCPs",
-			Skills: []SkillEntry{
+			Skills: skillEntriesToRaw([]testSkillEntry{
 				{Name: "skill-a", Description: "Skill A", Source: "owner/repo"},
-			},
-			MCPs: []MCPEntry{
+			}),
+			MCPs: mcpEntriesToRaw([]testMCPEntry{
 				{
 					Name:        "internal-db",
 					Description: "Query databases",
@@ -1312,7 +1372,7 @@ func TestReadManifest_WithMCPs(t *testing.T) {
 					Type:        "http",
 					URL:         "https://mcp.acme.com/mcp",
 				},
-			},
+			}),
 		}
 		createTestManifest(t, dir, manifest)
 
@@ -1324,26 +1384,28 @@ func TestReadManifest_WithMCPs(t *testing.T) {
 		if len(got.MCPs) != 2 {
 			t.Fatalf("len(MCPs) = %d, want 2", len(got.MCPs))
 		}
-		if got.MCPs[0].Name != "internal-db" {
-			t.Errorf("MCPs[0].Name = %q, want %q", got.MCPs[0].Name, "internal-db")
+		mcp0 := parseRawMCP(t, got.MCPs[0])
+		if mcp0.Name != "internal-db" {
+			t.Errorf("MCPs[0].Name = %q, want %q", mcp0.Name, "internal-db")
 		}
-		if got.MCPs[0].Command != "npx" {
-			t.Errorf("MCPs[0].Command = %q, want %q", got.MCPs[0].Command, "npx")
+		if mcp0.Command != "npx" {
+			t.Errorf("MCPs[0].Command = %q, want %q", mcp0.Command, "npx")
 		}
-		if len(got.MCPs[0].Args) != 2 || got.MCPs[0].Args[1] != "@acme/mcp-db-server" {
-			t.Errorf("MCPs[0].Args = %v, want [-y @acme/mcp-db-server]", got.MCPs[0].Args)
+		if len(mcp0.Args) != 2 || mcp0.Args[1] != "@acme/mcp-db-server" {
+			t.Errorf("MCPs[0].Args = %v, want [-y @acme/mcp-db-server]", mcp0.Args)
 		}
-		if got.MCPs[0].Env["DATABASE_URL"] != "$DATABASE_URL" {
-			t.Errorf("MCPs[0].Env[DATABASE_URL] = %q, want %q", got.MCPs[0].Env["DATABASE_URL"], "$DATABASE_URL")
+		if mcp0.Env["DATABASE_URL"] != "$DATABASE_URL" {
+			t.Errorf("MCPs[0].Env[DATABASE_URL] = %q, want %q", mcp0.Env["DATABASE_URL"], "$DATABASE_URL")
 		}
-		if got.MCPs[1].Name != "docs-search" {
-			t.Errorf("MCPs[1].Name = %q, want %q", got.MCPs[1].Name, "docs-search")
+		mcp1 := parseRawMCP(t, got.MCPs[1])
+		if mcp1.Name != "docs-search" {
+			t.Errorf("MCPs[1].Name = %q, want %q", mcp1.Name, "docs-search")
 		}
-		if got.MCPs[1].Type != "http" {
-			t.Errorf("MCPs[1].Type = %q, want %q", got.MCPs[1].Type, "http")
+		if mcp1.Type != "http" {
+			t.Errorf("MCPs[1].Type = %q, want %q", mcp1.Type, "http")
 		}
-		if got.MCPs[1].URL != "https://mcp.acme.com/mcp" {
-			t.Errorf("MCPs[1].URL = %q, want %q", got.MCPs[1].URL, "https://mcp.acme.com/mcp")
+		if mcp1.URL != "https://mcp.acme.com/mcp" {
+			t.Errorf("MCPs[1].URL = %q, want %q", mcp1.URL, "https://mcp.acme.com/mcp")
 		}
 	})
 
@@ -1351,7 +1413,7 @@ func TestReadManifest_WithMCPs(t *testing.T) {
 		dir := t.TempDir()
 		manifest := RegistryManifest{
 			Name:   "skills-only",
-			Skills: []SkillEntry{{Name: "s", Description: "S", Source: "o/r"}},
+			Skills: skillEntriesToRaw([]testSkillEntry{{Name: "s", Description: "S", Source: "o/r"}}),
 		}
 		createTestManifest(t, dir, manifest)
 
@@ -1370,9 +1432,9 @@ func TestReadManifest_MCPValidation(t *testing.T) {
 		dir := t.TempDir()
 		manifest := RegistryManifest{
 			Name: "test",
-			MCPs: []MCPEntry{
+			MCPs: mcpEntriesToRaw([]testMCPEntry{
 				{Command: "npx", Args: []string{"pkg"}},
-			},
+			}),
 		}
 		createTestManifest(t, dir, manifest)
 
@@ -1380,11 +1442,15 @@ func TestReadManifest_MCPValidation(t *testing.T) {
 		if err != nil {
 			t.Fatalf("readManifest() error = %v", err)
 		}
-		if len(got.Warnings) == 0 {
+		parsed, err := ParseManifest(got)
+		if err != nil {
+			t.Fatalf("ParseManifest() error = %v", err)
+		}
+		if len(parsed.Warnings) == 0 {
 			t.Fatal("expected warning for MCP with missing name")
 		}
-		if !containsStr(got.Warnings[0], "missing required 'name'") {
-			t.Errorf("warning = %q, want to contain 'missing required name'", got.Warnings[0])
+		if !containsStr(parsed.Warnings[0], "missing required 'name'") {
+			t.Errorf("warning = %q, want to contain 'missing required name'", parsed.Warnings[0])
 		}
 	})
 
@@ -1392,9 +1458,9 @@ func TestReadManifest_MCPValidation(t *testing.T) {
 		dir := t.TempDir()
 		manifest := RegistryManifest{
 			Name: "test",
-			MCPs: []MCPEntry{
+			MCPs: mcpEntriesToRaw([]testMCPEntry{
 				{Name: "empty-mcp"},
-			},
+			}),
 		}
 		createTestManifest(t, dir, manifest)
 
@@ -1402,11 +1468,15 @@ func TestReadManifest_MCPValidation(t *testing.T) {
 		if err != nil {
 			t.Fatalf("readManifest() error = %v", err)
 		}
-		if len(got.Warnings) == 0 {
+		parsed, err := ParseManifest(got)
+		if err != nil {
+			t.Fatalf("ParseManifest() error = %v", err)
+		}
+		if len(parsed.Warnings) == 0 {
 			t.Fatal("expected warning for MCP with no command and no url")
 		}
-		if !containsStr(got.Warnings[0], "missing both") {
-			t.Errorf("warning = %q, want to contain 'missing both'", got.Warnings[0])
+		if !containsStr(parsed.Warnings[0], "missing both") {
+			t.Errorf("warning = %q, want to contain 'missing both'", parsed.Warnings[0])
 		}
 	})
 
@@ -1414,9 +1484,9 @@ func TestReadManifest_MCPValidation(t *testing.T) {
 		dir := t.TempDir()
 		manifest := RegistryManifest{
 			Name: "test",
-			MCPs: []MCPEntry{
+			MCPs: mcpEntriesToRaw([]testMCPEntry{
 				{Name: "both-mcp", Command: "npx", URL: "https://example.com"},
-			},
+			}),
 		}
 		createTestManifest(t, dir, manifest)
 
@@ -1424,11 +1494,15 @@ func TestReadManifest_MCPValidation(t *testing.T) {
 		if err != nil {
 			t.Fatalf("readManifest() error = %v", err)
 		}
-		if len(got.Warnings) == 0 {
+		parsed, err := ParseManifest(got)
+		if err != nil {
+			t.Fatalf("ParseManifest() error = %v", err)
+		}
+		if len(parsed.Warnings) == 0 {
 			t.Fatal("expected warning for MCP with both command and url")
 		}
-		if !containsStr(got.Warnings[0], "both") {
-			t.Errorf("warning = %q, want to contain 'both'", got.Warnings[0])
+		if !containsStr(parsed.Warnings[0], "both") {
+			t.Errorf("warning = %q, want to contain 'both'", parsed.Warnings[0])
 		}
 	})
 
@@ -1436,10 +1510,10 @@ func TestReadManifest_MCPValidation(t *testing.T) {
 		dir := t.TempDir()
 		manifest := RegistryManifest{
 			Name: "test",
-			MCPs: []MCPEntry{
+			MCPs: mcpEntriesToRaw([]testMCPEntry{
 				{Name: "stdio-mcp", Command: "npx", Args: []string{"-y", "pkg"}},
 				{Name: "remote-mcp", URL: "https://example.com", Type: "http"},
-			},
+			}),
 		}
 		createTestManifest(t, dir, manifest)
 
@@ -1447,8 +1521,12 @@ func TestReadManifest_MCPValidation(t *testing.T) {
 		if err != nil {
 			t.Fatalf("readManifest() error = %v", err)
 		}
-		if len(got.Warnings) != 0 {
-			t.Errorf("expected no warnings, got %v", got.Warnings)
+		parsed, err := ParseManifest(got)
+		if err != nil {
+			t.Fatalf("ParseManifest() error = %v", err)
+		}
+		if len(parsed.Warnings) != 0 {
+			t.Errorf("expected no warnings, got %v", parsed.Warnings)
 		}
 	})
 }
@@ -1463,16 +1541,16 @@ func TestRegistryManager_ListMCPs(t *testing.T) {
 
 		createTestRegistryClone(t, registriesDir, repoA, RegistryManifest{
 			Name: "org-a",
-			MCPs: []MCPEntry{
+			MCPs: mcpEntriesToRaw([]testMCPEntry{
 				{Name: "mcp-1", Command: "cmd1"},
 				{Name: "mcp-2", Command: "cmd2"},
-			},
+			}),
 		})
 		createTestRegistryClone(t, registriesDir, repoB, RegistryManifest{
 			Name: "org-b",
-			MCPs: []MCPEntry{
+			MCPs: mcpEntriesToRaw([]testMCPEntry{
 				{Name: "mcp-3", URL: "https://example.com", Type: "http"},
-			},
+			}),
 		})
 
 		registries := []Registry{
@@ -1505,7 +1583,7 @@ func TestRegistryManager_ListMCPs(t *testing.T) {
 		repoURL := "git@example.com:skills-only.git"
 		createTestRegistryClone(t, registriesDir, repoURL, RegistryManifest{
 			Name:   "skills-only",
-			Skills: []SkillEntry{{Name: "s", Description: "S", Source: "o/r"}},
+			Skills: skillEntriesToRaw([]testSkillEntry{{Name: "s", Description: "S", Source: "o/r"}}),
 		})
 
 		registries := []Registry{{Name: "skills-only", Repo: repoURL}}
@@ -1525,17 +1603,17 @@ func TestRegistryManager_FindMCP(t *testing.T) {
 
 	createTestRegistryClone(t, registriesDir, repoA, RegistryManifest{
 		Name: "org-a",
-		MCPs: []MCPEntry{
+		MCPs: mcpEntriesToRaw([]testMCPEntry{
 			{Name: "internal-db", Description: "DB queries", Command: "npx", Args: []string{"-y", "@acme/db"}},
 			{Name: "shared-mcp", Description: "Shared A", Command: "cmd-a"},
-		},
+		}),
 	})
 	createTestRegistryClone(t, registriesDir, repoB, RegistryManifest{
 		Name: "org-b",
-		MCPs: []MCPEntry{
+		MCPs: mcpEntriesToRaw([]testMCPEntry{
 			{Name: "jira", Description: "Jira integration", Command: "npx", Args: []string{"-y", "@acme/jira"}},
 			{Name: "shared-mcp", Description: "Shared B", Command: "cmd-b"},
-		},
+		}),
 	})
 
 	registries := []Registry{

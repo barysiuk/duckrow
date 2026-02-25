@@ -7,6 +7,12 @@ import (
 	"testing"
 )
 
+// fileExists checks whether the given path exists on disk.
+func fileExists(path string) bool {
+	_, err := os.Stat(path)
+	return err == nil
+}
+
 // helper to create a source pointing at a local git repo via clone URL override.
 func makeGitSource(t *testing.T, repoDir string) *ParsedSource {
 	t.Helper()
@@ -227,7 +233,7 @@ description: Test default universal-only install
 	for _, agentName := range installed.Agents {
 		found := false
 		for _, agent := range agents {
-			if agent.DisplayName == agentName && agent.Universal {
+			if agent.Name == agentName && agent.Universal {
 				found = true
 				break
 			}

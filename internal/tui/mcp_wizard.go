@@ -498,7 +498,7 @@ func (m *mcpWizardModel) startMCPInstall() tea.Cmd {
 		lockEntry := core.LockedMCP{
 			Name:        mcp.Name,
 			Registry:    registryRepo,
-			ConfigHash:  core.ComputeConfigHash(mcp),
+			ConfigHash:  core.ComputeConfigHash(mcp.ToMCPMeta()),
 			Agents:      agentNames,
 			RequiredEnv: core.ExtractRequiredEnv(mcp.Env),
 		}

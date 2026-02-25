@@ -10,6 +10,8 @@ import (
 	"path/filepath"
 	"strings"
 	"time"
+
+	"github.com/barysiuk/duckrow/internal/core/asset"
 )
 
 const (
@@ -18,7 +20,7 @@ const (
 	registryPullTimeout  = 30 * time.Second
 )
 
-// RegistryManager handles registry operations: add, remove, refresh, and list skills.
+// RegistryManager handles registry operations: add, remove, refresh, and list assets.
 type RegistryManager struct {
 	registriesDir string // ~/.duckrow/registries/
 }
@@ -64,6 +66,112 @@ func RegistryDirKey(repoURL string) string {
 	}
 	return readable + "-" + shortHash
 }
+
+// --- Manifest types ---
+
+// RegistryManifest is the parsed duckrow.json from a registry repo.
+// It supports both v1 (Skills/MCPs arrays) and v2 (Assets map) formats.
+// The Version field discriminates: 0 or 1 = v1, 2 = v2.
+type RegistryManifest struct {
+	Version     int                        `json:"version,omitempty"`
+	Name        string                     `json:"name"`
+	Description string                     `json:"description,omitempty"`
+	Assets      map[string]json.RawMessage `json:"assets,omitempty"`
+	// v1 legacy fields — populated when reading v1 manifests, converted internally.
+	Skills   []json.RawMessage `json:"skills,omitempty"`
+	MCPs     []json.RawMessage `json:"mcps,omitempty"`
+	Warnings []string          `json:"-"` // validation warnings, not serialized
+}
+
+// ParsedManifest holds the fully resolved entries after handler parsing.
+type ParsedManifest struct {
+	Name        string
+	Description string
+	Entries     map[asset.Kind][]asset.RegistryEntry
+	Warnings    []string
+}
+
+// ParseManifest loads a manifest and delegates each kind to its handler.
+func ParseManifest(raw *RegistryManifest) (*ParsedManifest, error) {
+	pm := &ParsedManifest{
+		Name:        raw.Name,
+		Description: raw.Description,
+		Entries:     make(map[asset.Kind][]asset.RegistryEntry),
+		Warnings:    raw.Warnings,
+	}
+
+	// Build the assets map — either from v2 Assets field or v1 legacy fields.
+	assetsMap := raw.Assets
+	if len(assetsMap) == 0 {
+		// v1 format: convert Skills/MCPs arrays to the assets map.
+		assetsMap = make(map[string]json.RawMessage)
+		if len(raw.Skills) > 0 {
+			skillsJSON, err := json.Marshal(raw.Skills)
+			if err != nil {
+				return nil, fmt.Errorf("marshaling v1 skills: %w", err)
+			}
+			assetsMap[string(asset.KindSkill)] = skillsJSON
+		}
+		if len(raw.MCPs) > 0 {
+			mcpsJSON, err := json.Marshal(raw.MCPs)
+			if err != nil {
+				return nil, fmt.Errorf("marshaling v1 MCPs: %w", err)
+			}
+			assetsMap[string(asset.KindMCP)] = mcpsJSON
+		}
+	}
+
+	for kindStr, data := range assetsMap {
+		kind := asset.Kind(kindStr)
+		handler, ok := asset.Get(kind)
+		if !ok {
+			pm.Warnings = append(pm.Warnings,
+				fmt.Sprintf("unknown asset kind %q in manifest; skipping", kindStr))
+			continue
+		}
+		entries, err := handler.ParseManifestEntries(data)
+		if err != nil {
+			return nil, fmt.Errorf("parsing %s entries: %w", kindStr, err)
+		}
+		pm.Entries[kind] = entries
+	}
+
+	// Validate entries and add warnings.
+	if skills, ok := pm.Entries[asset.KindSkill]; ok {
+		for _, s := range skills {
+			if s.Source != "" && !isCanonicalSource(s.Source) {
+				pm.Warnings = append(pm.Warnings,
+					fmt.Sprintf("skill %q has non-canonical source %q (expected host/owner/repo/path format)",
+						s.Name, s.Source))
+			}
+		}
+	}
+	if mcps, ok := pm.Entries[asset.KindMCP]; ok {
+		for _, m := range mcps {
+			if m.Name == "" {
+				pm.Warnings = append(pm.Warnings,
+					"MCP entry missing required 'name' field")
+				continue
+			}
+			meta, ok := m.Meta.(asset.MCPMeta)
+			if !ok {
+				continue
+			}
+			if !meta.IsStdio() && !meta.IsRemote() {
+				pm.Warnings = append(pm.Warnings,
+					fmt.Sprintf("MCP %q missing both 'command' and 'url' (one is required)", m.Name))
+			}
+			if meta.IsStdio() && meta.IsRemote() {
+				pm.Warnings = append(pm.Warnings,
+					fmt.Sprintf("MCP %q has both 'command' and 'url' (only one allowed)", m.Name))
+			}
+		}
+	}
+
+	return pm, nil
+}
+
+// --- Core registry operations ---
 
 // Add clones a registry repo and returns the parsed manifest.
 // The clone is stored in a directory derived from the repo URL to avoid
@@ -112,6 +220,12 @@ func (rm *RegistryManager) Add(repoURL string) (*RegistryManifest, error) {
 	// Clone directly to the final location (cleaner than moving)
 	if err := gitClone(repoURL, "", destDir, registryCloneTimeout); err != nil {
 		return nil, fmt.Errorf("cloning registry to final location: %w", err)
+	}
+
+	// Populate warnings by parsing through handlers.
+	pm, parseErr := ParseManifest(manifest)
+	if parseErr == nil {
+		manifest.Warnings = pm.Warnings
 	}
 
 	return manifest, nil
@@ -207,6 +321,103 @@ func (rm *RegistryManager) LoadAllManifests(registries []Registry) map[string]*R
 	return results
 }
 
+// --- Generic asset lookup ---
+
+// FindAsset searches all registries for an asset by kind and name.
+// Returns the registry entry, the registry name, and any error.
+// If the name is ambiguous across registries, an error is returned.
+func (rm *RegistryManager) FindAsset(registries []Registry, kind asset.Kind, name string) (*asset.RegistryEntry, string, error) {
+	if name == "" {
+		return nil, "", fmt.Errorf("asset name is required")
+	}
+
+	handler, ok := asset.Get(kind)
+	if !ok {
+		return nil, "", fmt.Errorf("unknown asset kind: %s", kind)
+	}
+
+	type match struct {
+		entry        asset.RegistryEntry
+		registryName string
+		registryRepo string
+	}
+	var matches []match
+
+	for _, reg := range registries {
+		manifest, err := rm.LoadManifest(reg.Repo)
+		if err != nil {
+			continue
+		}
+
+		parsed, err := ParseManifest(manifest)
+		if err != nil {
+			continue
+		}
+
+		for _, entry := range parsed.Entries[kind] {
+			if entry.Name == name {
+				matches = append(matches, match{
+					entry:        entry,
+					registryName: parsed.Name,
+					registryRepo: reg.Repo,
+				})
+			}
+		}
+	}
+
+	switch len(matches) {
+	case 0:
+		// List available assets of this kind to help the user.
+		var allNames []string
+		for _, reg := range registries {
+			manifest, err := rm.LoadManifest(reg.Repo)
+			if err != nil {
+				continue
+			}
+			parsed, err := ParseManifest(manifest)
+			if err != nil {
+				continue
+			}
+			for _, entry := range parsed.Entries[kind] {
+				allNames = append(allNames, entry.Name)
+			}
+		}
+		if len(allNames) == 0 {
+			return nil, "", fmt.Errorf("%s %q not found (no %ss available in configured registries)",
+				handler.DisplayName(), name, strings.ToLower(handler.DisplayName()))
+		}
+		return nil, "", fmt.Errorf("%s %q not found in registries. Available: %s",
+			handler.DisplayName(), name, strings.Join(allNames, ", "))
+	case 1:
+		return &matches[0].entry, matches[0].registryName, nil
+	default:
+		var registryNames []string
+		for _, m := range matches {
+			registryNames = append(registryNames, fmt.Sprintf("%s (%s)", m.registryName, m.registryRepo))
+		}
+		return nil, "", fmt.Errorf("%s %q found in multiple registries; use --registry to disambiguate:\n  %s",
+			handler.DisplayName(), name, strings.Join(registryNames, "\n  "))
+	}
+}
+
+// --- Legacy compatibility methods ---
+// These methods provide backward-compatible access to skills and MCPs
+// using the old RegistrySkillInfo/RegistryMCPInfo types.
+
+// RegistrySkillInfo associates a skill entry with its registry.
+type RegistrySkillInfo struct {
+	RegistryName string // Display name from the manifest
+	RegistryRepo string // Repo URL (unique identifier)
+	Skill        asset.RegistryEntry
+}
+
+// RegistryMCPInfo associates an MCP entry with its registry.
+type RegistryMCPInfo struct {
+	RegistryName string // Display name from the manifest
+	RegistryRepo string // Repo URL (unique identifier)
+	MCP          MCPEntry
+}
+
 // ListSkills returns all skills across all loaded registries.
 func (rm *RegistryManager) ListSkills(registries []Registry) []RegistrySkillInfo {
 	var skills []RegistrySkillInfo
@@ -217,11 +428,16 @@ func (rm *RegistryManager) ListSkills(registries []Registry) []RegistrySkillInfo
 			continue
 		}
 
-		for _, skill := range manifest.Skills {
+		parsed, err := ParseManifest(manifest)
+		if err != nil {
+			continue
+		}
+
+		for _, entry := range parsed.Entries[asset.KindSkill] {
 			skills = append(skills, RegistrySkillInfo{
-				RegistryName: manifest.Name,
+				RegistryName: parsed.Name,
 				RegistryRepo: reg.Repo,
-				Skill:        skill,
+				Skill:        entry,
 			})
 		}
 	}
@@ -229,18 +445,31 @@ func (rm *RegistryManager) ListSkills(registries []Registry) []RegistrySkillInfo
 	return skills
 }
 
-// RegistrySkillInfo associates a skill entry with its registry.
-type RegistrySkillInfo struct {
-	RegistryName string // Display name from the manifest
-	RegistryRepo string // Repo URL (unique identifier)
-	Skill        SkillEntry
-}
+// ListMCPs returns all MCPs across all loaded registries.
+func (rm *RegistryManager) ListMCPs(registries []Registry) []RegistryMCPInfo {
+	var mcps []RegistryMCPInfo
 
-// RegistryMCPInfo associates an MCP entry with its registry.
-type RegistryMCPInfo struct {
-	RegistryName string // Display name from the manifest
-	RegistryRepo string // Repo URL (unique identifier)
-	MCP          MCPEntry
+	for _, reg := range registries {
+		manifest, err := rm.LoadManifest(reg.Repo)
+		if err != nil {
+			continue
+		}
+
+		parsed, err := ParseManifest(manifest)
+		if err != nil {
+			continue
+		}
+
+		for _, entry := range parsed.Entries[asset.KindMCP] {
+			mcps = append(mcps, RegistryMCPInfo{
+				RegistryName: parsed.Name,
+				RegistryRepo: reg.Repo,
+				MCP:          MCPEntryFromRegistryEntry(entry),
+			})
+		}
+	}
+
+	return mcps
 }
 
 // FindSkill searches all registries for a skill by name.
@@ -251,19 +480,18 @@ func (rm *RegistryManager) FindSkill(registries []Registry, skillName, registryF
 		return nil, fmt.Errorf("skill name is required")
 	}
 
-	var searchRegistries []Registry
+	searchRegistries := registries
 	if registryFilter != "" {
-		// Filter to the specified registry (by name or repo URL)
+		var filtered []Registry
 		for _, r := range registries {
 			if r.Name == registryFilter || r.Repo == registryFilter {
-				searchRegistries = append(searchRegistries, r)
+				filtered = append(filtered, r)
 			}
 		}
-		if len(searchRegistries) == 0 {
+		if len(filtered) == 0 {
 			return nil, fmt.Errorf("registry %q not found", registryFilter)
 		}
-	} else {
-		searchRegistries = registries
+		searchRegistries = filtered
 	}
 
 	var matches []RegistrySkillInfo
@@ -272,12 +500,16 @@ func (rm *RegistryManager) FindSkill(registries []Registry, skillName, registryF
 		if err != nil {
 			continue
 		}
-		for _, skill := range manifest.Skills {
-			if skill.Name == skillName {
+		parsed, err := ParseManifest(manifest)
+		if err != nil {
+			continue
+		}
+		for _, entry := range parsed.Entries[asset.KindSkill] {
+			if entry.Name == skillName {
 				matches = append(matches, RegistrySkillInfo{
-					RegistryName: manifest.Name,
+					RegistryName: parsed.Name,
 					RegistryRepo: reg.Repo,
-					Skill:        skill,
+					Skill:        entry,
 				})
 			}
 		}
@@ -307,28 +539,6 @@ func (rm *RegistryManager) FindSkill(registries []Registry, skillName, registryF
 	}
 }
 
-// ListMCPs returns all MCPs across all loaded registries.
-func (rm *RegistryManager) ListMCPs(registries []Registry) []RegistryMCPInfo {
-	var mcps []RegistryMCPInfo
-
-	for _, reg := range registries {
-		manifest, err := rm.LoadManifest(reg.Repo)
-		if err != nil {
-			continue
-		}
-
-		for _, mcp := range manifest.MCPs {
-			mcps = append(mcps, RegistryMCPInfo{
-				RegistryName: manifest.Name,
-				RegistryRepo: reg.Repo,
-				MCP:          mcp,
-			})
-		}
-	}
-
-	return mcps
-}
-
 // FindMCP searches all registries for an MCP by name.
 // If registryFilter is non-empty, only that registry (matched by name or repo URL) is searched.
 // Returns an error if the MCP is not found or if the name is ambiguous across registries.
@@ -337,19 +547,18 @@ func (rm *RegistryManager) FindMCP(registries []Registry, mcpName, registryFilte
 		return nil, fmt.Errorf("MCP name is required")
 	}
 
-	var searchRegistries []Registry
+	searchRegistries := registries
 	if registryFilter != "" {
-		// Filter to the specified registry (by name or repo URL)
+		var filtered []Registry
 		for _, r := range registries {
 			if r.Name == registryFilter || r.Repo == registryFilter {
-				searchRegistries = append(searchRegistries, r)
+				filtered = append(filtered, r)
 			}
 		}
-		if len(searchRegistries) == 0 {
+		if len(filtered) == 0 {
 			return nil, fmt.Errorf("registry %q not found", registryFilter)
 		}
-	} else {
-		searchRegistries = registries
+		searchRegistries = filtered
 	}
 
 	var matches []RegistryMCPInfo
@@ -358,12 +567,16 @@ func (rm *RegistryManager) FindMCP(registries []Registry, mcpName, registryFilte
 		if err != nil {
 			continue
 		}
-		for _, mcp := range manifest.MCPs {
-			if mcp.Name == mcpName {
+		parsed, err := ParseManifest(manifest)
+		if err != nil {
+			continue
+		}
+		for _, entry := range parsed.Entries[asset.KindMCP] {
+			if entry.Name == mcpName {
 				matches = append(matches, RegistryMCPInfo{
-					RegistryName: manifest.Name,
+					RegistryName: parsed.Name,
 					RegistryRepo: reg.Repo,
-					MCP:          mcp,
+					MCP:          MCPEntryFromRegistryEntry(entry),
 				})
 			}
 		}
@@ -392,6 +605,8 @@ func (rm *RegistryManager) FindMCP(registries []Registry, mcpName, registryFilte
 			mcpName, strings.Join(registryNames, "\n  "))
 	}
 }
+
+// --- Registry commit resolution ---
 
 // BuildRegistryCommitMap builds a map from canonical source strings to
 // registry commit hashes. This allows update checks to skip network fetches
@@ -424,9 +639,13 @@ func BuildRegistryCommitMap(registries []Registry, rm *RegistryManager) map[stri
 		if err != nil {
 			continue
 		}
-		for _, skill := range manifest.Skills {
-			if skill.Commit != "" && skill.Source != "" {
-				commits[skill.Source] = skill.Commit
+		parsed, err := ParseManifest(manifest)
+		if err != nil {
+			continue
+		}
+		for _, entry := range parsed.Entries[asset.KindSkill] {
+			if entry.Commit != "" && entry.Source != "" {
+				commits[entry.Source] = entry.Commit
 			}
 		}
 	}
@@ -495,6 +714,11 @@ func (rm *RegistryManager) HydrateRegistryCommits(registries []Registry, overrid
 			continue
 		}
 
+		parsed, err := ParseManifest(manifest)
+		if err != nil {
+			continue
+		}
+
 		// Collect unpinned skills (have Source but no Commit).
 		type unpinnedSkill struct {
 			source  string
@@ -508,20 +732,20 @@ func (rm *RegistryManager) HydrateRegistryCommits(registries []Registry, overrid
 		repoGroups := make(map[repoRefKey][]unpinnedSkill)
 		var repoGroupOrder []repoRefKey
 
-		for _, skill := range manifest.Skills {
-			if skill.Source == "" || skill.Commit != "" {
+		for _, entry := range parsed.Entries[asset.KindSkill] {
+			if entry.Source == "" || entry.Commit != "" {
 				continue // skip: no source or already pinned
 			}
 
-			rk := repoKey(skill.Source)
-			sp := skillSubPath(skill.Source)
+			rk := repoKey(entry.Source)
+			sp := skillSubPath(entry.Source)
 			key := repoRefKey{repo: rk}
 
 			if _, exists := repoGroups[key]; !exists {
 				repoGroupOrder = append(repoGroupOrder, key)
 			}
 			repoGroups[key] = append(repoGroups[key], unpinnedSkill{
-				source:  skill.Source,
+				source:  entry.Source,
 				subPath: sp,
 			})
 		}
@@ -573,7 +797,10 @@ func (rm *RegistryManager) HydrateRegistryCommits(registries []Registry, overrid
 	}
 }
 
+// --- Internal helpers ---
+
 // readManifest reads and parses the duckrow.json manifest from a directory.
+// Supports both v1 and v2 formats transparently.
 func readManifest(dir string) (*RegistryManifest, error) {
 	path := filepath.Join(dir, registryManifestFile)
 	data, err := os.ReadFile(path)
@@ -589,36 +816,12 @@ func readManifest(dir string) (*RegistryManifest, error) {
 		return nil, fmt.Errorf("parsing %s: %w", registryManifestFile, err)
 	}
 
-	// Validate source format for each skill entry.
-	for _, skill := range manifest.Skills {
-		if skill.Source != "" && !isCanonicalSource(skill.Source) {
-			manifest.Warnings = append(manifest.Warnings,
-				fmt.Sprintf("skill %q has non-canonical source %q (expected host/owner/repo/path format)",
-					skill.Name, skill.Source))
-		}
-	}
-
-	// Validate MCP entries.
-	for _, mcp := range manifest.MCPs {
-		if mcp.Name == "" {
-			manifest.Warnings = append(manifest.Warnings,
-				"MCP entry missing required 'name' field")
-			continue
-		}
-		hasCommand := mcp.Command != ""
-		hasURL := mcp.URL != ""
-		if !hasCommand && !hasURL {
-			manifest.Warnings = append(manifest.Warnings,
-				fmt.Sprintf("MCP %q missing both 'command' and 'url' (one is required)", mcp.Name))
-		}
-		if hasCommand && hasURL {
-			manifest.Warnings = append(manifest.Warnings,
-				fmt.Sprintf("MCP %q has both 'command' and 'url' (only one allowed)", mcp.Name))
-		}
-	}
-
+	// Auto-detect v1 format: has Skills/MCPs arrays but no Assets map.
+	// The Warnings are populated lazily by ParseManifest.
 	return &manifest, nil
 }
+
+// --- Git helpers ---
 
 // gitClone clones a repository to the given directory.
 // On failure it returns a *CloneError with classified diagnostics.

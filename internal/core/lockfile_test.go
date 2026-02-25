@@ -6,6 +6,8 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+
+	"github.com/barysiuk/duckrow/internal/core/asset"
 )
 
 func TestReadLockFile_NotExists(t *testing.T) {
@@ -43,8 +45,8 @@ func TestReadLockFile_Valid(t *testing.T) {
 	if lf == nil {
 		t.Fatal("expected non-nil lock file")
 	}
-	if lf.LockVersion != 1 {
-		t.Errorf("lockVersion = %d, want 1", lf.LockVersion)
+	if lf.LockVersion != currentLockVersion {
+		t.Errorf("lockVersion = %d, want %d (migrated from v1)", lf.LockVersion, currentLockVersion)
 	}
 	if len(lf.Skills) != 1 {
 		t.Fatalf("len(skills) = %d, want 1", len(lf.Skills))
@@ -79,11 +81,10 @@ func TestReadLockFile_Invalid(t *testing.T) {
 func TestWriteLockFile_SortsSkills(t *testing.T) {
 	dir := t.TempDir()
 	lf := &LockFile{
-		LockVersion: 1,
-		Skills: []LockedSkill{
-			{Name: "zeta", Source: "github.com/o/r/zeta", Commit: "aaa"},
-			{Name: "alpha", Source: "github.com/o/r/alpha", Commit: "bbb"},
-			{Name: "middle", Source: "github.com/o/r/middle", Commit: "ccc"},
+		Assets: []asset.LockedAsset{
+			{Kind: asset.KindSkill, Name: "zeta", Source: "github.com/o/r/zeta", Commit: "aaa"},
+			{Kind: asset.KindSkill, Name: "alpha", Source: "github.com/o/r/alpha", Commit: "bbb"},
+			{Kind: asset.KindSkill, Name: "middle", Source: "github.com/o/r/middle", Commit: "ccc"},
 		},
 	}
 
@@ -113,9 +114,8 @@ func TestWriteLockFile_SortsSkills(t *testing.T) {
 func TestWriteLockFile_OmitsEmptyRef(t *testing.T) {
 	dir := t.TempDir()
 	lf := &LockFile{
-		LockVersion: 1,
-		Skills: []LockedSkill{
-			{Name: "no-ref", Source: "github.com/o/r/skill", Commit: "aaa"},
+		Assets: []asset.LockedAsset{
+			{Kind: asset.KindSkill, Name: "no-ref", Source: "github.com/o/r/skill", Commit: "aaa"},
 		},
 	}
 
@@ -133,14 +133,14 @@ func TestWriteLockFile_OmitsEmptyRef(t *testing.T) {
 	if err := json.Unmarshal(data, &raw); err != nil {
 		t.Fatal(err)
 	}
-	var skills []map[string]json.RawMessage
-	if err := json.Unmarshal(raw["skills"], &skills); err != nil {
+	var assets []map[string]json.RawMessage
+	if err := json.Unmarshal(raw["assets"], &assets); err != nil {
 		t.Fatal(err)
 	}
-	if len(skills) != 1 {
-		t.Fatalf("len(skills) = %d, want 1", len(skills))
+	if len(assets) != 1 {
+		t.Fatalf("len(assets) = %d, want 1", len(assets))
 	}
-	if _, exists := skills[0]["ref"]; exists {
+	if _, exists := assets[0]["ref"]; exists {
 		t.Error("expected ref to be omitted when empty")
 	}
 }
@@ -163,8 +163,8 @@ func TestAddOrUpdateLockEntry_CreatesNew(t *testing.T) {
 	if err != nil {
 		t.Fatalf("read error: %v", err)
 	}
-	if lf.LockVersion != 1 {
-		t.Errorf("lockVersion = %d, want 1", lf.LockVersion)
+	if lf.LockVersion != currentLockVersion {
+		t.Errorf("lockVersion = %d, want %d", lf.LockVersion, currentLockVersion)
 	}
 	if len(lf.Skills) != 1 {
 		t.Fatalf("len(skills) = %d, want 1", len(lf.Skills))
@@ -232,10 +232,9 @@ func TestRemoveLockEntry_Exists(t *testing.T) {
 
 	// Write lock file with two skills.
 	lf := &LockFile{
-		LockVersion: 1,
-		Skills: []LockedSkill{
-			{Name: "keep", Source: "github.com/o/r/keep", Commit: "aaa"},
-			{Name: "remove", Source: "github.com/o/r/remove", Commit: "bbb"},
+		Assets: []asset.LockedAsset{
+			{Kind: asset.KindSkill, Name: "keep", Source: "github.com/o/r/keep", Commit: "aaa"},
+			{Kind: asset.KindSkill, Name: "remove", Source: "github.com/o/r/remove", Commit: "bbb"},
 		},
 	}
 	if err := WriteLockFile(dir, lf); err != nil {
@@ -269,9 +268,8 @@ func TestRemoveLockEntry_NoLockFile(t *testing.T) {
 func TestRemoveLockEntry_SkillNotFound(t *testing.T) {
 	dir := t.TempDir()
 	lf := &LockFile{
-		LockVersion: 1,
-		Skills: []LockedSkill{
-			{Name: "keep", Source: "github.com/o/r/keep", Commit: "aaa"},
+		Assets: []asset.LockedAsset{
+			{Kind: asset.KindSkill, Name: "keep", Source: "github.com/o/r/keep", Commit: "aaa"},
 		},
 	}
 	if err := WriteLockFile(dir, lf); err != nil {
@@ -540,8 +538,8 @@ func TestReadLockFile_V2WithMCPs(t *testing.T) {
 	if lf == nil {
 		t.Fatal("expected non-nil lock file")
 	}
-	if lf.LockVersion != 2 {
-		t.Errorf("lockVersion = %d, want 2", lf.LockVersion)
+	if lf.LockVersion != currentLockVersion {
+		t.Errorf("lockVersion = %d, want %d (migrated from v2)", lf.LockVersion, currentLockVersion)
 	}
 	if len(lf.Skills) != 1 {
 		t.Fatalf("len(skills) = %d, want 1", len(lf.Skills))
@@ -587,8 +585,8 @@ func TestReadLockFile_V1IgnoresMCPs(t *testing.T) {
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
-	if lf.LockVersion != 1 {
-		t.Errorf("lockVersion = %d, want 1", lf.LockVersion)
+	if lf.LockVersion != currentLockVersion {
+		t.Errorf("lockVersion = %d, want %d (migrated from v1)", lf.LockVersion, currentLockVersion)
 	}
 	if len(lf.MCPs) != 0 {
 		t.Errorf("len(mcps) = %d, want 0", len(lf.MCPs))
@@ -598,11 +596,13 @@ func TestReadLockFile_V1IgnoresMCPs(t *testing.T) {
 func TestWriteLockFile_SortsMCPs(t *testing.T) {
 	dir := t.TempDir()
 	lf := &LockFile{
-		LockVersion: 2,
-		Skills:      []LockedSkill{},
-		MCPs: []LockedMCP{
-			{Name: "zeta-mcp", Registry: "reg", ConfigHash: "sha256:aaa", Agents: []string{"cursor"}},
-			{Name: "alpha-mcp", Registry: "reg", ConfigHash: "sha256:bbb", Agents: []string{"cursor"}},
+		Assets: []asset.LockedAsset{
+			{Kind: asset.KindMCP, Name: "zeta-mcp", Data: map[string]any{
+				"registry": "reg", "configHash": "sha256:aaa", "systems": []string{"cursor"},
+			}},
+			{Kind: asset.KindMCP, Name: "alpha-mcp", Data: map[string]any{
+				"registry": "reg", "configHash": "sha256:bbb", "systems": []string{"cursor"},
+			}},
 		},
 	}
 
@@ -625,12 +625,16 @@ func TestWriteLockFile_SortsMCPs(t *testing.T) {
 	}
 }
 
-func TestWriteLockFile_BumpsVersionForMCPs(t *testing.T) {
+func TestWriteLockFile_AlwaysWritesCurrentVersion(t *testing.T) {
 	dir := t.TempDir()
 	lf := &LockFile{
-		LockVersion: 1,
-		Skills:      []LockedSkill{{Name: "s", Source: "github.com/o/r/s", Commit: "aaa"}},
-		MCPs:        []LockedMCP{{Name: "m", Registry: "r", ConfigHash: "sha256:bbb", Agents: []string{"cursor"}}},
+		LockVersion: 1, // should be overwritten to currentLockVersion
+		Assets: []asset.LockedAsset{
+			{Kind: asset.KindSkill, Name: "s", Source: "github.com/o/r/s", Commit: "aaa"},
+			{Kind: asset.KindMCP, Name: "m", Data: map[string]any{
+				"registry": "r", "configHash": "sha256:bbb", "systems": []string{"cursor"},
+			}},
+		},
 	}
 
 	if err := WriteLockFile(dir, lf); err != nil {
@@ -641,16 +645,17 @@ func TestWriteLockFile_BumpsVersionForMCPs(t *testing.T) {
 	if err != nil {
 		t.Fatalf("read back error: %v", err)
 	}
-	if got.LockVersion != 2 {
-		t.Errorf("lockVersion = %d, want 2 (should bump for MCPs)", got.LockVersion)
+	if got.LockVersion != currentLockVersion {
+		t.Errorf("lockVersion = %d, want %d", got.LockVersion, currentLockVersion)
 	}
 }
 
-func TestWriteLockFile_NoMCPsKeepsV1(t *testing.T) {
+func TestWriteLockFile_SkillsOnlyStillV3(t *testing.T) {
 	dir := t.TempDir()
 	lf := &LockFile{
-		LockVersion: 1,
-		Skills:      []LockedSkill{{Name: "s", Source: "github.com/o/r/s", Commit: "aaa"}},
+		Assets: []asset.LockedAsset{
+			{Kind: asset.KindSkill, Name: "s", Source: "github.com/o/r/s", Commit: "aaa"},
+		},
 	}
 
 	if err := WriteLockFile(dir, lf); err != nil {
@@ -661,16 +666,17 @@ func TestWriteLockFile_NoMCPsKeepsV1(t *testing.T) {
 	if err != nil {
 		t.Fatalf("read back error: %v", err)
 	}
-	if got.LockVersion != 1 {
-		t.Errorf("lockVersion = %d, want 1 (no MCPs)", got.LockVersion)
+	if got.LockVersion != currentLockVersion {
+		t.Errorf("lockVersion = %d, want %d", got.LockVersion, currentLockVersion)
 	}
 }
 
-func TestWriteLockFile_OmitsMCPsWhenEmpty(t *testing.T) {
+func TestWriteLockFile_AssetsArrayFormat(t *testing.T) {
 	dir := t.TempDir()
 	lf := &LockFile{
-		LockVersion: 1,
-		Skills:      []LockedSkill{{Name: "s", Source: "github.com/o/r/s", Commit: "aaa"}},
+		Assets: []asset.LockedAsset{
+			{Kind: asset.KindSkill, Name: "s", Source: "github.com/o/r/s", Commit: "aaa"},
+		},
 	}
 
 	if err := WriteLockFile(dir, lf); err != nil {
@@ -686,8 +692,15 @@ func TestWriteLockFile_OmitsMCPsWhenEmpty(t *testing.T) {
 	if err := json.Unmarshal(data, &raw); err != nil {
 		t.Fatal(err)
 	}
+	// v3 uses "assets", not "skills" or "mcps"
+	if _, exists := raw["assets"]; !exists {
+		t.Error("expected 'assets' key in v3 lock file")
+	}
+	if _, exists := raw["skills"]; exists {
+		t.Error("v3 lock file should not contain 'skills' key")
+	}
 	if _, exists := raw["mcps"]; exists {
-		t.Error("expected mcps to be omitted when empty")
+		t.Error("v3 lock file should not contain 'mcps' key")
 	}
 }
 
@@ -710,8 +723,8 @@ func TestAddOrUpdateMCPLockEntry_CreatesNew(t *testing.T) {
 	if err != nil {
 		t.Fatalf("read error: %v", err)
 	}
-	if lf.LockVersion != 2 {
-		t.Errorf("lockVersion = %d, want 2", lf.LockVersion)
+	if lf.LockVersion != currentLockVersion {
+		t.Errorf("lockVersion = %d, want %d", lf.LockVersion, currentLockVersion)
 	}
 	if len(lf.MCPs) != 1 {
 		t.Fatalf("len(mcps) = %d, want 1", len(lf.MCPs))
@@ -752,10 +765,11 @@ func TestAddOrUpdateMCPLockEntry_UpdatesExisting(t *testing.T) {
 func TestAddOrUpdateMCPLockEntry_PreservesSkills(t *testing.T) {
 	dir := t.TempDir()
 
-	// Write a v1 lock file with skills.
+	// Write a lock file with skills.
 	lf := &LockFile{
-		LockVersion: 1,
-		Skills:      []LockedSkill{{Name: "skill-a", Source: "github.com/o/r/a", Commit: "aaa"}},
+		Assets: []asset.LockedAsset{
+			{Kind: asset.KindSkill, Name: "skill-a", Source: "github.com/o/r/a", Commit: "aaa"},
+		},
 	}
 	if err := WriteLockFile(dir, lf); err != nil {
 		t.Fatal(err)
@@ -771,8 +785,8 @@ func TestAddOrUpdateMCPLockEntry_PreservesSkills(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if got.LockVersion != 2 {
-		t.Errorf("lockVersion = %d, want 2 after adding MCP", got.LockVersion)
+	if got.LockVersion != currentLockVersion {
+		t.Errorf("lockVersion = %d, want %d after adding MCP", got.LockVersion, currentLockVersion)
 	}
 	if len(got.Skills) != 1 {
 		t.Fatalf("len(skills) = %d, want 1 (skills should be preserved)", len(got.Skills))
@@ -786,11 +800,13 @@ func TestRemoveMCPLockEntry_Exists(t *testing.T) {
 	dir := t.TempDir()
 
 	lf := &LockFile{
-		LockVersion: 2,
-		Skills:      []LockedSkill{},
-		MCPs: []LockedMCP{
-			{Name: "keep", Registry: "reg", ConfigHash: "sha256:aaa", Agents: []string{"cursor"}},
-			{Name: "remove", Registry: "reg", ConfigHash: "sha256:bbb", Agents: []string{"cursor"}},
+		Assets: []asset.LockedAsset{
+			{Kind: asset.KindMCP, Name: "keep", Data: map[string]any{
+				"registry": "reg", "configHash": "sha256:aaa", "systems": []string{"cursor"},
+			}},
+			{Kind: asset.KindMCP, Name: "remove", Data: map[string]any{
+				"registry": "reg", "configHash": "sha256:bbb", "systems": []string{"cursor"},
+			}},
 		},
 	}
 	if err := WriteLockFile(dir, lf); err != nil {
@@ -823,9 +839,11 @@ func TestRemoveMCPLockEntry_NoLockFile(t *testing.T) {
 func TestRemoveMCPLockEntry_MCPNotFound(t *testing.T) {
 	dir := t.TempDir()
 	lf := &LockFile{
-		LockVersion: 2,
-		Skills:      []LockedSkill{},
-		MCPs:        []LockedMCP{{Name: "keep", Registry: "reg", ConfigHash: "sha256:aaa", Agents: []string{"cursor"}}},
+		Assets: []asset.LockedAsset{
+			{Kind: asset.KindMCP, Name: "keep", Data: map[string]any{
+				"registry": "reg", "configHash": "sha256:aaa", "systems": []string{"cursor"},
+			}},
+		},
 	}
 	if err := WriteLockFile(dir, lf); err != nil {
 		t.Fatal(err)
@@ -916,7 +934,7 @@ func TestComputeConfigHash(t *testing.T) {
 			Args:        []string{"-y", "@acme/mcp-db-server"},
 			Env:         map[string]string{"DATABASE_URL": "$DATABASE_URL"},
 		}
-		hash := ComputeConfigHash(entry)
+		hash := ComputeConfigHash(entry.ToMCPMeta())
 		if !strings.HasPrefix(hash, "sha256:") {
 			t.Errorf("hash = %q, want sha256: prefix", hash)
 		}
@@ -932,7 +950,7 @@ func TestComputeConfigHash(t *testing.T) {
 			Type:        "http",
 			URL:         "https://mcp.acme.com/mcp",
 		}
-		hash := ComputeConfigHash(entry)
+		hash := ComputeConfigHash(entry.ToMCPMeta())
 		if !strings.HasPrefix(hash, "sha256:") {
 			t.Errorf("hash = %q, want sha256: prefix", hash)
 		}
@@ -951,7 +969,7 @@ func TestComputeConfigHash(t *testing.T) {
 			Command:     "npx",
 			Args:        []string{"-y", "pkg"},
 		}
-		if ComputeConfigHash(entry1) != ComputeConfigHash(entry2) {
+		if ComputeConfigHash(entry1.ToMCPMeta()) != ComputeConfigHash(entry2.ToMCPMeta()) {
 			t.Error("hash should be identical when only name/description differ")
 		}
 	})
@@ -959,7 +977,7 @@ func TestComputeConfigHash(t *testing.T) {
 	t.Run("different configs produce different hashes", func(t *testing.T) {
 		entry1 := MCPEntry{Command: "npx", Args: []string{"-y", "pkg-a"}}
 		entry2 := MCPEntry{Command: "npx", Args: []string{"-y", "pkg-b"}}
-		if ComputeConfigHash(entry1) == ComputeConfigHash(entry2) {
+		if ComputeConfigHash(entry1.ToMCPMeta()) == ComputeConfigHash(entry2.ToMCPMeta()) {
 			t.Error("different configs should produce different hashes")
 		}
 	})
@@ -970,8 +988,8 @@ func TestComputeConfigHash(t *testing.T) {
 			Args:    []string{"-y", "@acme/mcp-db-server"},
 			Env:     map[string]string{"B": "$B_VAR", "A": "$A_VAR"},
 		}
-		hash1 := ComputeConfigHash(entry)
-		hash2 := ComputeConfigHash(entry)
+		hash1 := ComputeConfigHash(entry.ToMCPMeta())
+		hash2 := ComputeConfigHash(entry.ToMCPMeta())
 		if hash1 != hash2 {
 			t.Errorf("hash not deterministic: %q != %q", hash1, hash2)
 		}
@@ -979,7 +997,7 @@ func TestComputeConfigHash(t *testing.T) {
 
 	t.Run("empty entry", func(t *testing.T) {
 		entry := MCPEntry{}
-		hash := ComputeConfigHash(entry)
+		hash := ComputeConfigHash(entry.ToMCPMeta())
 		if !strings.HasPrefix(hash, "sha256:") {
 			t.Errorf("hash = %q, want sha256: prefix", hash)
 		}

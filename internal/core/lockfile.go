@@ -10,21 +10,45 @@ import (
 	"regexp"
 	"sort"
 	"strings"
+
+	"github.com/barysiuk/duckrow/internal/core/asset"
 )
 
 const (
 	lockFileName       = "duckrow.lock.json"
-	currentLockVersion = 1
-	mcpLockVersion     = 2 // lock version when MCPs are present
+	currentLockVersion = 3
 )
+
+// LockFile represents duckrow.lock.json (v3).
+// It uses a single assets array with a kind discriminator per entry.
+//
+// The Skills and MCPs fields are computed caches populated by ReadLockFile()
+// and populateLegacyFields(). They are NOT serialized — the canonical data
+// lives in Assets.
+type LockFile struct {
+	LockVersion int                 `json:"lockVersion"`
+	Assets      []asset.LockedAsset `json:"assets"`
+
+	// Computed compat fields — populated by ReadLockFile / populateLegacyFields.
+	Skills []LockedSkill `json:"-"`
+	MCPs   []LockedMCP   `json:"-"`
+}
 
 // LockFilePath returns the full path to the lock file in the given directory.
 func LockFilePath(dir string) string {
 	return filepath.Join(dir, lockFileName)
 }
 
+// populateLegacyFields rebuilds the Skills and MCPs computed fields from Assets.
+// Called by ReadLockFile after parsing or migrating.
+func (lf *LockFile) populateLegacyFields() {
+	lf.Skills = lf.LockedSkills()
+	lf.MCPs = lf.LockedMCPs()
+}
+
 // ReadLockFile reads and parses the lock file from the given directory.
 // Returns nil, nil if the file does not exist.
+// Handles v1/v2 formats by migrating them to v3 in memory.
 func ReadLockFile(dir string) (*LockFile, error) {
 	path := LockFilePath(dir)
 	data, err := os.ReadFile(path)
@@ -35,31 +59,104 @@ func ReadLockFile(dir string) (*LockFile, error) {
 		return nil, fmt.Errorf("reading lock file: %w", err)
 	}
 
+	// Try v3 first.
 	var lf LockFile
 	if err := json.Unmarshal(data, &lf); err != nil {
 		return nil, fmt.Errorf("parsing lock file: %w", err)
 	}
-	return &lf, nil
+
+	// If the file has an Assets field populated, it's v3.
+	if lf.LockVersion >= 3 && len(lf.Assets) > 0 {
+		lf.populateLegacyFields()
+		return &lf, nil
+	}
+
+	// Try to read as v1/v2 legacy format and migrate.
+	var legacy legacyLockFile
+	if err := json.Unmarshal(data, &legacy); err != nil {
+		// Already parsed as v3 with empty assets — return as-is.
+		return &lf, nil
+	}
+
+	migrated := migrateLegacyLockFile(&legacy)
+	migrated.populateLegacyFields()
+	return migrated, nil
+}
+
+// legacyLockFile represents the old v1/v2 lock file format.
+type legacyLockFile struct {
+	LockVersion int              `json:"lockVersion"`
+	Skills      []legacyLocked   `json:"skills"`
+	MCPs        []legacyLockedMC `json:"mcps,omitempty"`
+}
+
+type legacyLocked struct {
+	Name   string `json:"name"`
+	Source string `json:"source"`
+	Commit string `json:"commit"`
+	Ref    string `json:"ref,omitempty"`
+}
+
+type legacyLockedMC struct {
+	Name        string   `json:"name"`
+	Registry    string   `json:"registry"`
+	ConfigHash  string   `json:"configHash"`
+	Agents      []string `json:"agents"`
+	RequiredEnv []string `json:"requiredEnv,omitempty"`
+}
+
+// migrateLegacyLockFile converts a v1/v2 lock file to v3 format.
+func migrateLegacyLockFile(legacy *legacyLockFile) *LockFile {
+	lf := &LockFile{
+		LockVersion: currentLockVersion,
+	}
+
+	for _, s := range legacy.Skills {
+		lf.Assets = append(lf.Assets, asset.LockedAsset{
+			Kind:   asset.KindSkill,
+			Name:   s.Name,
+			Source: s.Source,
+			Commit: s.Commit,
+			Ref:    s.Ref,
+		})
+	}
+
+	for _, m := range legacy.MCPs {
+		data := map[string]any{
+			"registry":   m.Registry,
+			"configHash": m.ConfigHash,
+			"systems":    m.Agents, // renamed from "agents" to "systems"
+		}
+		if len(m.RequiredEnv) > 0 {
+			data["requiredEnv"] = m.RequiredEnv
+		}
+		lf.Assets = append(lf.Assets, asset.LockedAsset{
+			Kind: asset.KindMCP,
+			Name: m.Name,
+			Data: data,
+		})
+	}
+
+	return lf
 }
 
 // WriteLockFile writes the lock file to the given directory atomically.
-// Skills and MCPs are sorted by name for deterministic output.
-// The lock version is bumped to 2 if MCPs are present.
+// Assets are sorted by (kind, name) for deterministic output.
 func WriteLockFile(dir string, lf *LockFile) error {
-	// Sort skills by name for deterministic output.
-	sort.Slice(lf.Skills, func(i, j int) bool {
-		return lf.Skills[i].Name < lf.Skills[j].Name
-	})
+	lf.LockVersion = currentLockVersion
 
-	// Sort MCPs by name for deterministic output.
-	sort.Slice(lf.MCPs, func(i, j int) bool {
-		return lf.MCPs[i].Name < lf.MCPs[j].Name
-	})
-
-	// Bump lock version to 2 if MCPs are present.
-	if len(lf.MCPs) > 0 && lf.LockVersion < mcpLockVersion {
-		lf.LockVersion = mcpLockVersion
+	// Ensure Assets is never nil to serialize as [] instead of null.
+	if lf.Assets == nil {
+		lf.Assets = []asset.LockedAsset{}
 	}
+
+	// Sort assets by (kind, name) for deterministic output.
+	sort.Slice(lf.Assets, func(i, j int) bool {
+		if lf.Assets[i].Kind != lf.Assets[j].Kind {
+			return lf.Assets[i].Kind < lf.Assets[j].Kind
+		}
+		return lf.Assets[i].Name < lf.Assets[j].Name
+	})
 
 	data, err := json.MarshalIndent(lf, "", "  ")
 	if err != nil {
@@ -83,39 +180,36 @@ func WriteLockFile(dir string, lf *LockFile) error {
 	return nil
 }
 
-// AddOrUpdateLockEntry upserts a skill entry in the lock file by name.
-// Creates the lock file if it does not exist.
-func AddOrUpdateLockEntry(dir string, entry LockedSkill) error {
+// --- Generic CRUD (never inspects the Data field) ---
+
+// AddOrUpdateAsset upserts a locked asset by (kind, name).
+func AddOrUpdateAsset(dir string, entry asset.LockedAsset) error {
 	lf, err := ReadLockFile(dir)
 	if err != nil {
 		return err
 	}
 	if lf == nil {
-		lf = &LockFile{
-			LockVersion: currentLockVersion,
-			Skills:      []LockedSkill{},
-		}
+		lf = &LockFile{LockVersion: currentLockVersion}
 	}
 
-	// Upsert: replace existing entry with the same name, or append.
 	found := false
-	for i, s := range lf.Skills {
-		if s.Name == entry.Name {
-			lf.Skills[i] = entry
+	for i, a := range lf.Assets {
+		if a.Kind == entry.Kind && a.Name == entry.Name {
+			lf.Assets[i] = entry
 			found = true
 			break
 		}
 	}
 	if !found {
-		lf.Skills = append(lf.Skills, entry)
+		lf.Assets = append(lf.Assets, entry)
 	}
 
 	return WriteLockFile(dir, lf)
 }
 
-// RemoveLockEntry removes a skill entry from the lock file by name.
-// No-op if the lock file does not exist or the skill is not found.
-func RemoveLockEntry(dir string, skillName string) error {
+// RemoveAssetEntry removes a locked asset by (kind, name).
+// No-op if the lock file does not exist or the asset is not found.
+func RemoveAssetEntry(dir string, kind asset.Kind, name string) error {
 	lf, err := ReadLockFile(dir)
 	if err != nil {
 		return err
@@ -124,75 +218,51 @@ func RemoveLockEntry(dir string, skillName string) error {
 		return nil
 	}
 
-	filtered := lf.Skills[:0]
-	for _, s := range lf.Skills {
-		if s.Name != skillName {
-			filtered = append(filtered, s)
+	filtered := lf.Assets[:0]
+	for _, a := range lf.Assets {
+		if a.Kind != kind || a.Name != name {
+			filtered = append(filtered, a)
 		}
 	}
-	lf.Skills = filtered
+	lf.Assets = filtered
 
 	return WriteLockFile(dir, lf)
 }
 
-// AddOrUpdateMCPLockEntry upserts an MCP entry in the lock file by name.
-// Creates the lock file if it does not exist.
-func AddOrUpdateMCPLockEntry(dir string, entry LockedMCP) error {
-	lf, err := ReadLockFile(dir)
-	if err != nil {
-		return err
-	}
-	if lf == nil {
-		lf = &LockFile{
-			LockVersion: mcpLockVersion,
-			Skills:      []LockedSkill{},
-			MCPs:        []LockedMCP{},
-		}
-	}
-
-	// Upsert: replace existing entry with the same name, or append.
-	found := false
-	for i, m := range lf.MCPs {
-		if m.Name == entry.Name {
-			lf.MCPs[i] = entry
-			found = true
-			break
-		}
-	}
-	if !found {
-		lf.MCPs = append(lf.MCPs, entry)
-	}
-
-	return WriteLockFile(dir, lf)
-}
-
-// RemoveMCPLockEntry removes an MCP entry from the lock file by name.
-// No-op if the lock file does not exist or the MCP is not found.
-func RemoveMCPLockEntry(dir string, mcpName string) error {
-	lf, err := ReadLockFile(dir)
-	if err != nil {
-		return err
-	}
+// FindLockedAsset returns the locked entry for a (kind, name) pair, or nil.
+func FindLockedAsset(lf *LockFile, kind asset.Kind, name string) *asset.LockedAsset {
 	if lf == nil {
 		return nil
 	}
-
-	filtered := lf.MCPs[:0]
-	for _, m := range lf.MCPs {
-		if m.Name != mcpName {
-			filtered = append(filtered, m)
+	for i := range lf.Assets {
+		if lf.Assets[i].Kind == kind && lf.Assets[i].Name == name {
+			return &lf.Assets[i]
 		}
 	}
-	lf.MCPs = filtered
-
-	return WriteLockFile(dir, lf)
+	return nil
 }
+
+// AssetsByKind returns all locked assets of the given kind.
+func AssetsByKind(lf *LockFile, kind asset.Kind) []asset.LockedAsset {
+	if lf == nil {
+		return nil
+	}
+	var result []asset.LockedAsset
+	for _, a := range lf.Assets {
+		if a.Kind == kind {
+			result = append(result, a)
+		}
+	}
+	return result
+}
+
+// --- Utility functions (kind-agnostic) ---
 
 // envVarRefPattern matches $VAR references in env values.
 var envVarRefPattern = regexp.MustCompile(`\$([A-Za-z_][A-Za-z0-9_]*)`)
 
 // ExtractRequiredEnv extracts environment variable names from $VAR references
-// in an MCP entry's env map. Returns a sorted, deduplicated list.
+// in an env map. Returns a sorted, deduplicated list.
 func ExtractRequiredEnv(env map[string]string) []string {
 	seen := make(map[string]bool)
 	for _, val := range env {
@@ -211,43 +281,37 @@ func ExtractRequiredEnv(env map[string]string) []string {
 }
 
 // ComputeConfigHash computes a SHA-256 hash of an MCP entry's config-relevant
-// fields. The hash input is a deterministic JSON object containing only config
-// fields (command, args, env, url, type). name and description are excluded.
-// Keys are sorted alphabetically, with compact JSON (no whitespace).
+// fields. The hash input is a deterministic JSON object.
 // The returned hash has a "sha256:" prefix.
-func ComputeConfigHash(entry MCPEntry) string {
-	// Build a map with only config-relevant fields.
+func ComputeConfigHash(meta asset.MCPMeta) string {
 	m := make(map[string]interface{})
-	if entry.Command != "" {
-		m["command"] = entry.Command
+	if meta.Command != "" {
+		m["command"] = meta.Command
 	}
-	if len(entry.Args) > 0 {
-		m["args"] = entry.Args
+	if len(meta.Args) > 0 {
+		m["args"] = meta.Args
 	}
-	if len(entry.Env) > 0 {
-		// Sort env keys for determinism.
-		sortedEnv := make(map[string]string, len(entry.Env))
-		for k, v := range entry.Env {
+	if len(meta.Env) > 0 {
+		sortedEnv := make(map[string]string, len(meta.Env))
+		for k, v := range meta.Env {
 			sortedEnv[k] = v
 		}
 		m["env"] = sortedEnv
 	}
-	if entry.URL != "" {
-		m["url"] = entry.URL
+	if meta.URL != "" {
+		m["url"] = meta.URL
 	}
-	if entry.Type != "" {
-		m["type"] = entry.Type
+	if meta.Transport != "" {
+		m["type"] = meta.Transport
 	}
 
-	// Marshal with sorted keys (Go's encoding/json sorts map keys by default).
 	data, _ := json.Marshal(m)
-
 	h := sha256.Sum256(data)
 	return "sha256:" + fmt.Sprintf("%x", h)
 }
 
 // GetSkillCommit returns the git commit SHA that last modified the given sub-path
-// within a repository directory. Uses `git log -1 --format=%H -- <subPath>`.
+// within a repository directory.
 func GetSkillCommit(repoDir, subPath string) (string, error) {
 	args := []string{"-C", repoDir, "log", "-1", "--format=%H"}
 	if subPath != "" && subPath != "." {
@@ -267,20 +331,16 @@ func GetSkillCommit(repoDir, subPath string) (string, error) {
 }
 
 // NormalizeSource builds a canonical lock file source string from its components.
-// Format: host/owner/repo/skillRelPath (e.g. "github.com/acme/skills/tools/lint").
 func NormalizeSource(host, owner, repo, skillRelPath string) string {
 	base := host + "/" + owner + "/" + repo
 	if skillRelPath == "" || skillRelPath == "." {
 		return base
 	}
-	// Normalize path separators to forward slashes.
 	skillRelPath = filepath.ToSlash(skillRelPath)
 	return base + "/" + skillRelPath
 }
 
-// ParseLockSource splits a canonical lock source like "github.com/acme/skills/tools/lint"
-// into its components (host, owner, repo, subPath). Returns an error if the source
-// has fewer than 3 segments (host/owner/repo minimum).
+// ParseLockSource splits a canonical lock source into components.
 func ParseLockSource(source string) (host, owner, repo, subPath string, err error) {
 	parts := strings.Split(source, "/")
 	if len(parts) < 3 {
@@ -295,9 +355,7 @@ func ParseLockSource(source string) (host, owner, repo, subPath string, err erro
 	return host, owner, repo, subPath, nil
 }
 
-// isCanonicalSource checks whether a source string uses the canonical
-// host/owner/repo/path format. Canonical means at least 3 slash-separated
-// segments where the first segment contains a dot (hostname indicator).
+// isCanonicalSource checks whether a source string uses the canonical format.
 func isCanonicalSource(source string) bool {
 	parts := strings.Split(source, "/")
 	if len(parts) < 3 {
@@ -315,9 +373,7 @@ func repoKey(source string) string {
 	return parts[0] + "/" + parts[1] + "/" + parts[2]
 }
 
-// SourcePathKey strips the host from a canonical source, returning "owner/repo/path".
-// This allows matching sources across different host aliases (e.g. github.com vs
-// github.com-work) that refer to the same repository and skill path.
+// SourcePathKey strips the host from a canonical source.
 func SourcePathKey(source string) string {
 	idx := strings.Index(source, "/")
 	if idx < 0 {
@@ -326,8 +382,7 @@ func SourcePathKey(source string) string {
 	return source[idx+1:]
 }
 
-// TruncateCommit returns the first 7 characters of a commit hash,
-// or the full string if it's shorter.
+// TruncateCommit returns the first 7 characters of a commit hash.
 func TruncateCommit(commit string) string {
 	if len(commit) > 7 {
 		return commit[:7]
@@ -335,8 +390,7 @@ func TruncateCommit(commit string) string {
 	return commit
 }
 
-// skillSubPath extracts the sub-path portion from a canonical source string.
-// Returns "" if the source has exactly 3 segments (host/owner/repo).
+// skillSubPath extracts the sub-path from a canonical source string.
 func skillSubPath(source string) string {
 	parts := strings.Split(source, "/")
 	if len(parts) <= 3 {
@@ -346,18 +400,10 @@ func skillSubPath(source string) string {
 }
 
 // LookupRegistryCommit finds the registry commit for a given source string.
-// It first tries an exact match, then falls back to host-agnostic matching
-// using SourcePathKey. This handles SSH host aliases (e.g. github.com-work)
-// that may differ from the registry's canonical host.
-//
-// The pathIndex maps SourcePathKey(source) -> commit and must be pre-built
-// by the caller for efficiency.
 func LookupRegistryCommit(source string, registryCommits map[string]string, pathIndex map[string]string) string {
-	// Exact match first.
 	if commit, ok := registryCommits[source]; ok && commit != "" {
 		return commit
 	}
-	// Fallback: match by path (host-agnostic).
 	if commit, ok := pathIndex[SourcePathKey(source)]; ok && commit != "" {
 		return commit
 	}
@@ -365,7 +411,6 @@ func LookupRegistryCommit(source string, registryCommits map[string]string, path
 }
 
 // BuildPathIndex builds a host-agnostic index from a registry commit map.
-// The returned map keys are SourcePathKey values (owner/repo/path).
 func BuildPathIndex(registryCommits map[string]string) map[string]string {
 	index := make(map[string]string, len(registryCommits))
 	for source, commit := range registryCommits {
@@ -375,23 +420,19 @@ func BuildPathIndex(registryCommits map[string]string) map[string]string {
 }
 
 // CheckForUpdates checks each locked skill for available updates.
-// registryCommits maps lock file source strings to the commit from the registry.
-// overrides maps repo keys (owner/repo) to clone URL overrides.
 func CheckForUpdates(lf *LockFile, overrides map[string]string, registryCommits map[string]string) ([]UpdateInfo, error) {
 	var results []UpdateInfo
 
-	// Build a path-based index for host-agnostic source matching.
-	// This allows matching sources across SSH host aliases (e.g. github.com
-	// vs github.com-work) that refer to the same repository and skill path.
 	pathIndex := BuildPathIndex(registryCommits)
 
-	// Separate skills into registry-resolved and network-fetch groups.
+	// Get all skill assets from the lock file.
+	skills := AssetsByKind(lf, asset.KindSkill)
+
 	type pendingSkill struct {
-		skill   LockedSkill
+		asset   asset.LockedAsset
 		subPath string
 	}
 
-	// Group skills needing network fetch by (repoKey, ref) to avoid duplicate clones.
 	type repoRefKey struct {
 		repo string
 		ref  string
@@ -399,8 +440,7 @@ func CheckForUpdates(lf *LockFile, overrides map[string]string, registryCommits 
 	repoGroups := make(map[repoRefKey][]pendingSkill)
 	var repoGroupOrder []repoRefKey
 
-	for _, skill := range lf.Skills {
-		// Check registry commit first (exact match, then host-agnostic fallback).
+	for _, skill := range skills {
 		if regCommit := LookupRegistryCommit(skill.Source, registryCommits, pathIndex); regCommit != "" {
 			results = append(results, UpdateInfo{
 				Name:            skill.Name,
@@ -412,30 +452,26 @@ func CheckForUpdates(lf *LockFile, overrides map[string]string, registryCommits 
 			continue
 		}
 
-		// Need network fetch. Group by repo + ref.
 		key := repoRefKey{repo: repoKey(skill.Source), ref: skill.Ref}
 		if _, exists := repoGroups[key]; !exists {
 			repoGroupOrder = append(repoGroupOrder, key)
 		}
 		repoGroups[key] = append(repoGroups[key], pendingSkill{
-			skill:   skill,
+			asset:   skill,
 			subPath: skillSubPath(skill.Source),
 		})
 	}
 
-	// Process each repo group: clone once, check all skills.
 	for _, key := range repoGroupOrder {
-		skills := repoGroups[key]
-		// Parse the source to build a clone URL.
-		host, owner, repo, _, err := ParseLockSource(skills[0].skill.Source)
+		pending := repoGroups[key]
+		host, owner, repo, _, err := ParseLockSource(pending[0].asset.Source)
 		if err != nil {
-			// Add error results for all skills in this group.
-			for _, ps := range skills {
+			for _, ps := range pending {
 				results = append(results, UpdateInfo{
-					Name:            ps.skill.Name,
-					Source:          ps.skill.Source,
-					InstalledCommit: ps.skill.Commit,
-					AvailableCommit: ps.skill.Commit,
+					Name:            ps.asset.Name,
+					Source:          ps.asset.Source,
+					InstalledCommit: ps.asset.Commit,
+					AvailableCommit: ps.asset.Commit,
 					HasUpdate:       false,
 				})
 			}
@@ -443,8 +479,6 @@ func CheckForUpdates(lf *LockFile, overrides map[string]string, registryCommits 
 		}
 
 		cloneURL := fmt.Sprintf("https://%s/%s/%s.git", host, owner, repo)
-
-		// Apply clone URL override.
 		repoKeyStr := strings.ToLower(owner) + "/" + strings.ToLower(repo)
 		if override, ok := overrides[repoKeyStr]; ok && override != "" {
 			cloneURL = override
@@ -452,30 +486,29 @@ func CheckForUpdates(lf *LockFile, overrides map[string]string, registryCommits 
 
 		tmpDir, cloneErr := cloneRepo(cloneURL, key.ref, false)
 		if cloneErr != nil {
-			// Can't clone — mark all skills as no-update.
-			for _, ps := range skills {
+			for _, ps := range pending {
 				results = append(results, UpdateInfo{
-					Name:            ps.skill.Name,
-					Source:          ps.skill.Source,
-					InstalledCommit: ps.skill.Commit,
-					AvailableCommit: ps.skill.Commit,
+					Name:            ps.asset.Name,
+					Source:          ps.asset.Source,
+					InstalledCommit: ps.asset.Commit,
+					AvailableCommit: ps.asset.Commit,
 					HasUpdate:       false,
 				})
 			}
 			continue
 		}
 
-		for _, ps := range skills {
+		for _, ps := range pending {
 			available, commitErr := GetSkillCommit(tmpDir, ps.subPath)
 			if commitErr != nil {
-				available = ps.skill.Commit
+				available = ps.asset.Commit
 			}
 			results = append(results, UpdateInfo{
-				Name:            ps.skill.Name,
-				Source:          ps.skill.Source,
-				InstalledCommit: ps.skill.Commit,
+				Name:            ps.asset.Name,
+				Source:          ps.asset.Source,
+				InstalledCommit: ps.asset.Commit,
 				AvailableCommit: available,
-				HasUpdate:       ps.skill.Commit != available,
+				HasUpdate:       ps.asset.Commit != available,
 			})
 		}
 

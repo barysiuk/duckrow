@@ -134,7 +134,7 @@ Examples:
 			lockEntry := core.LockedMCP{
 				Name:        mcpName,
 				Registry:    mcpInfo.RegistryName,
-				ConfigHash:  core.ComputeConfigHash(mcpInfo.MCP),
+				ConfigHash:  core.ComputeConfigHash(mcpInfo.MCP.ToMCPMeta()),
 				Agents:      installedAgentNames,
 				RequiredEnv: requiredEnv,
 			}

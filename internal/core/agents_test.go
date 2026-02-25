@@ -130,7 +130,7 @@ func TestResolveAgentsByNames_SingleAgent(t *testing.T) {
 func TestResolveAgentsByNames_MultipleAgents(t *testing.T) {
 	agents, _ := LoadAgents()
 
-	resolved, err := ResolveAgentsByNames(agents, []string{"cursor", "claude-code", "windsurf"})
+	resolved, err := ResolveAgentsByNames(agents, []string{"cursor", "claude-code", "goose"})
 	if err != nil {
 		t.Fatalf("ResolveAgentsByNames() error: %v", err)
 	}
@@ -142,7 +142,7 @@ func TestResolveAgentsByNames_MultipleAgents(t *testing.T) {
 	for _, a := range resolved {
 		names[a.Name] = true
 	}
-	for _, want := range []string{"cursor", "claude-code", "windsurf"} {
+	for _, want := range []string{"cursor", "claude-code", "goose"} {
 		if !names[want] {
 			t.Errorf("expected agent %q in result", want)
 		}
