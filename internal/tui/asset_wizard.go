@@ -348,7 +348,7 @@ func (m assetWizardModel) activate(msg openAssetWizardMsg, app *App, width, heig
 	m.envStatus = nil
 	m.envMissingVars = nil
 
-	activeSystemNames := system.DisplayNames(system.DetectInFolder(msg.activeFolder))
+	activeSystemNames := system.DisplayNames(system.ActiveInFolder(msg.activeFolder))
 	activeSet := make(map[string]bool, len(activeSystemNames))
 	for _, name := range activeSystemNames {
 		activeSet[name] = true
