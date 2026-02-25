@@ -1,0 +1,127 @@
+# Full lifecycle test for Claude Code (non-universal, skills + MCP)
+#
+# Claude Code is a non-universal system. Skills get a symlink from
+# .claude/skills/<name> pointing to the canonical .agents/skills/<name>.
+# MCP configs go into .mcp.json under the "mcpServers" key.
+# Claude Code uses strict JSON (no comments, no trailing commas).
+
+# --- Setup ---
+
+mkdir myproject
+
+# Skill source repo
+mkdir skill-source
+cp skill-md skill-source/SKILL.md
+setup-git-repo skill-source test-skills claude-test
+setup-config-override test-owner/test-repo skill-source
+
+# MCP registry with stdio + remote entries
+setup-mcp-registry mcp-registry my-mcps my-db:psql:DB_HOST analytics:remote:https://mcp.example.com/analytics:http
+exec duckrow registry add mcp-registry
+stdout 'Added registry: my-mcps'
+
+# === SKILL LIFECYCLE ===
+
+# Install skill targeting only claude-code
+exec duckrow skill install https://github.com/test-owner/test-repo -d myproject --systems=claude-code
+stdout 'Installed: claude-test'
+
+# Canonical dir must exist
+exists myproject/.agents/skills/claude-test/SKILL.md
+file-contains myproject/.agents/skills/claude-test/SKILL.md 'claude-test'
+
+# Claude-specific symlink must exist
+exists myproject/.claude/skills/claude-test
+is-symlink myproject/.claude/skills/claude-test
+
+# No other non-universal system dirs should be created
+dir-not-exists myproject/.cursor/skills
+dir-not-exists myproject/.goose/skills
+
+# Lock file
+exists myproject/duckrow.lock.json
+file-contains myproject/duckrow.lock.json '"name": "claude-test"'
+file-contains myproject/duckrow.lock.json '"kind": "skill"'
+
+# Uninstall skill
+exec duckrow skill uninstall claude-test -d myproject
+dir-not-exists myproject/.agents/skills/claude-test
+dir-not-exists myproject/.claude/skills/claude-test
+
+# Re-install so we can test sync (uninstall removes the lock entry too)
+exec duckrow skill install https://github.com/test-owner/test-repo -d myproject --systems=claude-code
+exists myproject/.agents/skills/claude-test/SKILL.md
+
+# Delete skill dir manually (simulates fresh checkout, lock file preserved)
+exec rm -rf myproject/.agents/skills/claude-test
+exec rm -rf myproject/.claude/skills/claude-test
+dir-not-exists myproject/.agents/skills/claude-test
+
+# Sync restores skill from lock file
+exec duckrow skill sync -d myproject --systems=claude-code
+stdout 'Installed: claude-test'
+exists myproject/.agents/skills/claude-test/SKILL.md
+exists myproject/.claude/skills/claude-test
+is-symlink myproject/.claude/skills/claude-test
+
+# Clean up
+exec duckrow skill uninstall claude-test -d myproject
+
+# === STDIO MCP LIFECYCLE ===
+
+# Install stdio MCP targeting only claude-code
+exec duckrow mcp install my-db -d myproject --systems=claude-code
+stdout 'MCP "my-db" installed successfully'
+
+# Config file at .mcp.json (not nested in a directory)
+exists myproject/.mcp.json
+
+# Verify config structure: "mcpServers" key, standard format
+file-contains myproject/.mcp.json 'mcpServers'
+file-contains myproject/.mcp.json '"my-db"'
+file-contains myproject/.mcp.json '"command": "duckrow"'
+# --mcp flag must use asset name, not command binary
+! file-contains myproject/.mcp.json '"psql",'
+
+# Verify env wrapping args
+file-contains myproject/.mcp.json '"env"'
+file-contains myproject/.mcp.json '"--mcp"'
+file-contains myproject/.mcp.json '"psql"'
+
+# Lock file has MCP entry with claude-code in systems
+file-contains myproject/duckrow.lock.json '"kind": "mcp"'
+file-contains myproject/duckrow.lock.json '"name": "my-db"'
+file-contains myproject/duckrow.lock.json '"claude-code"'
+file-contains myproject/duckrow.lock.json 'DB_HOST'
+
+# Delete config file to simulate fresh checkout (lock file preserved)
+exec rm -f myproject/.mcp.json
+
+# Sync restores MCP config from lock file
+exec duckrow mcp sync -d myproject --force
+stdout 'Installed: my-db'
+exists myproject/.mcp.json
+file-contains myproject/.mcp.json 'my-db'
+file-contains myproject/.mcp.json '"command": "duckrow"'
+
+# === REMOTE MCP ===
+
+# Install remote MCP
+exec duckrow mcp install analytics -d myproject --systems=claude-code --force
+stdout 'MCP "analytics" installed successfully'
+
+# Remote entry should have type + url
+file-contains myproject/.mcp.json '"analytics"'
+file-contains myproject/.mcp.json '"http"'
+file-contains myproject/.mcp.json 'https://mcp.example.com/analytics'
+
+-- skill-md --
+---
+name: claude-test
+description: A skill for testing Claude Code integration
+metadata:
+  version: "1.0.0"
+---
+# Claude Code Test Skill
+
+Instructions for the claude-test skill.

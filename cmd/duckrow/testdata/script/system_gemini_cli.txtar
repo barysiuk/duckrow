@@ -1,0 +1,77 @@
+# Full lifecycle test for Gemini CLI (universal, skills-only)
+#
+# Gemini CLI is a universal system. Skills go directly into
+# .agents/skills/<name> with no symlinks needed.
+# Gemini CLI does not support MCP configurations.
+
+# --- Setup ---
+
+mkdir myproject
+
+# Skill source repo
+mkdir skill-source
+cp skill-md skill-source/SKILL.md
+setup-git-repo skill-source test-skills gemini-test
+setup-config-override test-owner/test-repo skill-source
+
+# === SKILL LIFECYCLE ===
+
+# Install skill targeting only gemini-cli
+exec duckrow skill install https://github.com/test-owner/test-repo -d myproject --systems=gemini-cli
+stdout 'Installed: gemini-test'
+
+# Canonical dir must exist
+exists myproject/.agents/skills/gemini-test/SKILL.md
+file-contains myproject/.agents/skills/gemini-test/SKILL.md 'gemini-test'
+
+# Universal systems do NOT create symlinks
+! is-symlink myproject/.agents/skills/gemini-test
+
+# No non-universal system dirs
+dir-not-exists myproject/.cursor/skills
+dir-not-exists myproject/.claude/skills
+dir-not-exists myproject/.goose/skills
+
+# Lock file
+exists myproject/duckrow.lock.json
+file-contains myproject/duckrow.lock.json '"name": "gemini-test"'
+file-contains myproject/duckrow.lock.json '"kind": "skill"'
+
+# Uninstall skill
+exec duckrow skill uninstall gemini-test -d myproject
+dir-not-exists myproject/.agents/skills/gemini-test
+
+# Re-install so we can test sync (uninstall removes the lock entry too)
+exec duckrow skill install https://github.com/test-owner/test-repo -d myproject --systems=gemini-cli
+exists myproject/.agents/skills/gemini-test/SKILL.md
+
+# Delete skill dir manually (simulates fresh checkout, lock file preserved)
+exec rm -rf myproject/.agents/skills/gemini-test
+dir-not-exists myproject/.agents/skills/gemini-test
+
+# Sync restores skill from lock file
+exec duckrow skill sync -d myproject --systems=gemini-cli
+stdout 'Installed: gemini-test'
+exists myproject/.agents/skills/gemini-test/SKILL.md
+
+# Clean up
+exec duckrow skill uninstall gemini-test -d myproject
+
+# === MCP NOT SUPPORTED ===
+
+# Gemini CLI does not support MCP; installing with --systems=gemini-cli should fail
+setup-mcp-registry mcp-registry my-mcps my-db:psql
+exec duckrow registry add mcp-registry
+! exec duckrow mcp install my-db -d myproject --systems=gemini-cli
+stderr 'none of the specified systems support MCP'
+
+-- skill-md --
+---
+name: gemini-test
+description: A skill for testing Gemini CLI integration
+metadata:
+  version: "1.0.0"
+---
+# Gemini CLI Test Skill
+
+Instructions for the gemini-test skill.

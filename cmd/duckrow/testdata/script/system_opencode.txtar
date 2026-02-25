@@ -1,0 +1,126 @@
+# Full lifecycle test for OpenCode (universal, skills + MCP)
+#
+# OpenCode is a universal system. Skills go directly into
+# .agents/skills/<name> with no symlinks needed.
+# MCP configs go into opencode.json under the "mcp" key.
+# OpenCode uses a custom format: stdio MCPs have "type": "local"
+# and "command" as an array (not a string).
+
+# --- Setup ---
+
+mkdir myproject
+
+# Skill source repo
+mkdir skill-source
+cp skill-md skill-source/SKILL.md
+setup-git-repo skill-source test-skills opencode-test
+setup-config-override test-owner/test-repo skill-source
+
+# MCP registry with stdio + remote entries
+setup-mcp-registry mcp-registry my-mcps my-db:psql:DB_HOST analytics:remote:https://mcp.example.com/analytics:http
+exec duckrow registry add mcp-registry
+stdout 'Added registry: my-mcps'
+
+# === SKILL LIFECYCLE ===
+
+# Install skill targeting only opencode
+exec duckrow skill install https://github.com/test-owner/test-repo -d myproject --systems=opencode
+stdout 'Installed: opencode-test'
+
+# Canonical dir must exist (universal systems read from here directly)
+exists myproject/.agents/skills/opencode-test/SKILL.md
+file-contains myproject/.agents/skills/opencode-test/SKILL.md 'opencode-test'
+
+# Universal systems do NOT create symlinks
+! is-symlink myproject/.agents/skills/opencode-test
+
+# No non-universal system dirs should be created
+dir-not-exists myproject/.cursor/skills
+dir-not-exists myproject/.claude/skills
+dir-not-exists myproject/.goose/skills
+
+# Lock file
+exists myproject/duckrow.lock.json
+file-contains myproject/duckrow.lock.json '"name": "opencode-test"'
+file-contains myproject/duckrow.lock.json '"kind": "skill"'
+
+# Uninstall skill
+exec duckrow skill uninstall opencode-test -d myproject
+dir-not-exists myproject/.agents/skills/opencode-test
+
+# Re-install so we can test sync (uninstall removes the lock entry too)
+exec duckrow skill install https://github.com/test-owner/test-repo -d myproject --systems=opencode
+exists myproject/.agents/skills/opencode-test/SKILL.md
+
+# Delete skill dir manually (simulates fresh checkout, lock file preserved)
+exec rm -rf myproject/.agents/skills/opencode-test
+dir-not-exists myproject/.agents/skills/opencode-test
+
+# Sync restores skill from lock file
+exec duckrow skill sync -d myproject --systems=opencode
+stdout 'Installed: opencode-test'
+exists myproject/.agents/skills/opencode-test/SKILL.md
+
+# Clean up
+exec duckrow skill uninstall opencode-test -d myproject
+
+# === STDIO MCP LIFECYCLE ===
+
+# Install stdio MCP targeting only opencode
+exec duckrow mcp install my-db -d myproject --systems=opencode
+stdout 'MCP "my-db" installed successfully'
+
+# Config file at opencode.json
+exists myproject/opencode.json
+
+# Verify OpenCode-specific format:
+#   - top-level key is "mcp" (not "mcpServers" or "servers")
+#   - stdio type is "local" (not "stdio")
+#   - command is an array (not a string)
+# hujson may align values, so check "local" and "mcp" key separately
+file-contains myproject/opencode.json '"mcp"'
+file-contains myproject/opencode.json '"my-db"'
+file-contains myproject/opencode.json '"local"'
+
+# Command is an array starting with "duckrow"
+file-contains myproject/opencode.json '"duckrow"'
+file-contains myproject/opencode.json '"env"'
+file-contains myproject/opencode.json '"--mcp"'
+file-contains myproject/opencode.json '"psql"'
+
+# Lock file has MCP entry with opencode in systems
+file-contains myproject/duckrow.lock.json '"kind": "mcp"'
+file-contains myproject/duckrow.lock.json '"name": "my-db"'
+file-contains myproject/duckrow.lock.json '"opencode"'
+file-contains myproject/duckrow.lock.json 'DB_HOST'
+
+# Delete config file to simulate fresh checkout (lock file preserved)
+exec rm -f myproject/opencode.json
+
+# Sync restores MCP config with correct OpenCode format
+exec duckrow mcp sync -d myproject --force
+stdout 'Installed: my-db'
+exists myproject/opencode.json
+file-contains myproject/opencode.json '"my-db"'
+
+# === REMOTE MCP ===
+
+# Install remote MCP
+exec duckrow mcp install analytics -d myproject --systems=opencode --force
+stdout 'MCP "analytics" installed successfully'
+
+# OpenCode remote type is "remote" (not "http")
+file-contains myproject/opencode.json '"analytics"'
+file-contains myproject/opencode.json '"remote"'
+file-contains myproject/opencode.json 'https://mcp.example.com/analytics'
+
+-- skill-md --
+---
+name: opencode-test
+description: A skill for testing OpenCode integration
+metadata:
+  version: "1.0.0"
+---
+# OpenCode Test Skill
+
+Instructions for the opencode-test skill.
