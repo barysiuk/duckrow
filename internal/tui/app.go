@@ -15,6 +15,8 @@ import (
 	"github.com/charmbracelet/x/ansi"
 
 	"github.com/barysiuk/duckrow/internal/core"
+	"github.com/barysiuk/duckrow/internal/core/asset"
+	"github.com/barysiuk/duckrow/internal/core/system"
 )
 
 // appView represents the active screen.
@@ -28,16 +30,14 @@ const (
 	viewSkillPreview                  // SKILL.md preview overlay
 	viewCloneError                    // Clone error overlay
 	viewRegistryWizard                // Registry add wizard overlay
-	viewSkillWizard                   // Skill install wizard overlay
-	viewMCPWizard                     // MCP install wizard overlay
+	viewAssetWizard                   // Asset install wizard overlay
 )
 
 // App is the root Bubbletea model for DuckRow.
 type App struct {
 	// Core dependencies.
 	config   *core.ConfigManager
-	agents   []core.AgentDef
-	scanner  *core.Scanner
+	orch     *core.Orchestrator
 	folders  *core.FolderManager
 	registry *core.RegistryManager
 
@@ -63,8 +63,7 @@ type App struct {
 	cloneError  cloneErrorModel
 	sidebar     sidebarModel
 	regWizard   registryWizardModel
-	skillWizard skillWizardModel
-	mcpWizard   mcpWizardModel
+	assetWizard assetWizardModel
 
 	// View the user was on before clone error overlay opened (for going back).
 	previousView appView
@@ -84,12 +83,11 @@ type App struct {
 	// Shared data.
 	cfg            *core.Config
 	folderStatus   []core.FolderStatus
-	registrySkills []core.RegistrySkillInfo
-	registryMCPs   []core.RegistryMCPInfo
+	registryAssets []core.RegistryAssetInfo // Unified registry asset list (all kinds)
 
 	// Active folder's computed data.
 	activeFolderStatus *core.FolderStatus
-	activeFolderMCPs   []mcpItem // Installed MCPs for the active folder
+	activeFolderMCPs   []assetItem // Installed MCPs for the active folder
 
 	// Registry commit map: source -> commit (built from registry manifests).
 	registryCommits map[string]string
@@ -105,8 +103,7 @@ type App struct {
 }
 
 // NewApp creates a new App model with the given core dependencies.
-func NewApp(config *core.ConfigManager, agents []core.AgentDef, version string) App {
-	scanner := core.NewScanner(agents)
+func NewApp(config *core.ConfigManager, version string) App {
 	foldersManager := core.NewFolderManager(config)
 	registryMgr := core.NewRegistryManager(config.RegistriesDir())
 
@@ -122,9 +119,8 @@ func NewApp(config *core.ConfigManager, agents []core.AgentDef, version string) 
 
 	return App{
 		config:         config,
-		agents:         agents,
 		version:        version,
-		scanner:        scanner,
+		orch:           core.NewOrchestrator(),
 		folders:        foldersManager,
 		registry:       registryMgr,
 		cwd:            cwd,
@@ -136,8 +132,7 @@ func NewApp(config *core.ConfigManager, agents []core.AgentDef, version string) 
 		cloneError:     newCloneErrorModel(),
 		sidebar:        newSidebarModel(),
 		regWizard:      newRegistryWizardModel(),
-		skillWizard:    newSkillWizardModel(),
-		mcpWizard:      newMCPWizardModel(),
+		assetWizard:    newAssetWizardModel(),
 		help:           h,
 		previewSpinner: s,
 		statusBar:      newStatusBarModel(),
@@ -145,13 +140,10 @@ func NewApp(config *core.ConfigManager, agents []core.AgentDef, version string) 
 	}
 }
 
-// --- Messages ---
-
 type loadedDataMsg struct {
 	cfg             *core.Config
 	folderStatus    []core.FolderStatus
-	registrySkills  []core.RegistrySkillInfo
-	registryMCPs    []core.RegistryMCPInfo
+	registryAssets  []core.RegistryAssetInfo
 	registryCommits map[string]string // source -> commit from registries
 	err             error
 }
@@ -162,12 +154,6 @@ type errMsg struct {
 
 type statusMsg struct {
 	text string
-}
-
-type installDoneMsg struct {
-	skillName string
-	folder    string
-	err       error
 }
 
 type updateDoneMsg struct {
@@ -183,8 +169,7 @@ type bulkUpdateDoneMsg struct {
 // registryRefreshDoneMsg is sent when the async registry refresh completes.
 type registryRefreshDoneMsg struct {
 	registryCommits map[string]string // source -> latest commit
-	registrySkills  []core.RegistrySkillInfo
-	registryMCPs    []core.RegistryMCPInfo
+	registryAssets  []core.RegistryAssetInfo
 }
 
 // startRegistryRefreshMsg triggers the async registry refresh and shows the spinner.
@@ -232,8 +217,7 @@ func (a App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 		a.cfg = msg.cfg
 		a.folderStatus = msg.folderStatus
-		a.registrySkills = msg.registrySkills
-		a.registryMCPs = msg.registryMCPs
+		a.registryAssets = msg.registryAssets
 		a.registryCommits = msg.registryCommits
 		a.refreshActiveFolder()
 		a.pushDataToSubModels()
@@ -253,21 +237,20 @@ func (a App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		a.statusBar, cmd = a.statusBar.showMsg(fmt.Sprintf("Removed %s", shortenPath(msg.path)), statusSuccess)
 		return a, tea.Batch(cmd, a.loadDataCmd)
 
-	case installDoneMsg:
-		// Route to skill wizard if active.
-		if a.activeView == viewSkillWizard {
-			a.skillWizard, _ = a.skillWizard.update(msg, &a)
+	case assetInstalledMsg:
+		if a.activeView == viewAssetWizard {
+			a.assetWizard, _ = a.assetWizard.update(msg, &a)
 		}
 		if msg.err != nil {
-			// Check if this is a clone error — if so, show the clone error overlay.
+			// Check for clone errors (any source-based asset kind may produce these).
 			if ce, ok := core.IsCloneError(msg.err); ok {
 				a.previousView = a.activeView
 				a.activeView = viewCloneError
 				a.cloneError = a.cloneError.activateForInstall(
 					ce,
-					a.skillWizard.selectedSkillInfo(),
-					a.skillWizard.activeFolder,
-					a.skillWizard.selectedTargetAgents(),
+					a.assetWizard.selectedRegistryAssetInfo(),
+					a.assetWizard.activeFolder,
+					a.assetWizard.selectedTargetSystems(),
 				)
 				return a, nil
 			}
@@ -277,24 +260,28 @@ func (a App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			return a, tea.Batch(cmd, a.loadDataCmd)
 		}
 		var cmd tea.Cmd
-		a.statusBar, cmd = a.statusBar.showMsg(fmt.Sprintf("Installed %s", msg.skillName), statusSuccess)
+		handler, _ := asset.Get(msg.kind)
+		label := msg.name
+		if handler != nil {
+			label = handler.DisplayName() + " " + msg.name
+		}
+		a.statusBar, cmd = a.statusBar.showMsg(fmt.Sprintf("Installed %s", label), statusSuccess)
 		a.activeView = viewFolder
 		return a, tea.Batch(cmd, a.loadDataCmd)
 
-	case mcpInstallDoneMsg:
-		// Route to MCP wizard if active.
-		if a.activeView == viewMCPWizard {
-			a.mcpWizard, _ = a.mcpWizard.update(msg, &a)
-		}
+	case assetRemovedMsg:
 		if msg.err != nil {
 			var cmd tea.Cmd
 			a.statusBar, cmd = a.statusBar.showMsg(fmt.Sprintf("Error: %v", msg.err), statusError)
-			a.activeView = viewFolder
 			return a, tea.Batch(cmd, a.loadDataCmd)
 		}
 		var cmd tea.Cmd
-		a.statusBar, cmd = a.statusBar.showMsg(fmt.Sprintf("Installed MCP %s", msg.mcpName), statusSuccess)
-		a.activeView = viewFolder
+		handler, _ := asset.Get(msg.kind)
+		label := msg.name
+		if handler != nil {
+			label = handler.DisplayName() + " " + msg.name
+		}
+		a.statusBar, cmd = a.statusBar.showMsg(fmt.Sprintf("Removed %s", label), statusSuccess)
 		return a, tea.Batch(cmd, a.loadDataCmd)
 
 	case updateDoneMsg:
@@ -327,8 +314,7 @@ func (a App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		var cmd tea.Cmd
 		a.statusBar, cmd = a.statusBar.update(taskDoneMsg{})
 		a.registryCommits = msg.registryCommits
-		a.registrySkills = msg.registrySkills
-		a.registryMCPs = msg.registryMCPs
+		a.registryAssets = msg.registryAssets
 		a.refreshActiveFolder()
 		a.pushDataToSubModels()
 		return a, cmd
@@ -385,27 +371,20 @@ func (a App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		a.regWizard = a.regWizard.activate(&a, w, h)
 		return a, nil
 
-	case openSkillWizardMsg:
-		a.activeView = viewSkillWizard
+	case openAssetWizardMsg:
+		a.activeView = viewAssetWizard
 		w, h := a.innerContentSize()
-		a.skillWizard = a.skillWizard.activate(msg, &a, w, h)
-		// If no non-universal agents, skip straight to install.
-		if len(msg.nonUniversal) == 0 {
-			installCmd := a.skillWizard.startInstall()
-			step := a.skillWizard.wizard.activeStep()
+		a.assetWizard = a.assetWizard.activate(msg, &a, w, h)
+		if a.assetWizard.canAutoInstall() {
+			installCmd := a.assetWizard.startInstall()
+			step := a.assetWizard.wizard.activeStep()
 			if step != nil {
-				if is, ok := step.content.(skillInstallingStepModel); ok {
+				if is, ok := step.content.(assetInstallingStepModel); ok {
 					return a, tea.Batch(is.spinner.Tick, installCmd)
 				}
 			}
 			return a, installCmd
 		}
-		return a, nil
-
-	case openMCPWizardMsg:
-		a.activeView = viewMCPWizard
-		w, h := a.innerContentSize()
-		a.mcpWizard = a.mcpWizard.activate(msg, &a, w, h)
 		return a, nil
 
 	case wizardDoneMsg:
@@ -416,10 +395,7 @@ func (a App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			var cmd tea.Cmd
 			a.statusBar, cmd = a.statusBar.showMsg("Registry added", statusSuccess)
 			return a, tea.Batch(cmd, a.loadDataCmd, a.startRegistryRefreshCmd)
-		case viewSkillWizard:
-			a.activeView = viewFolder
-			return a, a.loadDataCmd
-		case viewMCPWizard:
+		case viewAssetWizard:
 			a.activeView = viewFolder
 			return a, a.loadDataCmd
 		}
@@ -430,9 +406,7 @@ func (a App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		switch a.activeView {
 		case viewRegistryWizard:
 			a.activeView = viewSettings
-		case viewSkillWizard:
-			a.activeView = viewInstallPicker
-		case viewMCPWizard:
+		case viewAssetWizard:
 			a.activeView = viewInstallPicker
 		}
 		return a, nil
@@ -454,7 +428,7 @@ func (a App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		var successMsg string
 		switch msg.origin {
 		case retryOriginInstall:
-			successMsg = fmt.Sprintf("Installed %s", msg.skillName)
+			successMsg = fmt.Sprintf("Installed %s", msg.assetName)
 			a.activeView = viewFolder
 		case retryOriginRegistryAdd:
 			successMsg = fmt.Sprintf("Added registry %s", msg.registryName)
@@ -539,14 +513,9 @@ func (a App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			a.regWizard, cmd = a.regWizard.update(msg, &a)
 			cmds = append(cmds, cmd)
 		}
-		if a.activeView == viewSkillWizard && a.skillWizard.isInstalling() {
+		if a.activeView == viewAssetWizard && a.assetWizard.isInstalling() {
 			var cmd tea.Cmd
-			a.skillWizard, cmd = a.skillWizard.update(msg, &a)
-			cmds = append(cmds, cmd)
-		}
-		if a.activeView == viewMCPWizard && a.mcpWizard.isInstalling() {
-			var cmd tea.Cmd
-			a.mcpWizard, cmd = a.mcpWizard.update(msg, &a)
+			a.assetWizard, cmd = a.assetWizard.update(msg, &a)
 			cmds = append(cmds, cmd)
 		}
 		if len(cmds) > 0 {
@@ -630,11 +599,8 @@ func (a App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 		// Global quit (unless input is focused).
 		if key.Matches(msg, keys.Quit) {
-			if a.activeView == viewSkillWizard && a.skillWizard.isInstalling() {
-				break // Don't quit during skill install
-			}
-			if a.activeView == viewMCPWizard && a.mcpWizard.isInstalling() {
-				break // Don't quit during MCP install
+			if a.activeView == viewAssetWizard && a.assetWizard.isInstalling() {
+				break // Don't quit during asset install
 			}
 			if a.activeView == viewCloneError {
 				break // Handled above
@@ -642,7 +608,7 @@ func (a App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			if a.activeView == viewRegistryWizard {
 				break // Let the wizard handle q
 			}
-			if a.activeView == viewSkillWizard || a.activeView == viewMCPWizard {
+			if a.activeView == viewAssetWizard {
 				break // Don't quit from wizards — use esc to go back
 			}
 			// Don't quit while filtering in any list view.
@@ -665,7 +631,7 @@ func (a App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				break
 			}
 			// Don't intercept esc in wizard views — let the wizard handle it.
-			if a.activeView == viewSkillWizard || a.activeView == viewMCPWizard {
+			if a.activeView == viewAssetWizard {
 				break
 			}
 			if a.activeView != viewFolder {
@@ -679,18 +645,15 @@ func (a App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			switch {
 			case key.Matches(msg, keys.Bookmarks):
 				a.activeView = viewBookmarks
-				a.bookmarks = a.bookmarks.activate(a.cwd, a.activeFolder, a.folderStatus, a.agents)
+				a.bookmarks = a.bookmarks.activate(a.cwd, a.activeFolder, a.folderStatus)
 				return a, nil
 			case key.Matches(msg, keys.Install):
-				if len(a.registrySkills) > 0 || len(a.registryMCPs) > 0 {
+				if len(a.registryAssets) > 0 {
 					a.activeView = viewInstallPicker
 					// Map the active folder tab to the install filter.
-					filter := installFilterSkills
-					if a.folder.activeTab == folderTabMCPs {
-						filter = installFilterMCPs
-					}
-					a.install = a.install.setMCPData(a.registryMCPs, a.activeFolderMCPs)
-					a.install = a.install.activate(filter, a.activeFolder, a.registrySkills, a.activeFolderStatus, a.agents)
+					filter := installFilter(a.folder.activeKind)
+					a.install = a.install.setMCPData(a.registryAssets, a.activeFolderMCPs)
+					a.install = a.install.activate(filter, a.activeFolder, a.registryAssets, a.activeFolderStatus, system.All())
 				}
 				return a, nil
 			case key.Matches(msg, keys.Settings):
@@ -715,10 +678,8 @@ func (a App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		a.cloneError, cmd = a.cloneError.update(msg, &a)
 	case viewRegistryWizard:
 		a.regWizard, cmd = a.regWizard.update(msg, &a)
-	case viewSkillWizard:
-		a.skillWizard, cmd = a.skillWizard.update(msg, &a)
-	case viewMCPWizard:
-		a.mcpWizard, cmd = a.mcpWizard.update(msg, &a)
+	case viewAssetWizard:
+		a.assetWizard, cmd = a.assetWizard.update(msg, &a)
 	}
 
 	return a, cmd
@@ -760,10 +721,8 @@ func (a App) View() string {
 		content = a.cloneError.view()
 	case viewRegistryWizard:
 		content = a.regWizard.view()
-	case viewSkillWizard:
-		content = a.skillWizard.view()
-	case viewMCPWizard:
-		content = a.mcpWizard.view()
+	case viewAssetWizard:
+		content = a.assetWizard.view()
 	}
 
 	// If a confirmation dialog is active, overlay it on the content area.
@@ -812,16 +771,14 @@ func (a App) contentPanelTitle() string {
 	case viewBookmarks:
 		return "Bookmarks"
 	case viewInstallPicker:
-		switch a.install.filter {
-		case installFilterMCPs:
-			return "Install MCP"
-		default:
-			return "Install Skill"
+		handler, _ := asset.Get(asset.Kind(a.install.filter))
+		label := "Asset"
+		if handler != nil {
+			label = handler.DisplayName()
 		}
-	case viewSkillWizard:
-		return a.skillWizard.wizard.title
-	case viewMCPWizard:
-		return a.mcpWizard.wizard.title
+		return "Install " + label
+	case viewAssetWizard:
+		return a.assetWizard.wizard.title
 	case viewSettings:
 		return "Settings"
 	case viewSkillPreview:
@@ -856,10 +813,8 @@ func (a App) renderHelpBar() string {
 		km = bookmarksHelpKeyMap{}
 	case viewInstallPicker:
 		km = installHelpKeyMap{}
-	case viewSkillWizard:
-		km = a.skillWizard.currentHelpKeyMap()
-	case viewMCPWizard:
-		km = a.mcpWizard.currentHelpKeyMap()
+	case viewAssetWizard:
+		km = a.assetWizard.currentHelpKeyMap()
 	case viewSettings:
 		km = settingsHelpKeyMap{}
 	case viewSkillPreview:
@@ -914,18 +869,15 @@ func (a App) loadDataCmd() tea.Msg {
 
 	var statuses []core.FolderStatus
 	for _, folder := range cfg.Folders {
-		skills, scanErr := a.scanner.ScanFolder(folder.Path)
-		agents := a.scanner.DetectAgents(folder.Path)
+		assets, scanErr := a.orch.ScanFolder(folder.Path)
 		statuses = append(statuses, core.FolderStatus{
 			Folder: folder,
-			Skills: skills,
-			Agents: agents,
+			Assets: assets,
 			Error:  scanErr,
 		})
 	}
 
-	regSkills := a.registry.ListSkills(cfg.Registries)
-	regMCPs := a.registry.ListMCPs(cfg.Registries)
+	regAssets := a.registry.ListAllAssets(cfg.Registries)
 
 	// Build registry commit map for update detection.
 	registryCommits := core.BuildRegistryCommitMap(cfg.Registries, a.registry)
@@ -933,8 +885,7 @@ func (a App) loadDataCmd() tea.Msg {
 	return loadedDataMsg{
 		cfg:             cfg,
 		folderStatus:    statuses,
-		registrySkills:  regSkills,
-		registryMCPs:    regMCPs,
+		registryAssets:  regAssets,
 		registryCommits: registryCommits,
 	}
 }
@@ -955,12 +906,10 @@ func (a *App) refreshActiveFolder() {
 
 	if a.activeFolderStatus == nil {
 		// Active folder not tracked -- scan it anyway for display.
-		skills, scanErr := a.scanner.ScanFolder(a.activeFolder)
-		agents := a.scanner.DetectAgents(a.activeFolder)
+		assets, scanErr := a.orch.ScanFolder(a.activeFolder)
 		status := &core.FolderStatus{
 			Folder: core.TrackedFolder{Path: a.activeFolder},
-			Skills: skills,
-			Agents: agents,
+			Assets: assets,
 			Error:  scanErr,
 		}
 		a.activeFolderStatus = status
@@ -969,17 +918,22 @@ func (a *App) refreshActiveFolder() {
 	// Load MCPs from lock file for the active folder.
 	lf, lfErr := core.ReadLockFile(a.activeFolder)
 	if lfErr == nil && lf != nil {
-		// Build description lookup from registry MCPs.
+		// Build description lookup from registry assets.
 		mcpDescriptions := make(map[string]string)
-		for _, rm := range a.registryMCPs {
-			mcpDescriptions[rm.MCP.Name] = rm.MCP.Description
+		for _, ra := range a.registryAssets {
+			if ra.Kind == asset.KindMCP {
+				mcpDescriptions[ra.Entry.Name] = ra.Entry.Description
+			}
 		}
 
-		a.activeFolderMCPs = make([]mcpItem, len(lf.MCPs))
-		for i, locked := range lf.MCPs {
-			a.activeFolderMCPs[i] = mcpItem{
-				locked: locked,
+		lockedMCPs := core.AssetsByKind(lf, asset.KindMCP)
+		a.activeFolderMCPs = make([]assetItem, len(lockedMCPs))
+		for i, locked := range lockedMCPs {
+			a.activeFolderMCPs[i] = assetItem{
+				kind:   asset.KindMCP,
+				name:   locked.Name,
 				desc:   mcpDescriptions[locked.Name],
+				locked: &lockedMCPs[i],
 			}
 		}
 	}
@@ -989,13 +943,13 @@ func (a *App) refreshActiveFolder() {
 		if lfErr == nil && lf != nil {
 			pathIndex := core.BuildPathIndex(a.registryCommits)
 			a.updateInfo = make(map[string]core.UpdateInfo)
-			for _, skill := range lf.Skills {
-				if regCommit := core.LookupRegistryCommit(skill.Source, a.registryCommits, pathIndex); regCommit != "" {
-					if skill.Commit != regCommit {
-						a.updateInfo[skill.Name] = core.UpdateInfo{
-							Name:            skill.Name,
-							Source:          skill.Source,
-							InstalledCommit: skill.Commit,
+			for _, locked := range core.AssetsByKind(lf, asset.KindSkill) {
+				if regCommit := core.LookupRegistryCommit(locked.Source, a.registryCommits, pathIndex); regCommit != "" {
+					if locked.Commit != regCommit {
+						a.updateInfo[locked.Name] = core.UpdateInfo{
+							Name:            locked.Name,
+							Source:          locked.Source,
+							InstalledCommit: locked.Commit,
 							AvailableCommit: regCommit,
 							HasUpdate:       true,
 						}
@@ -1007,19 +961,19 @@ func (a *App) refreshActiveFolder() {
 }
 
 func (a *App) pushDataToSubModels() {
-	a.folder = a.folder.setData(a.activeFolderStatus, a.isTracked, a.registrySkills, a.registryMCPs, a.updateInfo, a.activeFolderMCPs)
+	a.folder = a.folder.setData(a.activeFolderStatus, a.isTracked, a.registryAssets, a.updateInfo, a.activeFolderMCPs)
 	a.settings = a.settings.setData(a.cfg, a.version)
 
 	// Re-activate bookmarks if we're currently viewing them so the list
 	// reflects adds/removes immediately.
 	if a.activeView == viewBookmarks {
-		a.bookmarks = a.bookmarks.activate(a.cwd, a.activeFolder, a.folderStatus, a.agents)
+		a.bookmarks = a.bookmarks.activate(a.cwd, a.activeFolder, a.folderStatus)
 	}
 
-	// Sidebar shows the active folder, bookmark status, and agents whose own
+	// Sidebar shows the active folder, bookmark status, and systems whose own
 	// config files are present (not just duckrow-managed skill dirs).
-	sidebarAgents := core.DetectActiveAgents(a.agents, a.activeFolder)
-	a.sidebar = a.sidebar.setData(a.activeFolder, a.isTracked, sidebarAgents)
+	sidebarSystems := system.DisplayNames(system.ActiveInFolder(a.activeFolder))
+	a.sidebar = a.sidebar.setData(a.activeFolder, a.isTracked, sidebarSystems)
 }
 
 func (a *App) propagateSize() {
@@ -1036,8 +990,7 @@ func (a *App) propagateSize() {
 
 	// Wizard gets the same inner content area as other views.
 	a.regWizard = a.regWizard.setSize(w, h)
-	a.skillWizard = a.skillWizard.setSize(w, h)
-	a.mcpWizard = a.mcpWizard.setSize(w, h)
+	a.assetWizard = a.assetWizard.setSize(w, h)
 
 	// Sidebar height: same as the body area (total height minus status bar).
 	helpBar := a.statusBar.view(a.renderHelpBar())
@@ -1124,15 +1077,13 @@ func (a App) refreshRegistriesCmd() tea.Msg {
 
 	registryCommits := core.BuildRegistryCommitMap(cfg.Registries, a.registry)
 
-	// Re-list skills and MCPs from the refreshed manifests so the TUI
+	// Re-list all assets from the refreshed manifests so the TUI
 	// picks up any new entries that were added since the initial load.
-	regSkills := a.registry.ListSkills(cfg.Registries)
-	regMCPs := a.registry.ListMCPs(cfg.Registries)
+	regAssets := a.registry.ListAllAssets(cfg.Registries)
 
 	return registryRefreshDoneMsg{
 		registryCommits: registryCommits,
-		registrySkills:  regSkills,
-		registryMCPs:    regMCPs,
+		registryAssets:  regAssets,
 	}
 }
 

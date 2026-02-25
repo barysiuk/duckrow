@@ -11,6 +11,8 @@ import (
 	"github.com/charmbracelet/lipgloss"
 
 	"github.com/barysiuk/duckrow/internal/core"
+	"github.com/barysiuk/duckrow/internal/core/asset"
+	"github.com/barysiuk/duckrow/internal/core/system"
 )
 
 // cloneRetryOrigin identifies what initiated the clone that failed,
@@ -53,10 +55,10 @@ type cloneErrorModel struct {
 	// Retry context — what to do when the user retries.
 	origin cloneRetryOrigin
 
-	// For retryOriginInstall: the skill info and target folder.
-	installSkill        core.RegistrySkillInfo
+	// For retryOriginInstall: the asset info and target folder.
+	installAsset        core.RegistryAssetInfo
 	installFolder       string
-	installTargetAgents []core.AgentDef
+	installTargetAgents []system.System
 
 	// For retryOriginRegistryAdd: the original registry URL.
 	registryURL string
@@ -87,11 +89,11 @@ func (m cloneErrorModel) setSize(width, height int) cloneErrorModel {
 	return m
 }
 
-// activateForInstall sets up the clone error overlay for a failed skill install.
-func (m cloneErrorModel) activateForInstall(ce *core.CloneError, skill core.RegistrySkillInfo, folder string, targetAgents []core.AgentDef) cloneErrorModel {
+// activateForInstall sets up the clone error overlay for a failed asset install.
+func (m cloneErrorModel) activateForInstall(ce *core.CloneError, assetInfo core.RegistryAssetInfo, folder string, targetAgents []system.System) cloneErrorModel {
 	m.cloneErr = ce
 	m.origin = retryOriginInstall
-	m.installSkill = skill
+	m.installAsset = assetInfo
 	m.installFolder = folder
 	m.installTargetAgents = targetAgents
 	m.registryURL = ""
@@ -108,7 +110,7 @@ func (m cloneErrorModel) activateForInstall(ce *core.CloneError, skill core.Regi
 func (m cloneErrorModel) activateForRegistryAdd(ce *core.CloneError, url string) cloneErrorModel {
 	m.cloneErr = ce
 	m.origin = retryOriginRegistryAdd
-	m.installSkill = core.RegistrySkillInfo{}
+	m.installAsset = core.RegistryAssetInfo{}
 	m.installFolder = ""
 	m.registryURL = url
 	m.editing = false
@@ -244,9 +246,9 @@ func (m cloneErrorModel) buildRetryCmd(app *App, url string) tea.Cmd {
 }
 
 func (m cloneErrorModel) retryInstallCmd(app *App, url string) tea.Cmd {
-	skill := m.installSkill
+	assetInfo := m.installAsset
 	folder := m.installFolder
-	targetAgents := m.installTargetAgents
+	targetSystems := m.installTargetAgents
 
 	return func() tea.Msg {
 		// Parse the (possibly edited) URL to get a valid source.
@@ -255,17 +257,17 @@ func (m cloneErrorModel) retryInstallCmd(app *App, url string) tea.Cmd {
 			return cloneRetryResultMsg{
 				origin:       retryOriginInstall,
 				postCloneErr: fmt.Errorf("parsing source: %w", err),
-				skillName:    skill.Skill.Name,
+				assetName:    assetInfo.Entry.Name,
 				folder:       folder,
 			}
 		}
 
 		// Preserve SubPath and SkillName from the original registry source.
-		// When the user edits the URL (e.g. HTTPS → SSH), ParseSource on
+		// When the user edits the URL (e.g. HTTPS -> SSH), ParseSource on
 		// the raw URL loses the subpath context that the registry manifest
 		// source string (e.g. "owner/repo/path/to/skill") originally had.
-		if skill.Skill.Source != "" {
-			orig, origErr := core.ParseSource(skill.Skill.Source)
+		if assetInfo.Entry.Source != "" {
+			orig, origErr := core.ParseSource(assetInfo.Entry.Source)
 			if origErr == nil {
 				if source.SubPath == "" && orig.SubPath != "" {
 					source.SubPath = orig.SubPath
@@ -285,11 +287,11 @@ func (m cloneErrorModel) retryInstallCmd(app *App, url string) tea.Cmd {
 			}
 		}
 
-		installer := core.NewInstaller(app.agents)
-		result, err := installer.InstallFromSource(source, core.InstallOptions{
-			TargetDir:    folder,
-			IsInternal:   true,
-			TargetAgents: targetAgents,
+		orch := core.NewOrchestrator()
+		results, err := orch.InstallFromSource(source, assetInfo.Kind, core.OrchestratorInstallOptions{
+			TargetDir:       folder,
+			TargetSystems:   targetSystems,
+			IncludeInternal: true,
 		})
 		if err != nil {
 			// Check if this is a clone error (clone itself failed).
@@ -298,7 +300,7 @@ func (m cloneErrorModel) retryInstallCmd(app *App, url string) tea.Cmd {
 					origin:    retryOriginInstall,
 					cloneErr:  ce,
 					retryURL:  url,
-					skillName: skill.Skill.Name,
+					assetName: assetInfo.Entry.Name,
 					folder:    folder,
 				}
 			}
@@ -307,22 +309,21 @@ func (m cloneErrorModel) retryInstallCmd(app *App, url string) tea.Cmd {
 				origin:       retryOriginInstall,
 				postCloneErr: err,
 				retryURL:     url,
-				skillName:    skill.Skill.Name,
+				assetName:    assetInfo.Entry.Name,
 				folder:       folder,
 			}
 		}
 
-		// Write lock file entries for installed skills (TUI always locks).
-		for _, s := range result.InstalledSkills {
-			if s.Commit != "" {
-				entry := core.LockedSkill{
-					Name:   s.Name,
-					Source: s.Source,
-					Commit: s.Commit,
-					Ref:    s.Ref,
-				}
-				_ = core.AddOrUpdateLockEntry(folder, entry)
+		// Write lock file entries for installed assets (TUI always locks).
+		for _, r := range results {
+			entry := asset.LockedAsset{
+				Kind:   assetInfo.Kind,
+				Name:   r.Asset.Name,
+				Source: r.Asset.Source,
+				Commit: r.Commit,
+				Ref:    r.Ref,
 			}
+			_ = core.AddOrUpdateAsset(folder, entry)
 		}
 
 		// Full success — save clone URL override if the URL differs from
@@ -332,7 +333,7 @@ func (m cloneErrorModel) retryInstallCmd(app *App, url string) tea.Cmd {
 		return cloneRetryResultMsg{
 			origin:    retryOriginInstall,
 			retryURL:  url,
-			skillName: skill.Skill.Name,
+			assetName: assetInfo.Entry.Name,
 			folder:    folder,
 		}
 	}
@@ -568,7 +569,7 @@ type cloneRetryResultMsg struct {
 	retryURL string
 
 	// For install retries: context for reload.
-	skillName string
+	assetName string
 	folder    string
 
 	// For registry add retries: the registry name on success.

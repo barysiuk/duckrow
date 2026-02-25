@@ -25,7 +25,7 @@ const minContentWidth = 60
 //	Bookmarked: No          ← red when not bookmarked
 //	[b] to bookmark it      ← dimmed hint, only when not bookmarked
 //
-//	Agents:                 ← omitted when no agents detected
+//	Systems:                ← omitted when no systems detected
 //	· OpenCode
 //	· Cursor
 type sidebarModel struct {
@@ -34,7 +34,7 @@ type sidebarModel struct {
 	// Data pushed from App.
 	activeFolder string
 	isBookmarked bool
-	agents       []string // detected agent names for the active folder
+	systems      []string // detected system names for the active folder
 }
 
 func newSidebarModel() sidebarModel {
@@ -46,10 +46,10 @@ func (m sidebarModel) setSize(height int) sidebarModel {
 	return m
 }
 
-func (m sidebarModel) setData(activeFolder string, isBookmarked bool, agents []string) sidebarModel {
+func (m sidebarModel) setData(activeFolder string, isBookmarked bool, systems []string) sidebarModel {
 	m.activeFolder = activeFolder
 	m.isBookmarked = isBookmarked
-	m.agents = agents
+	m.systems = systems
 	return m
 }
 
@@ -80,11 +80,11 @@ func (m sidebarModel) view() string {
 		lines = append(lines, sidebarLabelStyle.Render("Bookmarked: ")+sidebarAgentStyle.Render("No ")+hint)
 	}
 
-	// Tools section (only if agents detected).
-	if len(m.agents) > 0 {
+	// Systems section (only if systems detected).
+	if len(m.systems) > 0 {
 		lines = append(lines, "")
-		lines = append(lines, sidebarLabelStyle.Render("Agents:"))
-		for _, name := range m.agents {
+		lines = append(lines, sidebarLabelStyle.Render("Systems:"))
+		for _, name := range m.systems {
 			lines = append(lines, sidebarAgentStyle.Render("· "+name))
 		}
 	}

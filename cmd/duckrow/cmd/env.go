@@ -7,6 +7,7 @@ import (
 	"syscall"
 
 	"github.com/barysiuk/duckrow/internal/core"
+	"github.com/barysiuk/duckrow/internal/core/asset"
 	"github.com/spf13/cobra"
 )
 
@@ -48,20 +49,16 @@ values from the process environment, project .env.duckrow, and global
 		}
 
 		// Find the MCP entry.
-		var mcpEntry *core.LockedMCP
-		for i := range lf.MCPs {
-			if lf.MCPs[i].Name == mcpName {
-				mcpEntry = &lf.MCPs[i]
-				break
-			}
-		}
+		mcpEntry := core.FindLockedAsset(lf, asset.KindMCP, mcpName)
 		if mcpEntry == nil {
 			return fmt.Errorf("MCP %q not found in lock file", mcpName)
 		}
 
+		requiredEnv := lockedRequiredEnvVars(*mcpEntry)
+
 		// Resolve environment variables.
 		resolver := core.NewEnvResolver(targetDir, "")
-		resolved, missing := resolver.ResolveEnv(mcpEntry.RequiredEnv)
+		resolved, missing := resolver.ResolveEnv(requiredEnv)
 
 		// Warn about missing vars.
 		for _, name := range missing {
@@ -83,6 +80,27 @@ values from the process environment, project .env.duckrow, and global
 		// Exec the command (replaces this process).
 		return syscall.Exec(binary, cmdArgs, environ)
 	},
+}
+
+func lockedRequiredEnvVars(locked asset.LockedAsset) []string {
+	if locked.Data == nil {
+		return nil
+	}
+	if envs, ok := locked.Data["requiredEnv"]; ok {
+		switch v := envs.(type) {
+		case []string:
+			return v
+		case []interface{}:
+			result := make([]string, 0, len(v))
+			for _, item := range v {
+				if s, ok := item.(string); ok {
+					result = append(result, s)
+				}
+			}
+			return result
+		}
+	}
+	return nil
 }
 
 // parseEnvArgs manually parses the args for `duckrow env`.

@@ -8,27 +8,40 @@ import (
 	tea "github.com/charmbracelet/bubbletea"
 
 	"github.com/barysiuk/duckrow/internal/core"
+	"github.com/barysiuk/duckrow/internal/core/asset"
+	"github.com/barysiuk/duckrow/internal/core/system"
 )
 
-// installFilter determines which artifact types are shown in the install picker.
-type installFilter int
-
-const (
-	installFilterSkills installFilter = iota
-	installFilterMCPs
-)
+// installFilter determines which asset kinds are shown in the install picker.
+type installFilter asset.Kind
 
 // agentCheckbox represents one agent in the selection list.
 type agentCheckbox struct {
-	agent   core.AgentDef
+	system  system.System
 	checked bool
 }
 
-// mcpInstallDoneMsg is sent when an MCP install completes.
-type mcpInstallDoneMsg struct {
-	mcpName string
-	folder  string
-	err     error
+// assetInstalledMsg is sent when an asset install completes.
+type assetInstalledMsg struct {
+	kind   asset.Kind
+	name   string
+	folder string
+	err    error
+}
+
+// assetRemovedMsg is sent when an asset removal completes.
+type assetRemovedMsg struct {
+	kind asset.Kind
+	name string
+	err  error
+}
+
+// openAssetWizardMsg is emitted by installModel when an asset is selected.
+// It carries all the data needed to start the asset install wizard.
+type openAssetWizardMsg struct {
+	asset        core.RegistryAssetInfo
+	allSystems   []system.System
+	activeFolder string
 }
 
 // envVarStatus tracks the resolution status of a single env var.
@@ -53,30 +66,29 @@ func isSensitiveVarName(name string) bool {
 		strings.Contains(upper, "PASSWORD")
 }
 
-// installModel is the install picker that shows registry skills and MCPs not
-// yet installed in the active folder. When the user selects an item, it emits
-// openSkillWizardMsg or openMCPWizardMsg; the actual install flow is handled
-// by the dedicated wizard models (skill_wizard.go, mcp_wizard.go).
+// installModel is the install picker that shows registry assets not yet
+// installed in the active folder. When the user selects an item, it emits
+// openAssetWizardMsg; the actual install flow is handled by asset_wizard.go.
 type installModel struct {
 	width  int
 	height int
 
-	// Bubbles list for available skills/MCPs.
+	// Bubbles list for available assets.
 	list list.Model
 
-	// Filter: skills-only or MCPs-only.
+	// Filter: asset kind shown in the list.
 	filter installFilter
 
 	// Data (set on activate).
 	activeFolder  string
-	available     []core.RegistrySkillInfo // Filtered: only NOT installed skills
-	availableMCPs []core.RegistryMCPInfo   // Filtered: only NOT installed MCPs
-	allAgents     []core.AgentDef          // All agent definitions
-	installedMCPs []mcpItem                // Currently installed MCPs (for filtering)
+	available     []core.RegistryAssetInfo // Filtered: only NOT installed assets
+	allSystems    []system.System          // All system definitions
+	allRegAssets  []core.RegistryAssetInfo // All registry assets (for filtering)
+	installedMCPs []assetItem              // Currently installed MCPs (for filtering)
 }
 
 func newInstallModel() installModel {
-	l := list.New(nil, registrySkillDelegate{}, 0, 0)
+	l := list.New(nil, registryAssetDelegate{}, 0, 0)
 	l.SetShowTitle(false)
 	l.SetShowStatusBar(false)
 	l.SetShowHelp(false)
@@ -98,49 +110,42 @@ func (m installModel) setSize(width, height int) installModel {
 
 // activate is called when the install picker opens. It filters registry items
 // to show only those NOT already installed in the active folder, scoped to
-// the given filter (skills-only or MCPs-only).
-func (m installModel) activate(filter installFilter, activeFolder string, regSkills []core.RegistrySkillInfo, folderStatus *core.FolderStatus, agents []core.AgentDef) installModel {
+// the given filter (asset kind).
+func (m installModel) activate(filter installFilter, activeFolder string, regAssets []core.RegistryAssetInfo, folderStatus *core.FolderStatus, systems []system.System) installModel {
 	m.activeFolder = activeFolder
-	m.allAgents = agents
+	m.allSystems = systems
 	m.filter = filter
 
-	// Build set of installed skill names.
+	// Build set of installed names for the filter kind.
 	installed := make(map[string]bool)
-	if folderStatus != nil {
-		for _, s := range folderStatus.Skills {
-			installed[s.Name] = true
+	switch asset.Kind(filter) {
+	case asset.KindMCP:
+		for _, mcp := range m.installedMCPs {
+			if mcp.locked != nil {
+				installed[mcp.locked.Name] = true
+			}
+		}
+	default:
+		if folderStatus != nil {
+			for _, a := range folderStatus.Assets[asset.Kind(filter)] {
+				installed[a.Name] = true
+			}
 		}
 	}
 
-	// Filter to available (not installed) skills.
+	// Filter to available (not installed) assets of the selected kind.
 	m.available = nil
-	for _, rs := range regSkills {
-		if !installed[rs.Skill.Name] {
-			m.available = append(m.available, rs)
+	for _, info := range regAssets {
+		if info.Kind != asset.Kind(filter) {
+			continue
 		}
-	}
-
-	// Filter to available (not installed) MCPs.
-	allRegMCPs := m.registryMCPs()
-	installedMCPNames := make(map[string]bool)
-	for _, mcp := range m.installedMCPs {
-		installedMCPNames[mcp.locked.Name] = true
-	}
-	m.availableMCPs = nil
-	for _, rm := range allRegMCPs {
-		if !installedMCPNames[rm.MCP.Name] {
-			m.availableMCPs = append(m.availableMCPs, rm)
+		if !installed[info.Entry.Name] {
+			m.available = append(m.available, info)
 		}
 	}
 
 	// Build list items scoped to the active filter.
-	var items []list.Item
-	switch m.filter {
-	case installFilterSkills:
-		items = registrySkillsToItems(m.available)
-	case installFilterMCPs:
-		items = registryMCPsToItems(m.availableMCPs)
-	}
+	items := registryAssetsToItems(m.available)
 	m.list.SetItems(items)
 	m.list.ResetFilter()
 
@@ -158,15 +163,11 @@ func (m installModel) activate(filter installFilter, activeFolder string, regSki
 
 // setMCPData sets the MCP data needed for filtering in the install picker.
 // Called from app.go before activate.
-func (m installModel) setMCPData(regMCPs []core.RegistryMCPInfo, installedMCPs []mcpItem) installModel {
-	m.availableMCPs = regMCPs
+func (m installModel) setMCPData(regAssets []core.RegistryAssetInfo, installedMCPs []assetItem) installModel {
+	m.allRegAssets = regAssets
 	m.installedMCPs = installedMCPs
+	m.list.ResetFilter()
 	return m
-}
-
-// registryMCPs returns the full registry MCP list from availableMCPs.
-func (m installModel) registryMCPs() []core.RegistryMCPInfo {
-	return m.availableMCPs
 }
 
 func (m installModel) update(msg tea.Msg) (installModel, tea.Cmd) {
@@ -201,22 +202,11 @@ func (m installModel) handleItemSelected() (installModel, tea.Cmd) {
 	}
 
 	switch it := item.(type) {
-	case registrySkillItem:
-		universalAgents := core.GetUniversalAgents(m.allAgents)
-		nonUniversal := core.GetNonUniversalAgents(m.allAgents)
+	case registryAssetItem:
 		return m, func() tea.Msg {
-			return openSkillWizardMsg{
-				skill:           it.info,
-				universalAgents: universalAgents,
-				nonUniversal:    nonUniversal,
-				activeFolder:    m.activeFolder,
-			}
-		}
-	case registryMCPItem:
-		return m, func() tea.Msg {
-			return openMCPWizardMsg{
-				mcp:          it.info,
-				allAgents:    m.allAgents,
+			return openAssetWizardMsg{
+				asset:        it.info,
+				allSystems:   m.allSystems,
 				activeFolder: m.activeFolder,
 			}
 		}
@@ -241,21 +231,13 @@ func (m *installModel) skipSeparators() {
 }
 
 func (m installModel) view() string {
-	isEmpty := false
-	switch m.filter {
-	case installFilterSkills:
-		isEmpty = len(m.available) == 0
-	case installFilterMCPs:
-		isEmpty = len(m.availableMCPs) == 0
-	}
-
-	if isEmpty {
-		switch m.filter {
-		case installFilterSkills:
-			return mutedStyle.Render("  All registry skills are already installed.")
-		case installFilterMCPs:
-			return mutedStyle.Render("  All registry MCPs are already installed.")
+	if len(m.available) == 0 {
+		handler, _ := asset.Get(asset.Kind(m.filter))
+		label := "assets"
+		if handler != nil {
+			label = strings.ToLower(handler.DisplayName()) + "s"
 		}
+		return mutedStyle.Render("  All registry " + label + " are already installed.")
 	}
 
 	// Size list to fill available space.
@@ -263,3 +245,5 @@ func (m installModel) view() string {
 
 	return m.list.View()
 }
+
+// (buildRegistryAssets removed — the unified core.RegistryAssetInfo is used directly)

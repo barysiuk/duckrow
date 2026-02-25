@@ -7,6 +7,8 @@ import (
 	"strings"
 
 	"github.com/barysiuk/duckrow/internal/core"
+	"github.com/barysiuk/duckrow/internal/core/asset"
+	"github.com/barysiuk/duckrow/internal/core/system"
 	"github.com/spf13/cobra"
 )
 
@@ -22,7 +24,6 @@ If a path is given, shows status for that folder. Otherwise shows status for the
 			return err
 		}
 
-		scanner := core.NewScanner(d.agents)
 		fm := core.NewFolderManager(d.config)
 
 		// Determine target path: explicit argument or current directory
@@ -50,7 +51,7 @@ If a path is given, shows status for that folder. Otherwise shows status for the
 		mcpDescriptions := buildMCPDescriptionMap(d)
 
 		// Show folder status with tracking indicator
-		if err := showFolderStatus(scanner, absPath, tracked, mcpDescriptions); err != nil {
+		if err := showFolderStatus(absPath, tracked, mcpDescriptions); err != nil {
 			return err
 		}
 
@@ -69,17 +70,20 @@ If a path is given, shows status for that folder. Otherwise shows status for the
 	},
 }
 
-func showFolderStatus(scanner *core.Scanner, path string, tracked bool, mcpDescriptions map[string]string) error {
+func showFolderStatus(path string, tracked bool, mcpDescriptions map[string]string) error {
 	trackLabel := "[not tracked]"
 	if tracked {
 		trackLabel = "[tracked]"
 	}
 	fmt.Fprintf(os.Stdout, "Folder: %s %s\n", path, trackLabel)
 
-	skills, err := scanner.ScanFolder(path)
+	orch := core.NewOrchestrator()
+	allInstalled, err := orch.ScanFolder(path)
 	if err != nil {
 		return fmt.Errorf("scanning folder: %w", err)
 	}
+
+	skills := allInstalled[asset.KindSkill]
 
 	if len(skills) == 0 {
 		fmt.Fprintln(os.Stdout, "  Skills: none installed")
@@ -100,12 +104,12 @@ func showFolderStatus(scanner *core.Scanner, path string, tracked bool, mcpDescr
 	if lf != nil && len(lf.MCPs) > 0 {
 		fmt.Fprintf(os.Stdout, "  MCPs (%d):\n", len(lf.MCPs))
 		for _, m := range lf.MCPs {
-			agentDisplayNames := mcpAgentDisplayNames(m.Agents)
+			displayNames := systemDisplayNames(m.Agents)
 			desc := mcpDescriptions[m.Name]
 			if desc != "" {
-				fmt.Fprintf(os.Stdout, "    - %-18s %s  [%s]\n", m.Name, desc, agentDisplayNames)
+				fmt.Fprintf(os.Stdout, "    - %-18s %s  [%s]\n", m.Name, desc, displayNames)
 			} else {
-				fmt.Fprintf(os.Stdout, "    - %-18s [%s]\n", m.Name, agentDisplayNames)
+				fmt.Fprintf(os.Stdout, "    - %-18s [%s]\n", m.Name, displayNames)
 			}
 		}
 	}
@@ -113,19 +117,12 @@ func showFolderStatus(scanner *core.Scanner, path string, tracked bool, mcpDescr
 	return nil
 }
 
-// mcpAgentDisplayNames converts agent names to display names for status output.
-func mcpAgentDisplayNames(agentNames []string) string {
-	// Map of agent name -> short display name for status output.
-	displayNames := map[string]string{
-		"cursor":         "Cursor",
-		"claude-code":    "Claude Code",
-		"github-copilot": "Copilot",
-		"opencode":       "OpenCode",
-	}
+// systemDisplayNames converts system names to display names for status output.
+func systemDisplayNames(sysNames []string) string {
 	var names []string
-	for _, name := range agentNames {
-		if dn, ok := displayNames[name]; ok {
-			names = append(names, dn)
+	for _, name := range sysNames {
+		if sys, ok := system.ByName(name); ok {
+			names = append(names, sys.DisplayName())
 		} else {
 			names = append(names, name)
 		}

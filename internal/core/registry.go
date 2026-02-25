@@ -400,6 +400,54 @@ func (rm *RegistryManager) FindAsset(registries []Registry, kind asset.Kind, nam
 	}
 }
 
+// --- Unified registry asset info ---
+
+// RegistryAssetInfo associates a registry entry with its registry and asset kind.
+// This is the unified replacement for the legacy RegistrySkillInfo/RegistryMCPInfo types.
+type RegistryAssetInfo struct {
+	RegistryName string              // Display name from the manifest
+	RegistryRepo string              // Repo URL (unique identifier)
+	Kind         asset.Kind          // Asset kind (skill, mcp, etc.)
+	Entry        asset.RegistryEntry // The registry entry
+}
+
+// ListAssets returns all assets of a given kind across all loaded registries.
+func (rm *RegistryManager) ListAssets(registries []Registry, kind asset.Kind) []RegistryAssetInfo {
+	var assets []RegistryAssetInfo
+
+	for _, reg := range registries {
+		manifest, err := rm.LoadManifest(reg.Repo)
+		if err != nil {
+			continue
+		}
+
+		parsed, err := ParseManifest(manifest)
+		if err != nil {
+			continue
+		}
+
+		for _, entry := range parsed.Entries[kind] {
+			assets = append(assets, RegistryAssetInfo{
+				RegistryName: parsed.Name,
+				RegistryRepo: reg.Repo,
+				Kind:         kind,
+				Entry:        entry,
+			})
+		}
+	}
+
+	return assets
+}
+
+// ListAllAssets returns all assets across all kinds and all loaded registries.
+func (rm *RegistryManager) ListAllAssets(registries []Registry) []RegistryAssetInfo {
+	var all []RegistryAssetInfo
+	for _, kind := range asset.Kinds() {
+		all = append(all, rm.ListAssets(registries, kind)...)
+	}
+	return all
+}
+
 // --- Legacy compatibility methods ---
 // These methods provide backward-compatible access to skills and MCPs
 // using the old RegistrySkillInfo/RegistryMCPInfo types.
@@ -415,7 +463,7 @@ type RegistrySkillInfo struct {
 type RegistryMCPInfo struct {
 	RegistryName string // Display name from the manifest
 	RegistryRepo string // Repo URL (unique identifier)
-	MCP          MCPEntry
+	MCP          asset.RegistryEntry
 }
 
 // ListSkills returns all skills across all loaded registries.
@@ -464,7 +512,7 @@ func (rm *RegistryManager) ListMCPs(registries []Registry) []RegistryMCPInfo {
 			mcps = append(mcps, RegistryMCPInfo{
 				RegistryName: parsed.Name,
 				RegistryRepo: reg.Repo,
-				MCP:          MCPEntryFromRegistryEntry(entry),
+				MCP:          entry,
 			})
 		}
 	}
@@ -576,7 +624,7 @@ func (rm *RegistryManager) FindMCP(registries []Registry, mcpName, registryFilte
 				matches = append(matches, RegistryMCPInfo{
 					RegistryName: parsed.Name,
 					RegistryRepo: reg.Repo,
-					MCP:          MCPEntryFromRegistryEntry(entry),
+					MCP:          entry,
 				})
 			}
 		}

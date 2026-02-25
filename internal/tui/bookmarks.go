@@ -8,6 +8,7 @@ import (
 	tea "github.com/charmbracelet/bubbletea"
 
 	"github.com/barysiuk/duckrow/internal/core"
+	"github.com/barysiuk/duckrow/internal/core/system"
 )
 
 // bookmarksModel is the full-screen bookmarks view that lets users
@@ -53,12 +54,12 @@ func (m bookmarksModel) setSize(width, height int) bookmarksModel {
 //
 // If the cwd is not bookmarked, it is prepended to the list as a synthetic
 // entry so the user can always navigate back to it.
-func (m bookmarksModel) activate(cwd, activeFolder string, folders []core.FolderStatus, agents []core.AgentDef) bookmarksModel {
+func (m bookmarksModel) activate(cwd, activeFolder string, folders []core.FolderStatus) bookmarksModel {
 	m.cwd = cwd
 	m.activeFolder = activeFolder
 	m.folders = folders
 
-	items := foldersToItems(folders, activeFolder, agents)
+	items := foldersToItems(folders, activeFolder)
 
 	// If the cwd is not in the bookmarks list, prepend it.
 	cwdBookmarked := false
@@ -71,7 +72,7 @@ func (m bookmarksModel) activate(cwd, activeFolder string, folders []core.Folder
 	if !cwdBookmarked {
 		var installed int
 		if lf, err := core.ReadLockFile(cwd); err == nil && lf != nil {
-			installed = len(lf.Skills) + len(lf.MCPs)
+			installed = len(lf.Assets)
 		}
 		currentItem := folderItem{
 			status: core.FolderStatus{
@@ -79,7 +80,7 @@ func (m bookmarksModel) activate(cwd, activeFolder string, folders []core.Folder
 			},
 			isActive:  cwd == activeFolder,
 			isCurrent: true,
-			agents:    core.DetectActiveAgents(agents, cwd),
+			systems:   system.DisplayNames(system.DetectInFolder(cwd)),
 			installed: installed,
 		}
 		items = append([]list.Item{currentItem}, items...)

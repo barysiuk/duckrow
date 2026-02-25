@@ -4,6 +4,8 @@ package core
 
 import (
 	"time"
+
+	"github.com/barysiuk/duckrow/internal/core/asset"
 )
 
 // Config represents the DuckRow configuration stored at ~/.duckrow/config.json.
@@ -54,9 +56,8 @@ const (
 // FolderStatus aggregates information about a tracked folder.
 type FolderStatus struct {
 	Folder TrackedFolder
-	Skills []InstalledSkill
-	Agents []string // Detected agent names
-	Error  error    // Non-nil if scanning failed
+	Assets map[asset.Kind][]asset.InstalledAsset
+	Error  error // Non-nil if scanning failed
 }
 
 // UpdateInfo holds update status for a single locked skill.

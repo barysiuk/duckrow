@@ -66,4 +66,4 @@ file-contains nolock-test/duckrow.lock.json '"name": "my-db"'
 
 # Test: No args shows error
 ! exec duckrow mcp uninstall
-stderr 'accepts 1 arg'
+stderr 'specify a name or use --all'

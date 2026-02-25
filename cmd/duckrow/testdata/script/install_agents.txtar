@@ -57,7 +57,7 @@ exec duckrow skill uninstall agent-test -d myproject
 
 # Install with invalid agent name should fail
 ! exec duckrow skill install https://github.com/test-owner/test-repo -d myproject --agents=nonexistent
-stderr 'unknown agent "nonexistent"'
+stderr 'unknown system "nonexistent"'
 
 -- skill-md --
 ---

@@ -13,14 +13,8 @@ import (
 	"github.com/charmbracelet/lipgloss"
 
 	"github.com/barysiuk/duckrow/internal/core"
-)
-
-// folderTab identifies which tab is active in the folder view.
-type folderTab int
-
-const (
-	folderTabSkills folderTab = iota
-	folderTabMCPs
+	"github.com/barysiuk/duckrow/internal/core/asset"
+	"github.com/barysiuk/duckrow/internal/core/system"
 )
 
 // folderModel is the main folder view showing installed skills and MCPs
@@ -30,33 +24,52 @@ type folderModel struct {
 	height int
 
 	// Tabs.
-	activeTab folderTab
-	tabs      tabsModel
+	activeKind asset.Kind
+	keyOrder   []asset.Kind
+	tabs       tabsModel
 
-	// Bubbles lists — one per tab.
-	skillsList list.Model
-	mcpsList   list.Model
+	// Bubbles lists — one per kind.
+	lists map[asset.Kind]*list.Model
 
 	// Data (pushed from App).
 	status     *core.FolderStatus
 	isTracked  bool
-	regSkills  []core.RegistrySkillInfo
-	regMCPs    []core.RegistryMCPInfo
-	availCount int // Number of registry items (skills + MCPs) NOT installed
+	regAssets  []core.RegistryAssetInfo // All registry assets (unified)
+	availCount int                      // Number of registry items NOT installed
 
 	// Update info: skill name -> update info.
 	updateInfo  map[string]core.UpdateInfo
 	updateCount int // Number of skills with updates available
 
 	// MCP data from lock file.
-	mcps []mcpItem
+	mcps []assetItem
 }
 
 func newFolderModel() folderModel {
+	kinds := asset.Kinds()
+	if len(kinds) == 0 {
+		kinds = []asset.Kind{asset.KindSkill, asset.KindMCP}
+	}
+
+	labels := make([]tabDef, 0, len(kinds))
+	lists := make(map[asset.Kind]*list.Model, len(kinds))
+	for _, kind := range kinds {
+		handler, _ := asset.Get(kind)
+		label := string(kind)
+		if handler != nil {
+			label = handler.DisplayName() + "s"
+		}
+		labels = append(labels, tabDef{label: label})
+		l := newFolderList()
+		lists[kind] = &l
+	}
+
+	activeKind := kinds[0]
 	return folderModel{
-		tabs:       newTabsModel([]tabDef{{label: "Skills"}, {label: "MCPs"}}),
-		skillsList: newFolderList(),
-		mcpsList:   newFolderList(),
+		activeKind: activeKind,
+		keyOrder:   kinds,
+		tabs:       newTabsModel(labels),
+		lists:      lists,
 	}
 }
 
@@ -77,16 +90,16 @@ func (m folderModel) setSize(width, height int) folderModel {
 	m.width = width
 	m.height = height
 	// Actual list height is calculated dynamically in view().
-	m.skillsList.SetSize(width, max(1, height))
-	m.mcpsList.SetSize(width, max(1, height))
+	for _, l := range m.lists {
+		l.SetSize(width, max(1, height))
+	}
 	return m
 }
 
-func (m folderModel) setData(status *core.FolderStatus, isTracked bool, regSkills []core.RegistrySkillInfo, regMCPs []core.RegistryMCPInfo, updateInfo map[string]core.UpdateInfo, mcps []mcpItem) folderModel {
+func (m folderModel) setData(status *core.FolderStatus, isTracked bool, regAssets []core.RegistryAssetInfo, updateInfo map[string]core.UpdateInfo, mcps []assetItem) folderModel {
 	m.status = status
 	m.isTracked = isTracked
-	m.regSkills = regSkills
-	m.regMCPs = regMCPs
+	m.regAssets = regAssets
 	m.availCount = m.countAvailable()
 	m.updateInfo = updateInfo
 	m.mcps = mcps
@@ -99,15 +112,22 @@ func (m folderModel) setData(status *core.FolderStatus, isTracked bool, regSkill
 		}
 	}
 
-	// Populate skills list.
-	if status != nil {
-		m.skillsList.SetItems(skillsToItems(status.Skills, updateInfo))
-	} else {
-		m.skillsList.SetItems(nil)
+	for _, kind := range m.keyOrder {
+		list := m.lists[kind]
+		if list == nil {
+			continue
+		}
+		switch kind {
+		case asset.KindMCP:
+			list.SetItems(lockedAssetsToItems(kind, lockedFromAssetItems(mcps), descLookupFromAssetItems(mcps)))
+		default:
+			if status != nil {
+				list.SetItems(installedAssetsToItems(kind, status.Assets[kind], updateInfo))
+			} else {
+				list.SetItems(nil)
+			}
+		}
 	}
-
-	// Populate MCPs list.
-	m.mcpsList.SetItems(mcpsToItems(mcps))
 
 	// Update tab labels with counts.
 	m.tabs = m.updateTabLabels()
@@ -117,45 +137,55 @@ func (m folderModel) setData(status *core.FolderStatus, isTracked bool, regSkill
 
 // updateTabLabels builds tab labels with item counts and update indicators.
 func (m folderModel) updateTabLabels() tabsModel {
-	skillCount := 0
-	if m.status != nil {
-		skillCount = len(m.status.Skills)
+	defs := make([]tabDef, 0, len(m.keyOrder))
+	for _, kind := range m.keyOrder {
+		handler, _ := asset.Get(kind)
+		label := string(kind)
+		if handler != nil {
+			label = handler.DisplayName() + "s"
+		}
+		count := 0
+		switch kind {
+		case asset.KindMCP:
+			count = len(m.mcps)
+		default:
+			if m.status != nil {
+				count = len(m.status.Assets[kind])
+			}
+		}
+		def := tabDef{label: fmt.Sprintf("%s (%d)", label, count)}
+		if kind == asset.KindSkill && m.updateCount > 0 {
+			def.extra = fmt.Sprintf(" ↓%d", m.updateCount)
+		}
+		defs = append(defs, def)
 	}
 
-	skillTab := tabDef{label: fmt.Sprintf("Skills (%d)", skillCount)}
-	if m.updateCount > 0 {
-		skillTab.extra = fmt.Sprintf(" ↓%d", m.updateCount)
-	}
-
-	mcpTab := tabDef{label: fmt.Sprintf("MCPs (%d)", len(m.mcps))}
-
-	return m.tabs.setTabs([]tabDef{skillTab, mcpTab})
+	return m.tabs.setTabs(defs)
 }
 
 // activeList returns a pointer to the currently active list model.
 func (m *folderModel) activeList() *list.Model {
-	switch m.activeTab {
-	case folderTabMCPs:
-		return &m.mcpsList
-	default:
-		return &m.skillsList
+	if list := m.lists[m.activeKind]; list != nil {
+		return list
 	}
+	return nil
 }
 
 // isFiltering returns true if the active list is in filter mode.
 func (m folderModel) isFiltering() bool {
-	switch m.activeTab {
-	case folderTabMCPs:
-		return m.mcpsList.SettingFilter()
-	default:
-		return m.skillsList.SettingFilter()
+	if list := m.lists[m.activeKind]; list != nil {
+		return list.SettingFilter()
 	}
+	return false
 }
 
 func (m folderModel) update(msg tea.Msg, app *App) (folderModel, tea.Cmd) {
 	switch msg := msg.(type) {
 	case tabActiveMsg:
-		m.activeTab = folderTab(msg)
+		idx := int(msg)
+		if idx >= 0 && idx < len(m.keyOrder) {
+			m.activeKind = m.keyOrder[idx]
+		}
 		return m, nil
 
 	case tea.KeyMsg:
@@ -173,13 +203,17 @@ func (m folderModel) update(msg tea.Msg, app *App) (folderModel, tea.Cmd) {
 
 		switch {
 		case key.Matches(msg, keys.Delete):
-			if m.activeTab == folderTabMCPs {
+			switch m.activeKind {
+			case asset.KindMCP:
 				return m, m.removeSelectedMCP(app)
+			case asset.KindSkill:
+				return m, m.removeSelectedSkill(app)
+			default:
+				return m, nil
 			}
-			return m, m.removeSelectedSkill(app)
 
 		case key.Matches(msg, keys.Update):
-			if m.activeTab == folderTabSkills {
+			if m.activeKind == asset.KindSkill {
 				return m, m.updateSelectedSkill(app)
 			}
 			return m, nil
@@ -191,7 +225,7 @@ func (m folderModel) update(msg tea.Msg, app *App) (folderModel, tea.Cmd) {
 			return m, m.refreshWithRegistries(app)
 
 		case key.Matches(msg, keys.Enter):
-			if m.activeTab == folderTabSkills {
+			if m.activeKind == asset.KindSkill {
 				return m, m.openPreview(app)
 			}
 			return m, nil
@@ -201,22 +235,29 @@ func (m folderModel) update(msg tea.Msg, app *App) (folderModel, tea.Cmd) {
 	// Forward to the active list.
 	var cmd tea.Cmd
 	al := m.activeList()
+	if al == nil {
+		return m, nil
+	}
 	*al, cmd = al.Update(msg)
 	return m, cmd
 }
 
 // openPreview reads the selected skill's SKILL.md and triggers the preview overlay.
 func (m folderModel) openPreview(app *App) tea.Cmd {
-	item := m.skillsList.SelectedItem()
+	list := m.lists[asset.KindSkill]
+	if list == nil {
+		return nil
+	}
+	item := list.SelectedItem()
 	if item == nil {
 		return nil
 	}
-	si, ok := item.(skillItem)
+	si, ok := item.(assetItem)
 	if !ok {
 		return nil
 	}
 
-	skillMdPath := filepath.Join(si.skill.Path, "SKILL.md")
+	skillMdPath := filepath.Join(si.path, "SKILL.md")
 	content, err := readSkillMdBody(skillMdPath)
 	if err != nil {
 		return func() tea.Msg {
@@ -224,7 +265,7 @@ func (m folderModel) openPreview(app *App) tea.Cmd {
 		}
 	}
 
-	title := si.skill.Name
+	title := si.name
 
 	return func() tea.Msg {
 		return openPreviewMsg{
@@ -260,7 +301,7 @@ func (m folderModel) view() string {
 		parts = append(parts,
 			mutedStyle.Render(fmt.Sprintf("%d available from registries", m.availCount))+
 				"  "+mutedStyle.Render("[i] Install"))
-	} else if len(m.regSkills) == 0 && len(m.regMCPs) == 0 {
+	} else if len(m.regAssets) == 0 {
 		parts = append(parts,
 			mutedStyle.Render("No registries configured.")+
 				"  "+mutedStyle.Render("[s] Settings to add"))
@@ -279,20 +320,20 @@ func (m folderModel) view() string {
 	listH := max(1, m.height-chromeH)
 
 	var listView string
-	switch m.activeTab {
-	case folderTabSkills:
-		if len(m.skillsList.Items()) == 0 {
-			listView = "\n" + mutedStyle.Render("  No skills installed")
+	list := m.activeList()
+	if list == nil {
+		listView = "\n" + mutedStyle.Render("  No items installed")
+	} else {
+		if len(list.Items()) == 0 {
+			emptyLabel := "items"
+			handler, _ := asset.Get(m.activeKind)
+			if handler != nil {
+				emptyLabel = strings.ToLower(handler.DisplayName()) + "s"
+			}
+			listView = "\n" + mutedStyle.Render("  No "+emptyLabel+" installed")
 		} else {
-			m.skillsList.SetSize(m.width, listH)
-			listView = m.skillsList.View()
-		}
-	case folderTabMCPs:
-		if len(m.mcpsList.Items()) == 0 {
-			listView = "\n" + mutedStyle.Render("  No MCPs installed")
-		} else {
-			m.mcpsList.SetSize(m.width, listH)
-			listView = m.mcpsList.View()
+			list.SetSize(m.width, listH)
+			listView = list.View()
 		}
 	}
 
@@ -310,32 +351,34 @@ func (m folderModel) view() string {
 }
 
 func (m folderModel) removeSelectedSkill(app *App) tea.Cmd {
-	item := m.skillsList.SelectedItem()
+	list := m.lists[asset.KindSkill]
+	if list == nil {
+		return nil
+	}
+	item := list.SelectedItem()
 	if item == nil || m.status == nil {
 		return nil
 	}
 
-	si, ok := item.(skillItem)
+	si, ok := item.(assetItem)
 	if !ok {
 		return nil
 	}
 
-	skill := si.skill
+	skill := *si.installed
 	folderPath := app.activeFolder
 
 	// Use the directory name (sanitized) for removal, not the display name.
 	skillDirName := filepath.Base(skill.Path)
 
 	deleteCmd := func() tea.Msg {
-		remover := core.NewRemover(app.agents)
-		_, err := remover.Remove(skillDirName, core.RemoveOptions{TargetDir: folderPath})
-		if err != nil {
-			return errMsg{err: fmt.Errorf("removing %s: %w", skill.Name, err)}
+		orch := core.NewOrchestrator()
+		if err := orch.RemoveAsset(asset.KindSkill, skillDirName, folderPath, system.All()); err != nil {
+			return assetRemovedMsg{kind: asset.KindSkill, name: skill.Name, err: fmt.Errorf("removing %s: %w", skill.Name, err)}
 		}
 		// Remove lock entry (TUI always updates lock file).
-		_ = core.RemoveLockEntry(folderPath, skillDirName)
-		// Reload data to refresh the view after removal.
-		return app.loadDataCmd()
+		_ = core.RemoveAssetEntry(folderPath, asset.KindSkill, skillDirName)
+		return assetRemovedMsg{kind: asset.KindSkill, name: skill.Name}
 	}
 
 	app.confirm = app.confirm.show(
@@ -351,17 +394,21 @@ func (m folderModel) updateSelectedSkill(app *App) tea.Cmd {
 		return nil
 	}
 
-	item := m.skillsList.SelectedItem()
+	list := m.lists[asset.KindSkill]
+	if list == nil {
+		return nil
+	}
+	item := list.SelectedItem()
 	if item == nil || m.status == nil {
 		return nil
 	}
 
-	si, ok := item.(skillItem)
+	si, ok := item.(assetItem)
 	if !ok {
 		return nil
 	}
 
-	ui, hasUpdate := m.updateInfo[si.skill.Name]
+	ui, hasUpdate := m.updateInfo[si.name]
 	if !hasUpdate || !ui.HasUpdate {
 		return nil
 	}
@@ -458,13 +505,7 @@ func executeSkillUpdate(app *App, ui core.UpdateInfo, folderPath string, cfg *co
 	}
 
 	// Find the lock entry for this skill.
-	var lockEntry *core.LockedSkill
-	for i := range lf.Skills {
-		if lf.Skills[i].Name == ui.Name {
-			lockEntry = &lf.Skills[i]
-			break
-		}
-	}
+	lockEntry := core.FindLockedAsset(lf, asset.KindSkill, ui.Name)
 	if lockEntry == nil {
 		return fmt.Errorf("skill %s not found in lock file", ui.Name)
 	}
@@ -492,33 +533,34 @@ func executeSkillUpdate(app *App, ui core.UpdateInfo, folderPath string, cfg *co
 	}
 
 	// Remove existing skill.
-	remover := core.NewRemover(app.agents)
-	_, removeErr := remover.Remove(ui.Name, core.RemoveOptions{TargetDir: folderPath})
+	remover := core.NewOrchestrator()
+	removeErr := remover.RemoveAsset(asset.KindSkill, ui.Name, folderPath, system.All())
 	if removeErr != nil {
 		return fmt.Errorf("removing: %w", removeErr)
 	}
 
 	// Reinstall at the available commit.
-	installer := core.NewInstaller(app.agents)
-	result, installErr := installer.InstallFromSource(source, core.InstallOptions{
-		TargetDir:   folderPath,
-		SkillFilter: ui.Name,
-		Commit:      ui.AvailableCommit,
-		IsInternal:  true,
+	installer := core.NewOrchestrator()
+	result, installErr := installer.InstallFromSource(source, asset.KindSkill, core.OrchestratorInstallOptions{
+		TargetDir:       folderPath,
+		NameFilter:      ui.Name,
+		Commit:          ui.AvailableCommit,
+		IncludeInternal: true,
 	})
 	if installErr != nil {
 		return fmt.Errorf("installing: %w", installErr)
 	}
 
 	// Update lock file with new commit.
-	for _, s := range result.InstalledSkills {
-		entry := core.LockedSkill{
-			Name:   s.Name,
-			Source: s.Source,
-			Commit: s.Commit,
-			Ref:    s.Ref,
+	for _, r := range result {
+		entry := asset.LockedAsset{
+			Kind:   asset.KindSkill,
+			Name:   r.Asset.Name,
+			Source: r.Asset.Source,
+			Commit: r.Commit,
+			Ref:    r.Ref,
 		}
-		if lockErr := core.AddOrUpdateLockEntry(folderPath, entry); lockErr != nil {
+		if lockErr := core.AddOrUpdateAsset(folderPath, entry); lockErr != nil {
 			return fmt.Errorf("updating lock file: %w", lockErr)
 		}
 	}
@@ -529,24 +571,28 @@ func executeSkillUpdate(app *App, ui core.UpdateInfo, folderPath string, cfg *co
 // removeSelectedMCP shows a confirmation dialog for the selected MCP.
 // The confirmation message lists the agent config files that will be modified.
 func (m folderModel) removeSelectedMCP(app *App) tea.Cmd {
-	item := m.mcpsList.SelectedItem()
+	list := m.lists[asset.KindMCP]
+	if list == nil {
+		return nil
+	}
+	item := list.SelectedItem()
 	if item == nil || m.status == nil {
 		return nil
 	}
 
-	mcp, ok := item.(mcpItem)
-	if !ok {
+	mcp, ok := item.(assetItem)
+	if !ok || mcp.locked == nil {
 		return nil
 	}
 
 	folderPath := app.activeFolder
 
-	// Build list of agent config files that will be modified.
+	// Build list of system config files that will be modified.
 	var configFiles []string
-	for _, agentName := range mcp.locked.Agents {
-		for _, agent := range app.agents {
-			if agent.Name == agentName && agent.MCPConfigPath != "" {
-				configFiles = append(configFiles, core.ResolveMCPConfigPathRel(agent, folderPath))
+	for _, sysName := range lockedSystems(*mcp.locked) {
+		if sys, ok := system.ByName(sysName); ok {
+			if resolver, ok := sys.(interface{ ResolveMCPConfigPathRel(string) string }); ok {
+				configFiles = append(configFiles, resolver.ResolveMCPConfigPathRel(folderPath))
 			}
 		}
 	}
@@ -560,48 +606,55 @@ func (m folderModel) removeSelectedMCP(app *App) tea.Cmd {
 	}
 
 	deleteCmd := func() tea.Msg {
-		// Remove from agent config files.
-		_, err := core.UninstallMCPConfig(mcp.locked.Name, app.agents, core.MCPUninstallOptions{
-			ProjectDir: folderPath,
-		})
-		if err != nil {
-			return errMsg{err: fmt.Errorf("removing MCP %s: %w", mcp.locked.Name, err)}
+		// Remove from system config files.
+		for _, sysName := range lockedSystems(*mcp.locked) {
+			if sys, ok := system.ByName(sysName); ok {
+				if err := sys.Remove(asset.KindMCP, mcp.locked.Name, folderPath); err != nil {
+					return assetRemovedMsg{kind: asset.KindMCP, name: mcp.locked.Name, err: fmt.Errorf("removing MCP %s: %w", mcp.locked.Name, err)}
+				}
+			}
 		}
 		// Remove lock entry.
-		_ = core.RemoveMCPLockEntry(folderPath, mcp.locked.Name)
-		// Reload data to refresh the view.
-		return app.loadDataCmd()
+		_ = core.RemoveAssetEntry(folderPath, asset.KindMCP, mcp.locked.Name)
+		return assetRemovedMsg{kind: asset.KindMCP, name: mcp.locked.Name}
 	}
 
 	app.confirm = app.confirm.show(confirmMsg, deleteCmd)
 	return nil
 }
 
-// countAvailable counts registry items (skills + MCPs) NOT already installed in the active folder.
+// countAvailable counts registry items NOT already installed in the active folder.
 func (m folderModel) countAvailable() int {
 	if m.status == nil {
-		return len(m.regSkills) + len(m.regMCPs)
+		return len(m.regAssets)
 	}
 
-	installedSkills := make(map[string]bool)
-	for _, s := range m.status.Skills {
-		installedSkills[s.Name] = true
-	}
-
-	installedMCPs := make(map[string]bool)
-	for _, mcp := range m.mcps {
-		installedMCPs[mcp.locked.Name] = true
+	// Build installed sets per kind.
+	installedByKind := make(map[asset.Kind]map[string]bool)
+	for _, kind := range m.keyOrder {
+		set := make(map[string]bool)
+		if kind == asset.KindMCP {
+			for _, mcp := range m.mcps {
+				if mcp.locked != nil {
+					set[mcp.locked.Name] = true
+				}
+			}
+		} else {
+			for _, a := range m.status.Assets[kind] {
+				set[a.Name] = true
+			}
+		}
+		installedByKind[kind] = set
 	}
 
 	count := 0
-	for _, rs := range m.regSkills {
-		if !installedSkills[rs.Skill.Name] {
-			count++
-		}
-	}
-	for _, rm := range m.regMCPs {
-		if !installedMCPs[rm.MCP.Name] {
-			count++
+	for _, ra := range m.regAssets {
+		if installed, ok := installedByKind[ra.Kind]; ok {
+			if !installed[ra.Entry.Name] {
+				count++
+			}
+		} else {
+			count++ // Unknown kind — not installed
 		}
 	}
 	return count

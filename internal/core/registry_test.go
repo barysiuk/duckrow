@@ -7,6 +7,8 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+
+	"github.com/barysiuk/duckrow/internal/core/asset"
 )
 
 // testSkillEntry is a test helper that mirrors the old SkillEntry for constructing test manifests.
@@ -1655,8 +1657,12 @@ func TestRegistryManager_FindMCP(t *testing.T) {
 		if info.RegistryName != "org-b" {
 			t.Errorf("RegistryName = %q, want %q", info.RegistryName, "org-b")
 		}
-		if info.MCP.Command != "cmd-b" {
-			t.Errorf("MCP.Command = %q, want %q", info.MCP.Command, "cmd-b")
+		meta, ok := info.MCP.Meta.(asset.MCPMeta)
+		if !ok {
+			t.Fatalf("MCP.Meta has unexpected type")
+		}
+		if meta.Command != "cmd-b" {
+			t.Errorf("MCP.Command = %q, want %q", meta.Command, "cmd-b")
 		}
 	})
 

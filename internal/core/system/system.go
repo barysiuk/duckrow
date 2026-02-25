@@ -8,6 +8,7 @@ package system
 import (
 	"errors"
 	"fmt"
+	"path/filepath"
 	"strings"
 
 	"github.com/barysiuk/duckrow/internal/core/asset"
@@ -94,6 +95,32 @@ func DetectInFolder(path string) []System {
 		}
 	}
 	return detected
+}
+
+// ActiveInFolder returns only systems that have unique config artifacts
+// present in the given project folder (e.g. opencode.json, .cursor/, CLAUDE.md).
+// Unlike DetectInFolder, this does NOT include globally installed systems
+// and does NOT count shared directories like .agents/skills/.
+func ActiveInFolder(path string) []System {
+	var active []System
+	for _, s := range systems {
+		if hasConfigSignals(s, path) {
+			active = append(active, s)
+		}
+	}
+	return active
+}
+
+// hasConfigSignals checks whether the system has any of its unique config
+// signal files/dirs present in the given folder.
+func hasConfigSignals(s System, folderPath string) bool {
+	for _, sig := range s.DetectionSignals() {
+		p := filepath.Join(folderPath, sig)
+		if pathExists(p) {
+			return true
+		}
+	}
+	return false
 }
 
 // ByNames resolves a list of system names to System values.

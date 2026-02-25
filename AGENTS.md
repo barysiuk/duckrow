@@ -26,8 +26,7 @@ internal/tui/             Interactive terminal UI (Bubble Tea)
   app.go                  Main TUI model, view routing, data loading
   folder.go               Folder view — skill list, preview, removal
   install.go              Install view — skill/MCP picking list
-  skill_wizard.go         Skill install wizard
-  mcp_wizard.go           MCP install wizard
+  asset_wizard.go         Asset install wizard
   wizard.go               Shared wizard component
   registry_wizard.go      Registry add wizard
   bookmarks.go            Bookmarks view — folder switching
@@ -200,4 +199,3 @@ git push origin v0.1.0
    - Builds binaries for linux/darwin/windows (amd64 + arm64)
    - Creates a GitHub Release with changelog
    - Publishes the Homebrew formula to `barysiuk/homebrew-tap`
-
