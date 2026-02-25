@@ -199,7 +199,9 @@ Once bookmarked, you can check the state of every project at a glance with `duck
 
 ## Private Registries
 
-Teams can maintain a curated catalog of approved skills using a private git repository. A registry is just a git repo with a `duckrow.json` manifest at the root.
+Teams can maintain a curated catalog of approved skills and MCP server configurations using a private git repository. A registry is just a git repo with a `duckrow.json` manifest at the root.
+
+> **Full reference:** See [docs/registries.md](docs/registries.md) for the complete guide — manifest format (v1/v2), MCP configuration per system, environment variables, clone URL overrides, and more.
 
 ### Setting up a registry
 
