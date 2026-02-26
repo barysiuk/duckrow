@@ -1,0 +1,38 @@
+# Test duckrow agent sync: install agent, delete files, sync restores them
+
+# Create agent source repo
+setup-agent-repo agent-source 'my-agent:A synced agent'
+
+# Set up config override
+setup-config-override test-owner/test-repo agent-source
+
+# Create project and install an agent (creates lock file)
+mkdir myproject
+exec duckrow agent install https://github.com/test-owner/test-repo -d myproject
+stdout 'installed successfully'
+exists myproject/.claude/agents/my-agent.md
+exists myproject/duckrow.lock.json
+
+# Verify lock file has the agent
+file-contains myproject/duckrow.lock.json '"name": "my-agent"'
+file-contains myproject/duckrow.lock.json '"kind": "agent"'
+
+# Sync with agent already present should skip it
+exec duckrow agent sync -d myproject
+stdout 'Agents: 0 installed, 1 skipped, 0 errors'
+
+# Delete the agent files from all systems
+exec rm -rf myproject/.claude/agents myproject/.opencode/agents myproject/.github/agents myproject/.gemini/agents
+
+# Verify agent files are gone
+dir-not-exists myproject/.claude/agents
+
+# Sync should restore the agent from the lock file
+exec duckrow agent sync -d myproject
+stdout 'Installed: my-agent'
+stdout 'Agents: 1 installed, 0 skipped, 0 errors'
+
+# Verify agent files are restored
+exists myproject/.claude/agents/my-agent.md
+exists myproject/.opencode/agents/my-agent.md
+file-contains myproject/.claude/agents/my-agent.md 'A synced agent'

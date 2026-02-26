@@ -13,13 +13,14 @@ var syncCmd = &cobra.Command{
 	Short: "Install everything from lock file",
 	Long: `Install all assets declared in duckrow.lock.json at their pinned versions.
 
-Skills whose directories already exist are skipped. MCP entries that already
+Skills whose directories already exist are skipped. Agent files that already
+exist in system agent directories are skipped. MCP entries that already
 exist in agent config files are skipped unless --force is used.
 
 This command enforces the lock file and does not fetch upstream updates.
 Use duckrow skill outdated and duckrow skill update to move the lock file forward.
 
-This is equivalent to running duckrow skill sync and duckrow mcp sync in sequence.`,
+This is equivalent to running duckrow skill sync, duckrow mcp sync, and duckrow agent sync in sequence.`,
 	Args: cobra.NoArgs,
 	RunE: func(cmd *cobra.Command, args []string) error {
 		fmt.Fprintln(os.Stdout, "Syncing from duckrow.lock.json...")

@@ -1,0 +1,33 @@
+# Test installing agents from a registry by name
+
+# Create a registry repo with agent entries and source files
+setup-agent-registry agent-registry my-agents 'code-reviewer:Reviews code carefully'
+
+# Add the registry
+exec duckrow registry add agent-registry
+
+# Set up config override for the agent source (same repo serves as source)
+setup-registry-config my-agents/code-reviewer agent-registry
+
+# Create project directory
+mkdir myproject
+
+# Install by name from registry
+exec duckrow agent install code-reviewer -d myproject
+stdout 'Installing agent "code-reviewer"'
+stdout 'from registry "my-agents"'
+stdout 'installed successfully'
+! stderr .
+
+# Verify agent files created
+exists myproject/.claude/agents/code-reviewer.md
+exists myproject/.opencode/agents/code-reviewer.md
+
+# Verify lock file
+exists myproject/duckrow.lock.json
+file-contains myproject/duckrow.lock.json '"kind": "agent"'
+file-contains myproject/duckrow.lock.json '"name": "code-reviewer"'
+
+# Test: Install nonexistent agent fails
+! exec duckrow agent install nonexistent -d myproject
+stderr 'not found'

@@ -8,13 +8,14 @@ import (
 
 	"github.com/barysiuk/duckrow/internal/core"
 	"github.com/barysiuk/duckrow/internal/core/asset"
+	"github.com/barysiuk/duckrow/internal/core/system"
 	"github.com/spf13/cobra"
 )
 
 var statusCmd = &cobra.Command{
 	Use:   "status [path]",
-	Short: "Show installed skills and MCPs for the current folder",
-	Long: `Show installed skills, MCP configurations, and tracking status for a folder.
+	Short: "Show installed skills, agents, and MCPs for the current folder",
+	Long: `Show installed skills, agents, MCP configurations, and tracking status for a folder.
 If a path is given, shows status for that folder. Otherwise shows status for the current directory.`,
 	Args: cobra.MaximumNArgs(1),
 	RunE: func(cmd *cobra.Command, args []string) error {
@@ -112,7 +113,50 @@ func showFolderStatus(path string, tracked bool, mcpDescriptions map[string]stri
 		}
 	}
 
+	// Show agents — scan each system to show system associations.
+	agentMap := make(map[string]*agentStatusInfo)
+	var agentOrder []string
+
+	for _, sys := range system.Supporting(asset.KindAgent) {
+		installed, scanErr := sys.Scan(asset.KindAgent, path)
+		if scanErr != nil {
+			continue
+		}
+		for _, a := range installed {
+			info, ok := agentMap[a.Name]
+			if !ok {
+				info = &agentStatusInfo{
+					name:        a.Name,
+					description: a.Description,
+				}
+				agentMap[a.Name] = info
+				agentOrder = append(agentOrder, a.Name)
+			}
+			info.systems = append(info.systems, sys.DisplayName())
+		}
+	}
+
+	if len(agentMap) > 0 {
+		fmt.Fprintf(os.Stdout, "  Agents (%d):\n", len(agentMap))
+		for _, name := range agentOrder {
+			info := agentMap[name]
+			sysNames := strings.Join(info.systems, ", ")
+			if info.description != "" {
+				fmt.Fprintf(os.Stdout, "    - %-18s %s  [%s]\n", info.name, info.description, sysNames)
+			} else {
+				fmt.Fprintf(os.Stdout, "    - %-18s [%s]\n", info.name, sysNames)
+			}
+		}
+	}
+
 	return nil
+}
+
+// agentStatusInfo tracks agent system associations for status display.
+type agentStatusInfo struct {
+	name        string
+	description string
+	systems     []string
 }
 
 // buildMCPDescriptionMap loads MCP descriptions from configured registries (best-effort).

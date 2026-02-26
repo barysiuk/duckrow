@@ -1,0 +1,34 @@
+# Test uninstalling an agent
+
+# Create agent source repo
+setup-agent-repo agent-source 'my-agent:A helpful assistant agent'
+
+# Set up config override
+setup-config-override test-owner/test-repo agent-source
+
+# Setup: create project and install an agent
+mkdir myproject
+exec duckrow agent install https://github.com/test-owner/test-repo -d myproject
+stdout 'installed successfully'
+exists myproject/.claude/agents/my-agent.md
+exists myproject/.opencode/agents/my-agent.md
+
+# Uninstall the agent
+exec duckrow agent uninstall my-agent -d myproject
+stdout 'Removing agent "my-agent"'
+stdout 'Removed from:'
+stdout 'removed'
+! stderr .
+
+# Verify agent files are gone from all systems
+dir-not-exists myproject/.claude/agents
+dir-not-exists myproject/.opencode/agents
+dir-not-exists myproject/.github/agents
+dir-not-exists myproject/.gemini/agents
+
+# Verify lock file was updated
+! file-contains myproject/duckrow.lock.json '"name": "my-agent"'
+
+# Uninstalling a nonexistent agent should fail
+! exec duckrow agent uninstall nonexistent -d myproject
+stderr 'not found'

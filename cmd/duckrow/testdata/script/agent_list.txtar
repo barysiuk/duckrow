@@ -1,0 +1,30 @@
+# Test listing installed agents
+
+# Create agent source repo with multiple agents
+setup-agent-repo agent-source 'code-reviewer:Reviews code carefully' 'test-writer:Writes comprehensive tests'
+
+# Set up config override
+setup-config-override test-owner/test-repo agent-source
+
+# Create project
+mkdir myproject
+
+# List with no agents installed
+exec duckrow agent list -d myproject
+stdout 'No agents installed'
+
+# Install agents
+exec duckrow agent install https://github.com/test-owner/test-repo -d myproject
+
+# List installed agents
+exec duckrow agent list -d myproject
+stdout 'code-reviewer'
+stdout 'test-writer'
+! stdout 'No agents installed'
+
+# List with JSON output
+exec duckrow agent list -d myproject --json
+stdout '"name":'
+stdout '"systems":'
+stdout 'code-reviewer'
+stdout 'test-writer'

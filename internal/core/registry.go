@@ -70,7 +70,7 @@ func RegistryDirKey(repoURL string) string {
 // --- Manifest types ---
 
 // RegistryManifest is the parsed duckrow.json from a registry repo.
-// It supports both v1 (Skills/MCPs arrays) and v2 (Assets map) formats.
+// It supports both v1 (Skills/MCPs/Agents arrays) and v2 (Assets map) formats.
 // The Version field discriminates: 0 or 1 = v1, 2 = v2.
 type RegistryManifest struct {
 	Version     int                        `json:"version,omitempty"`
@@ -80,6 +80,7 @@ type RegistryManifest struct {
 	// v1 legacy fields — populated when reading v1 manifests, converted internally.
 	Skills   []json.RawMessage `json:"skills,omitempty"`
 	MCPs     []json.RawMessage `json:"mcps,omitempty"`
+	Agents   []json.RawMessage `json:"agents,omitempty"`
 	Warnings []string          `json:"-"` // validation warnings, not serialized
 }
 
@@ -103,7 +104,7 @@ func ParseManifest(raw *RegistryManifest) (*ParsedManifest, error) {
 	// Build the assets map — either from v2 Assets field or v1 legacy fields.
 	assetsMap := raw.Assets
 	if len(assetsMap) == 0 {
-		// v1 format: convert Skills/MCPs arrays to the assets map.
+		// v1 format: convert Skills/MCPs/Agents arrays to the assets map.
 		assetsMap = make(map[string]json.RawMessage)
 		if len(raw.Skills) > 0 {
 			skillsJSON, err := json.Marshal(raw.Skills)
@@ -118,6 +119,13 @@ func ParseManifest(raw *RegistryManifest) (*ParsedManifest, error) {
 				return nil, fmt.Errorf("marshaling v1 MCPs: %w", err)
 			}
 			assetsMap[string(asset.KindMCP)] = mcpsJSON
+		}
+		if len(raw.Agents) > 0 {
+			agentsJSON, err := json.Marshal(raw.Agents)
+			if err != nil {
+				return nil, fmt.Errorf("marshaling v1 agents: %w", err)
+			}
+			assetsMap[string(asset.KindAgent)] = agentsJSON
 		}
 	}
 

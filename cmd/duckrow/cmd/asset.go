@@ -192,6 +192,8 @@ func runAssetInstall(cmd *cobra.Command, args []string, kind asset.Kind) error {
 		return installSkill(cmd, orch, cfg, arg, isURL, registryFilter, targetDir, targetSystems, noLock, force, d)
 	case asset.KindMCP:
 		return installMCP(orch, cfg, arg, registryFilter, targetDir, targetSystems, noLock, force, d)
+	case asset.KindAgent:
+		return installAgent(orch, cfg, arg, isURL, registryFilter, targetDir, targetSystems, noLock, force, d)
 	default:
 		return fmt.Errorf("install not implemented for kind %q", kind)
 	}
@@ -428,6 +430,8 @@ func runAssetUninstall(cmd *cobra.Command, args []string, kind asset.Kind) error
 		return uninstallSkill(orch, targetDir, args, all, noLock)
 	case asset.KindMCP:
 		return uninstallMCP(targetDir, args, all, noLock)
+	case asset.KindAgent:
+		return uninstallAgent(orch, targetDir, args, all, noLock)
 	default:
 		return fmt.Errorf("uninstall not implemented for kind %q", kind)
 	}
@@ -632,6 +636,11 @@ func runAssetList(cmd *cobra.Command, kind asset.Kind) error {
 		return nil
 	}
 
+	if kind == asset.KindAgent {
+		// Agents are rendered per-system; scan each system to build system lists.
+		return listAgents(targetDir, jsonOutput)
+	}
+
 	// File-based assets (skills).
 	if len(items) == 0 {
 		handler, _ := asset.Get(kind)
@@ -678,11 +687,15 @@ func runAssetSync(cmd *cobra.Command, kind asset.Kind) error {
 	handler, _ := asset.Get(kind)
 	display := handler.DisplayName()
 
-	if kind == asset.KindMCP {
+	switch kind {
+	case asset.KindMCP:
 		fmt.Fprintf(os.Stdout, "\nMCPs: %d installed, %d skipped, %d errors\n",
 			result.installed, result.skipped, result.errors)
 		printRequiredEnvSummary(result.requiredEnv)
-	} else {
+	case asset.KindAgent:
+		fmt.Fprintf(os.Stdout, "\nAgents: %d installed, %d skipped, %d errors\n",
+			result.installed, result.skipped, result.errors)
+	default:
 		fmt.Fprintf(os.Stdout, "\nSynced: %d installed, %d skipped, %d errors\n",
 			result.installed, result.skipped, result.errors)
 	}
@@ -730,6 +743,8 @@ func runAssetSyncInner(cmd *cobra.Command, kind asset.Kind) (*assetSyncResult, e
 		return syncSkills(lf, cfg, targetDir, targetSystems, dryRun, force)
 	case asset.KindMCP:
 		return syncMCPs(lf, cfg, targetDir, targetSystems, dryRun, force, d)
+	case asset.KindAgent:
+		return syncAgents(lf, cfg, targetDir, targetSystems, dryRun, force)
 	default:
 		return &assetSyncResult{}, nil
 	}
@@ -1147,8 +1162,397 @@ func printRequiredEnvSummary(envMap map[string][]string) {
 }
 
 // ---------------------------------------------------------------------------
+// Agent install / uninstall / list / sync
+// ---------------------------------------------------------------------------
+
+// installAgent handles agent-specific install logic.
+// Agents can be installed from a direct git URL or by name from a registry.
+func installAgent(
+	orch *core.Orchestrator,
+	cfg *core.Config,
+	arg string,
+	isURL bool,
+	registryFilter string,
+	targetDir string,
+	targetSystems []system.System,
+	noLock, force bool,
+	d *deps,
+) error {
+	var source *core.ParsedSource
+	var registryCommit string
+	var agentFilter string
+	var registryName string
+	var err error
+
+	if isURL {
+		if registryFilter != "" {
+			return fmt.Errorf("--registry cannot be used with a direct URL source")
+		}
+		source, err = core.ParseSource(arg)
+		if err != nil {
+			return fmt.Errorf("invalid source: %w", err)
+		}
+	} else {
+		rm := core.NewRegistryManager(d.config.RegistriesDir())
+		entry, regName, findErr := rm.FindAsset(cfg.Registries, asset.KindAgent, arg)
+		if findErr != nil {
+			return findErr
+		}
+		source, err = core.ParseSource(entry.Source)
+		if err != nil {
+			return fmt.Errorf("invalid agent source in registry: %w", err)
+		}
+		agentFilter = entry.Name
+		registryCommit = entry.Commit
+		registryName = regName
+	}
+
+	source.ApplyCloneURLOverride(cfg.Settings.CloneURLOverrides)
+
+	// Resolve target systems for agents.
+	if targetSystems == nil {
+		// Default: all agent-capable systems detected in the folder.
+		detected := system.DetectInFolder(targetDir)
+		targetSystems = filterAgentCapable(detected)
+		if len(targetSystems) == 0 {
+			// Fall back to all agent-capable systems.
+			targetSystems = filterAgentCapable(system.All())
+		}
+	} else {
+		targetSystems = filterAgentCapable(targetSystems)
+		if len(targetSystems) == 0 {
+			return fmt.Errorf("none of the specified systems support agents")
+		}
+	}
+
+	if registryName != "" {
+		fmt.Fprintf(os.Stdout, "Installing agent %q from registry %q...\n\n", arg, registryName)
+	}
+
+	results, err := orch.InstallFromSource(source, asset.KindAgent, core.OrchestratorInstallOptions{
+		TargetDir:     targetDir,
+		TargetSystems: targetSystems,
+		NameFilter:    agentFilter,
+		Commit:        registryCommit,
+		Force:         force,
+	})
+	if err != nil {
+		return err
+	}
+
+	// Read existing lock for source-change warnings.
+	var existingLock *core.LockFile
+	if !noLock {
+		existingLock, _ = core.ReadLockFile(targetDir)
+	}
+
+	fmt.Fprintln(os.Stdout, "Wrote agent files to:")
+	for _, r := range results {
+		for _, sysName := range r.Systems {
+			sys, ok := system.ByName(sysName)
+			if !ok {
+				continue
+			}
+			agentDir := sys.AssetDir(asset.KindAgent, targetDir)
+			relPath := filepath.Join(agentDir, r.Asset.Name+".md")
+			fmt.Fprintf(os.Stdout, "  + %-40s (%s)\n", relPath, sys.DisplayName())
+		}
+
+		if !noLock && r.Commit != "" {
+			src := r.Asset.Source
+			if src == "" {
+				src = core.NormalizeSource(source.Host, source.Owner, source.Repo, "")
+			}
+
+			// Warn if source changed.
+			if existingLock != nil {
+				for _, existing := range core.AssetsByKind(existingLock, asset.KindAgent) {
+					if existing.Name == r.Asset.Name && existing.Source != src {
+						fmt.Fprintf(os.Stderr, "Warning: agent %q source changed from %q to %q\n",
+							r.Asset.Name, existing.Source, src)
+					}
+				}
+			}
+
+			entry := asset.LockedAsset{
+				Kind:   asset.KindAgent,
+				Name:   r.Asset.Name,
+				Source: src,
+				Commit: r.Commit,
+				Ref:    r.Ref,
+			}
+			if lockErr := core.AddOrUpdateAsset(targetDir, entry); lockErr != nil {
+				fmt.Fprintf(os.Stderr, "Warning: failed to update lock file: %v\n", lockErr)
+			} else {
+				fmt.Fprintln(os.Stdout, "\nUpdated duckrow.lock.json")
+			}
+		} else if !noLock && r.Commit == "" {
+			fmt.Fprintf(os.Stderr, "Warning: could not determine commit for %q; not pinned in lock file\n", r.Asset.Name)
+		}
+	}
+
+	if len(results) == 1 {
+		fmt.Fprintf(os.Stdout, "\nAgent %q installed successfully.\n", results[0].Asset.Name)
+	}
+	return nil
+}
+
+// uninstallAgent handles agent-specific uninstall logic.
+func uninstallAgent(orch *core.Orchestrator, targetDir string, args []string, all, noLock bool) error {
+	if all {
+		// Scan to find all installed agents, then remove each.
+		allInstalled, err := orch.ScanFolder(targetDir)
+		if err != nil {
+			return fmt.Errorf("scanning folder: %w", err)
+		}
+		agents := allInstalled[asset.KindAgent]
+		if len(agents) == 0 {
+			fmt.Fprintln(os.Stdout, "No agents installed.")
+			return nil
+		}
+
+		// Deduplicate by name (agents appear per-system).
+		seen := make(map[string]bool)
+		var uniqueNames []string
+		for _, a := range agents {
+			if !seen[a.Name] {
+				seen[a.Name] = true
+				uniqueNames = append(uniqueNames, a.Name)
+			}
+		}
+
+		for _, name := range uniqueNames {
+			if err := orch.RemoveAsset(asset.KindAgent, name, targetDir, nil); err != nil {
+				return fmt.Errorf("removing %q: %w", name, err)
+			}
+			fmt.Fprintf(os.Stdout, "Removed: %s\n", name)
+		}
+		fmt.Fprintf(os.Stdout, "\nRemoved %d agent(s).\n", len(uniqueNames))
+
+		if !noLock {
+			for _, name := range uniqueNames {
+				if lockErr := core.RemoveAssetEntry(targetDir, asset.KindAgent, name); lockErr != nil {
+					fmt.Fprintf(os.Stderr, "Warning: failed to update lock file: %v\n", lockErr)
+				}
+			}
+		}
+		return nil
+	}
+
+	// Single agent uninstall.
+	name := args[0]
+
+	// Verify the agent exists in at least one system before removing.
+	filename := name + ".md"
+	found := false
+	for _, sys := range system.Supporting(asset.KindAgent) {
+		agentDir := sys.AssetDir(asset.KindAgent, targetDir)
+		if agentDir == "" {
+			continue
+		}
+		agentPath := filepath.Join(agentDir, filename)
+		if _, statErr := os.Stat(agentPath); statErr == nil {
+			found = true
+			break
+		}
+	}
+	if !found {
+		return fmt.Errorf("agent %q not found in %s", name, targetDir)
+	}
+
+	fmt.Fprintf(os.Stdout, "Removing agent %q...\n\n", name)
+
+	if err := orch.RemoveAsset(asset.KindAgent, name, targetDir, nil); err != nil {
+		return err
+	}
+
+	// Show which systems the agent was removed from.
+	fmt.Fprintln(os.Stdout, "Removed from:")
+	for _, sys := range system.Supporting(asset.KindAgent) {
+		agentDir := sys.AssetDir(asset.KindAgent, targetDir)
+		relPath := filepath.Join(agentDir, name+".md")
+		fmt.Fprintf(os.Stdout, "  - %-40s (%s)\n", relPath, sys.DisplayName())
+	}
+
+	if !noLock {
+		if lockErr := core.RemoveAssetEntry(targetDir, asset.KindAgent, name); lockErr != nil {
+			fmt.Fprintf(os.Stderr, "Warning: failed to update lock file: %v\n", lockErr)
+		} else {
+			fmt.Fprintln(os.Stdout, "\nUpdated duckrow.lock.json")
+		}
+	}
+
+	fmt.Fprintf(os.Stdout, "\nAgent %q removed.\n", name)
+	return nil
+}
+
+// listAgents lists installed agents with their system associations.
+func listAgents(targetDir string, jsonOutput bool) error {
+	// Scan each agent-capable system individually to build system lists.
+	type agentInfo struct {
+		Name        string   `json:"name"`
+		Description string   `json:"description,omitempty"`
+		Systems     []string `json:"systems"`
+	}
+
+	agentMap := make(map[string]*agentInfo) // name -> info
+	var order []string
+
+	for _, sys := range system.Supporting(asset.KindAgent) {
+		installed, err := sys.Scan(asset.KindAgent, targetDir)
+		if err != nil {
+			continue
+		}
+		for _, a := range installed {
+			info, ok := agentMap[a.Name]
+			if !ok {
+				info = &agentInfo{
+					Name:        a.Name,
+					Description: a.Description,
+				}
+				agentMap[a.Name] = info
+				order = append(order, a.Name)
+			}
+			info.Systems = append(info.Systems, sys.DisplayName())
+		}
+	}
+
+	if len(agentMap) == 0 {
+		fmt.Fprintln(os.Stdout, "No agents installed.")
+		return nil
+	}
+
+	// Build sorted list.
+	agents := make([]agentInfo, 0, len(order))
+	for _, name := range order {
+		agents = append(agents, *agentMap[name])
+	}
+
+	if jsonOutput {
+		data, err := json.MarshalIndent(agents, "", "  ")
+		if err != nil {
+			return fmt.Errorf("marshaling JSON: %w", err)
+		}
+		fmt.Fprintln(os.Stdout, string(data))
+		return nil
+	}
+
+	for _, a := range agents {
+		fmt.Fprintf(os.Stdout, "%-20s %-35s [%s]\n", a.Name, a.Description, joinStrings(a.Systems))
+	}
+	return nil
+}
+
+// syncAgents restores agent files from the lock file.
+func syncAgents(
+	lf *core.LockFile,
+	cfg *core.Config,
+	targetDir string,
+	targetSystems []system.System,
+	dryRun, force bool,
+) (*assetSyncResult, error) {
+	res := &assetSyncResult{}
+
+	lockedAgents := core.AssetsByKind(lf, asset.KindAgent)
+	if len(lockedAgents) == 0 {
+		return res, nil
+	}
+
+	orch := core.NewOrchestrator()
+
+	// Resolve target systems for agents.
+	// Unlike skills, agents don't have a canonical location — they're rendered
+	// per-system. During sync we always target all agent-capable systems so
+	// that files are restored for every system, regardless of which system
+	// directories currently exist on disk.
+	if targetSystems == nil {
+		targetSystems = filterAgentCapable(system.All())
+	} else {
+		targetSystems = filterAgentCapable(targetSystems)
+	}
+
+	for _, agent := range lockedAgents {
+		// Check if agent file already exists in any target system.
+		if !force {
+			filename := agent.Name + ".md"
+			exists := false
+			for _, sys := range targetSystems {
+				agentDir := sys.AssetDir(asset.KindAgent, targetDir)
+				if agentDir == "" {
+					continue
+				}
+				agentPath := filepath.Join(agentDir, filename)
+				if _, statErr := os.Stat(agentPath); statErr == nil {
+					exists = true
+					break
+				}
+			}
+			if exists {
+				res.skipped++
+				if dryRun {
+					fmt.Fprintf(os.Stdout, "skip: %s (already installed)\n", agent.Name)
+				}
+				continue
+			}
+		}
+
+		if dryRun {
+			fmt.Fprintf(os.Stdout, "install: %s (commit %s)\n", agent.Name, core.TruncateCommit(agent.Commit))
+			res.installed++
+			continue
+		}
+
+		host, owner, repo, subPath, parseErr := core.ParseLockSource(agent.Source)
+		if parseErr != nil {
+			fmt.Fprintf(os.Stderr, "Error: %s: %v\n", agent.Name, parseErr)
+			res.errors++
+			continue
+		}
+
+		cloneURL := fmt.Sprintf("https://%s/%s/%s.git", host, owner, repo)
+		psource := &core.ParsedSource{
+			Type:     core.SourceTypeGit,
+			Host:     host,
+			Owner:    owner,
+			Repo:     repo,
+			CloneURL: cloneURL,
+			SubPath:  subPath,
+		}
+		psource.ApplyCloneURLOverride(cfg.Settings.CloneURLOverrides)
+
+		_, installErr := orch.InstallFromSource(psource, asset.KindAgent, core.OrchestratorInstallOptions{
+			TargetDir:     targetDir,
+			TargetSystems: targetSystems,
+			NameFilter:    agent.Name,
+			Commit:        agent.Commit,
+		})
+		if installErr != nil {
+			fmt.Fprintf(os.Stderr, "Error: %s: %v\n", agent.Name, installErr)
+			res.errors++
+			continue
+		}
+
+		fmt.Fprintf(os.Stdout, "Installed: %s\n", agent.Name)
+		res.installed++
+	}
+
+	return res, nil
+}
+
+// ---------------------------------------------------------------------------
 // Helpers
 // ---------------------------------------------------------------------------
+
+// filterAgentCapable returns only systems that support agents.
+func filterAgentCapable(systems []system.System) []system.System {
+	var result []system.System
+	for _, s := range systems {
+		if s.Supports(asset.KindAgent) {
+			result = append(result, s)
+		}
+	}
+	return result
+}
 
 // filterMCPCapable returns only systems that support MCP.
 func filterMCPCapable(systems []system.System) []system.System {

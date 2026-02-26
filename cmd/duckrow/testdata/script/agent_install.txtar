@@ -1,0 +1,48 @@
+# Test installing agents from a git source via clone URL override
+
+# Create a project directory
+mkdir myproject
+
+# Create agent source repo with agent .md files
+setup-agent-repo agent-source 'code-reviewer:Performs thorough code reviews'
+
+# Set up config override to redirect test-owner/test-repo to local git repo
+setup-config-override test-owner/test-repo agent-source
+
+# Install from git source (redirected via override)
+exec duckrow agent install https://github.com/test-owner/test-repo -d myproject
+stdout 'Wrote agent files to:'
+stdout 'code-reviewer.md'
+stdout 'installed successfully'
+! stderr .
+
+# Verify agent files were created in all 4 system directories
+exists myproject/.claude/agents/code-reviewer.md
+exists myproject/.opencode/agents/code-reviewer.md
+exists myproject/.github/agents/code-reviewer.md
+exists myproject/.gemini/agents/code-reviewer.md
+
+# Verify content was rendered correctly (frontmatter + body)
+file-contains myproject/.claude/agents/code-reviewer.md 'description: Performs thorough code reviews'
+file-contains myproject/.claude/agents/code-reviewer.md 'You are code-reviewer'
+
+# Verify lock file was created
+exists myproject/duckrow.lock.json
+file-contains myproject/duckrow.lock.json '"kind": "agent"'
+file-contains myproject/duckrow.lock.json '"name": "code-reviewer"'
+file-contains myproject/duckrow.lock.json '"commit":'
+
+# Test: Install with --no-lock flag
+mkdir nolock-project
+exec duckrow agent install https://github.com/test-owner/test-repo -d nolock-project --no-lock
+stdout 'installed successfully'
+! exists nolock-project/duckrow.lock.json
+exists nolock-project/.claude/agents/code-reviewer.md
+
+# Test: Re-install without --force should still show file paths (already exists handled)
+exec duckrow agent install https://github.com/test-owner/test-repo -d myproject --force
+stdout 'code-reviewer'
+
+# Test: Install with no args shows error
+! exec duckrow agent install
+stderr 'accepts 1 arg'

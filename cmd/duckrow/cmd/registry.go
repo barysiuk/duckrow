@@ -108,11 +108,15 @@ var registryListCmd = &cobra.Command{
 			parts := []string{}
 			skills := parsed.Entries[asset.KindSkill]
 			mcps := parsed.Entries[asset.KindMCP]
+			agents := parsed.Entries[asset.KindAgent]
 			if len(skills) > 0 {
 				parts = append(parts, fmt.Sprintf("%d skills", len(skills)))
 			}
 			if len(mcps) > 0 {
 				parts = append(parts, fmt.Sprintf("%d MCPs", len(mcps)))
+			}
+			if len(agents) > 0 {
+				parts = append(parts, fmt.Sprintf("%d agents", len(agents)))
 			}
 			summary := "empty"
 			if len(parts) > 0 {
@@ -132,6 +136,12 @@ var registryListCmd = &cobra.Command{
 					fmt.Fprintln(os.Stdout, "    MCPs:")
 					for _, m := range mcps {
 						fmt.Fprintf(os.Stdout, "      - %s: %s\n", m.Name, m.Description)
+					}
+				}
+				if len(agents) > 0 {
+					fmt.Fprintln(os.Stdout, "    Agents:")
+					for _, a := range agents {
+						fmt.Fprintf(os.Stdout, "      - %s: %s\n", a.Name, a.Description)
 					}
 				}
 			}
@@ -291,6 +301,9 @@ func registrySummary(manifest *core.RegistryManifest) string {
 	}
 	if len(manifest.MCPs) > 0 {
 		parts = append(parts, fmt.Sprintf("%d MCPs", len(manifest.MCPs)))
+	}
+	if len(manifest.Agents) > 0 {
+		parts = append(parts, fmt.Sprintf("%d agents", len(manifest.Agents)))
 	}
 	if len(parts) == 0 {
 		return "empty"

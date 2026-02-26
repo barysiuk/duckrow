@@ -214,6 +214,8 @@ func (m folderModel) update(msg tea.Msg, app *App) (folderModel, tea.Cmd) {
 				return m, m.removeSelectedMCP(app)
 			case asset.KindSkill:
 				return m, m.removeSelectedSkill(app)
+			case asset.KindAgent:
+				return m, m.removeSelectedAgent(app)
 			default:
 				return m, nil
 			}
@@ -631,6 +633,41 @@ func (m folderModel) removeSelectedMCP(app *App) tea.Cmd {
 	}
 
 	app.confirm = app.confirm.show(confirmMsg, deleteCmd)
+	return nil
+}
+
+// removeSelectedAgent shows a confirmation dialog for the selected agent.
+func (m folderModel) removeSelectedAgent(app *App) tea.Cmd {
+	list := m.lists[asset.KindAgent]
+	if list == nil {
+		return nil
+	}
+	item := list.SelectedItem()
+	if item == nil || m.status == nil {
+		return nil
+	}
+
+	ai, ok := item.(assetItem)
+	if !ok {
+		return nil
+	}
+
+	agentName := ai.name
+	folderPath := app.activeFolder
+
+	deleteCmd := func() tea.Msg {
+		orch := core.NewOrchestrator()
+		if err := orch.RemoveAsset(asset.KindAgent, agentName, folderPath, nil); err != nil {
+			return assetRemovedMsg{kind: asset.KindAgent, name: agentName, err: fmt.Errorf("removing agent %s: %w", agentName, err)}
+		}
+		_ = core.RemoveAssetEntry(folderPath, asset.KindAgent, agentName)
+		return assetRemovedMsg{kind: asset.KindAgent, name: agentName}
+	}
+
+	app.confirm = app.confirm.show(
+		fmt.Sprintf("Remove agent %s?", agentName),
+		deleteCmd,
+	)
 	return nil
 }
 
