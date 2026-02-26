@@ -6,7 +6,7 @@ How duckrow is structured internally, how the pluggable architecture works, and 
 
 duckrow is built around two core abstractions:
 
-- **Asset** -- a system-agnostic unit that duckrow manages. Today this means skills (markdown-based instructions) and MCP server configurations. The architecture supports future kinds like rules, hooks, or routines without structural changes.
+- **Asset** -- a system-agnostic unit that duckrow manages. Today this means skills (markdown-based instructions), MCP server configurations, and agents (custom subagent personas). The architecture supports future kinds like rules, hooks, or routines without structural changes.
 - **System** -- an AI coding tool that consumes assets. Each system is a self-contained unit that knows its own paths, config formats, and detection logic. Systems include OpenCode, Cursor, Claude Code, GitHub Copilot, Codex, Gemini CLI, and Goose.
 
 A third component, the **Orchestrator**, coordinates these two during lifecycle operations (install, remove, scan, sync). It is both kind-agnostic and system-agnostic -- it talks to assets and systems exclusively through their interfaces.
@@ -24,9 +24,9 @@ A third component, the **Orchestrator**, coordinates these two during lifecycle 
       +----------------+        +---------------+
       | SkillHandler   |        | OpenCode      |
       | MCPHandler     |        | Cursor        |
-      | (future kinds) |        | Claude Code   |
-      +----------------+        | Copilot       |
-                                | Codex         |
+      | AgentHandler   |        | Claude Code   |
+      | (future kinds) |        | Copilot       |
+      +----------------+        | Codex         |
                                 | Gemini CLI    |
                                 | Goose         |
                                 | (future tools)|
@@ -76,11 +76,13 @@ The two key responsibilities of a handler:
 
 **MCP Servers** are config-only assets. An MCP is defined in a registry manifest with a command, args, and environment variables. MCPs are not stored on disk as files -- they are written into system-specific JSON config files (e.g., `.cursor/mcp.json`, `opencode.json`).
 
-This difference -- file-based vs. config-only -- is handled entirely within the handler implementations. The orchestrator and TUI don't need to care.
+**Agents** are file-based assets with per-system rendering. An agent is a single markdown file with YAML frontmatter defining a specialized persona. Unlike skills, agents do NOT have a canonical copy on disk -- each agent-capable system (Claude Code, OpenCode, GitHub Copilot, Gemini CLI) gets its own rendered file in its agents directory (e.g., `.claude/agents/`, `.opencode/agents/`). The rendering process merges base frontmatter with system-specific override blocks, passing all field values through verbatim.
+
+These differences -- file-based, config-only, and rendered-per-system -- are handled entirely within the handler implementations. The orchestrator and TUI don't need to care.
 
 ### Registration
 
-Each handler registers itself at import time via `init()`. The global registry provides lookup functions like `asset.Get(kind)`, `asset.All()`, and `asset.Kinds()`. The `Kinds()` function returns kinds in a stable order (skill, MCP, then any future kinds), which the TUI uses for tab ordering.
+Each handler registers itself at import time via `init()`. The global registry provides lookup functions like `asset.Get(kind)`, `asset.All()`, and `asset.Kinds()`. The `Kinds()` function returns kinds in a stable order (skill, MCP, agent, then any future kinds), which the TUI uses for tab ordering.
 
 ## Systems
 
@@ -97,6 +99,7 @@ A system is defined by implementing the `System` interface in `internal/core/sys
 Most systems embed `BaseSystem`, which provides sensible defaults for all interface methods. The defaults handle:
 
 - **Skill installation** -- universal systems do nothing (the orchestrator handles the canonical copy in `.agents/skills/`). Non-universal systems create a relative symlink from their own skills directory to the canonical location.
+- **Agent installation** -- renders the agent markdown file with system-specific frontmatter overrides applied, then writes it directly into the system's agents directory (e.g., `.claude/agents/`, `.opencode/agents/`).
 - **MCP installation** -- reads or creates a JSON/JSONC config file, patches in the MCP server entry under the system's config key using JSON Pointer operations.
 - **Detection** -- checks `configSignals` (project-level files like `opencode.json`, `.cursor/`) and `detectPaths` (global install locations like `~/.cursor/`).
 
@@ -104,15 +107,15 @@ Systems that need custom behavior override specific methods. For example, OpenCo
 
 ### Built-in Systems
 
-| System | Universal | Skills Dir | MCP Support | Custom Install |
-|--------|-----------|-----------|-------------|----------------|
-| OpenCode | yes | `.agents/skills` | yes | yes |
-| GitHub Copilot | yes | `.agents/skills` | yes | yes |
-| Codex | yes | `.agents/skills` | no | no |
-| Gemini CLI | yes | `.agents/skills` | no | no |
-| Cursor | no | `.cursor/skills` | yes | no |
-| Claude Code | no | `.claude/skills` | yes | no |
-| Goose | no | `.goose/skills` | no | no |
+| System | Universal | Skills Dir | MCP Support | Agents Dir | Custom Install |
+|--------|-----------|-----------|-------------|------------|----------------|
+| OpenCode | yes | `.agents/skills` | yes | `.opencode/agents` | yes |
+| GitHub Copilot | yes | `.agents/skills` | yes | `.github/agents` | yes |
+| Codex | yes | `.agents/skills` | no | — | no |
+| Gemini CLI | yes | `.agents/skills` | no | `.gemini/agents` | no |
+| Cursor | no | `.cursor/skills` | yes | — | no |
+| Claude Code | no | `.claude/skills` | yes | `.claude/agents` | no |
+| Goose | no | `.goose/skills` | no | — | no |
 
 ### Universal vs. Non-Universal
 
@@ -166,6 +169,12 @@ The orchestrator never checks what kind an asset is or which system it's talking
         "systems": ["cursor", "claude-code"],
         "requiredEnv": ["DB_HOST", "DB_PASSWORD"]
       }
+    },
+    {
+      "kind": "agent",
+      "name": "deploy-specialist",
+      "source": "github.com/acme/agents/deploy-specialist",
+      "commit": "b2c3d4e5..."
     }
   ]
 }
@@ -181,13 +190,13 @@ Registry manifests (`duckrow.json`) use a v2 format with an `assets` map keyed b
 
 ### CLI
 
-CLI commands are generated dynamically. The `registerAssetCommands()` function iterates `asset.Kinds()` and creates a full set of subcommands (`install`, `uninstall`, `sync`, `update`, `outdated`) for each kind. The `--systems` flag lets users target specific systems.
+CLI commands are generated dynamically. The `registerAssetCommands()` function iterates `asset.Kinds()` and creates a full set of subcommands (`install`, `uninstall`, `list`, `sync`) for each kind. The `outdated` and `update` subcommands are only generated for skills. The `--systems` flag lets users target specific systems.
 
 ### TUI
 
 The TUI discovers everything at runtime:
 
-- **Folder view** creates one tab per registered kind, labeled with `handler.DisplayName() + "s"` (e.g., "Skills", "MCP Servers").
+- **Folder view** creates one tab per registered kind, labeled with `handler.DisplayName() + "s"` (e.g., "Skills", "MCP Servers", "Agents").
 - **Install picker** groups registry assets by kind using the same dynamic labels.
 - **Install wizard** is unified -- one wizard handles all kinds, with kind-specific steps (MCP preview, skill agent selection) dispatched internally.
 - **Sidebar** shows detected systems via `system.ActiveInFolder()`, using each system's `DisplayName()`.
@@ -205,11 +214,11 @@ Then update the systems that should support the new kind by adding it to their `
 
 Everything else is automatic:
 
-- The CLI generates `duckrow rule install/uninstall/sync/update/outdated`
+- The CLI generates `duckrow rule install/uninstall/list/sync`
 - The TUI adds a "Rules" tab, includes rules in the install picker, and the wizard handles them
 - The lock file stores entries with `"kind": "rule"`
 - Registry manifests parse entries from `"assets": { "rule": [...] }`
-- `duckrow sync` includes rules alongside skills and MCPs
+- `duckrow sync` includes rules alongside skills, MCPs, and agents
 
 No changes needed to the orchestrator, CLI commands, TUI views, lock file format, or registry parsing.
 

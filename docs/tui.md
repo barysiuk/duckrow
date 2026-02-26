@@ -20,7 +20,7 @@ The TUI has several views you navigate between:
 
 | View | Purpose | Enter via |
 |------|---------|-----------|
-| **Folder** | Main view — shows installed skills and MCPs for the active folder | Default on launch |
+| **Folder** | Main view — shows installed skills, MCPs, and agents for the active folder | Default on launch |
 | **Bookmarks** | Switch between bookmarked folders | `b` from folder view |
 | **Install** | Browse and install registry skills or MCPs | `i` from folder view |
 | **Settings** | Manage registries | `s` from folder view |
@@ -30,15 +30,15 @@ The TUI has several views you navigate between:
 
 ### Folder View (Main)
 
-The folder view uses **tabs** to switch between **Skills** and **MCP Servers**. Each tab has its own independent list with filtering. Press `Tab` / `Shift+Tab` to switch tabs.
+The folder view uses **tabs** to switch between **Skills**, **MCP Servers**, and **Agents**. Each tab has its own independent list with filtering. Press `Tab` / `Shift+Tab` to switch tabs.
 
 | Key | Action | Notes |
 |-----|--------|-------|
 | `j` / `k` | Move up/down | Arrow keys also work |
-| `Tab` / `Shift+Tab` | Switch tab | Cycles between Skills and MCP Servers tabs |
+| `Tab` / `Shift+Tab` | Switch tab | Cycles between Skills, MCP Servers, and Agents tabs |
 | `enter` | Preview skill | Opens SKILL.md in a scrollable view (Skills tab only) |
 | `/` | Filter | Type to search, `esc` to clear |
-| `d` | Remove item | Removes selected skill or MCP; confirmation prompt before removal |
+| `d` | Remove item | Removes selected skill, MCP, or agent; confirmation prompt before removal |
 | `u` | Update skill | Only shown when the selected skill has an update (Skills tab only) |
 | `U` | Update all | Only shown when any skill has an update |
 | `r` | Refresh | Refreshes registries and reloads data |
@@ -62,16 +62,18 @@ The bookmarks view is a full-screen list with built-in filtering. If duckrow was
 
 ### Install Picker
 
-The install picker is context-aware: pressing `i` from the **Skills** tab shows only skills, and pressing `i` from the **MCP Servers** tab shows only MCPs.
+The install picker is context-aware: pressing `i` from the **Skills** tab shows only skills, pressing `i` from the **MCP Servers** tab shows only MCPs, and pressing `i` from the **Agents** tab shows only agents.
 
 | Key | Action |
 |-----|--------|
 | `j` / `k` | Move up/down |
-| `enter` | Install selected skill or MCP |
+| `enter` | Install selected skill, MCP, or agent |
 | `/` | Filter |
 | `esc` | Back to folder view |
 
 **Skill install wizard:** after selecting a skill, a system selection step appears if non-universal systems are detected. Use `space`/`x` to toggle systems, `a` to select all/none, and `enter` to proceed with installation.
+
+**Agent install wizard:** after selecting an agent, a system selection step appears for choosing which agent-capable systems to target (Claude Code, OpenCode, GitHub Copilot, Gemini CLI). Use `space`/`x` to toggle systems, `a` to select all/none, and `enter` to proceed with installation.
 
 **MCP install wizard:** selecting an MCP opens a multi-step wizard:
 
@@ -184,3 +186,15 @@ When installing an MCP that requires environment variables (e.g., API keys, data
 4. The TUI proceeds to install once all vars are handled
 
 If you skip entering a value, installation proceeds with a warning. You can add the value to `.env.duckrow` manually at any time before running the MCP.
+
+## Agent Management
+
+The folder view shows installed agents in the **Agents** tab. Each row shows the agent name, its description, and the systems it is installed for.
+
+### Installing Agents
+
+Press `i` from the Agents tab to open the install picker filtered to agents. Select an agent and follow the system selection wizard (see [Install Picker](#install-picker) above).
+
+### Removing Agents
+
+Switch to the Agents tab with `Tab`, select the agent, and press `d`. A confirmation prompt shows before removal. duckrow removes the agent file from all agent-capable systems and updates the lock file.

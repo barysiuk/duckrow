@@ -62,7 +62,7 @@ duckrow bookmark remove /path/to/project
 
 ### status
 
-Show installed skills, MCP configurations, and bookmark status for a folder.
+Show installed skills, agents, MCP configurations, and bookmark status for a folder.
 
 ```bash
 # Current directory
@@ -387,9 +387,9 @@ duckrow mcp sync --force
 
 ### sync
 
-Install all skills and MCP configs declared in `duckrow.lock.json` at their pinned versions. Skills whose directories already exist are skipped. MCP entries that already exist in system config files are skipped unless `--force` is used.
+Install all skills, agents, and MCP configs declared in `duckrow.lock.json` at their pinned versions. Skills whose directories already exist are skipped. Agent files that already exist are skipped unless `--force` is used. MCP entries that already exist in system config files are skipped unless `--force` is used.
 
-This command runs both `duckrow skill sync` and `duckrow mcp sync` in a single pass.
+This command runs `duckrow skill sync`, `duckrow agent sync`, and `duckrow mcp sync` in a single pass.
 
 ```bash
 # Sync everything in current directory
@@ -515,8 +515,8 @@ duckrow                              Launch interactive TUI
     add [path]                         Bookmark a folder
     list                               List all bookmarks
     remove <path>                      Remove a bookmark
-  status [path]                      Show installed skills and MCPs for a folder
-  sync                               Install skills and MCPs from lock file
+  status [path]                      Show installed skills, agents, and MCPs for a folder
+  sync                               Install skills, agents, and MCPs from lock file
     --dir, -d <path>                   Target directory
     --dry-run                          Preview without changes
     --force                            Overwrite existing MCP entries
@@ -568,11 +568,30 @@ duckrow                              Launch interactive TUI
       --dry-run                          Preview without changes
       --force                            Overwrite existing entries
       --systems <names>                  System names to target
+  agent                              Manage agents
+    install <source-or-name>           Install agent(s)
+      --dir, -d <path>                   Target directory
+      --registry, -r <name>              Registry filter
+      --systems <names>                  System names to target
+      --no-lock                          Skip writing to lock file
+      --force                            Overwrite existing
+    uninstall [name]                   Remove an installed agent
+      --dir, -d <path>                   Target directory
+      --all                              Remove all agents
+      --no-lock                          Skip writing to lock file
+    list                               List installed agents
+      --dir, -d <path>                   Target directory
+      --json                             Output as JSON
+    sync                               Install agents from lock file
+      --dir, -d <path>                   Target directory
+      --dry-run                          Preview without changes
+      --force                            Overwrite existing
+      --systems <names>                  System names to target
   env --mcp <name> -- <cmd> [args]   Runtime env injector (internal use)
   registry                           Manage skill registries
     add <repo-url>                     Add a registry
     list                               List registries
-      --verbose, -v                      Show skill and MCP details
+      --verbose, -v                      Show skill, MCP, and agent details
     refresh [name-or-repo]             Refresh registry data
     remove <name-or-repo>              Remove a registry
 ```
