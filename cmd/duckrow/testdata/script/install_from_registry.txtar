@@ -36,6 +36,11 @@ exists myproject/.agents/skills/go-review/SKILL.md
 file-contains myproject/.agents/skills/go-review/SKILL.md 'Go code reviewer'
 dir-not-exists myproject/.agents/skills/py-review
 
+# Verify lock file has source populated (not empty)
+exists myproject/duckrow.lock.json
+file-contains myproject/duckrow.lock.json '"source":'
+file-contains myproject/duckrow.lock.json '"commit":'
+
 # Test: registry name lookup with nonexistent skill shows error
 ! exec duckrow skill install nonexistent -d myproject
 stderr 'not found'

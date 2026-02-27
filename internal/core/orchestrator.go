@@ -115,6 +115,19 @@ func (o *Orchestrator) InstallFromSource(
 			installedFor = append(installedFor, sys.Name())
 		}
 
+		// Populate source if the handler didn't set it (e.g. skill/agent
+		// discovery doesn't know the origin URL). This ensures lock file
+		// entries always contain a valid source for sync.
+		if a.Source == "" {
+			relPath := ""
+			if a.PreparedPath != "" {
+				if rel, err := filepath.Rel(tmpDir, a.PreparedPath); err == nil && rel != "." {
+					relPath = filepath.ToSlash(rel)
+				}
+			}
+			a.Source = NormalizeSource(source.Host, source.Owner, source.Repo, relPath)
+		}
+
 		// Resolve commit for lock file
 		commit := opts.Commit
 		if commit == "" {
