@@ -106,8 +106,8 @@ func buildAssetCommand(kind asset.Kind, handler asset.Handler) *cobra.Command {
 	addSystemsFlag(syncCmd)
 	parent.AddCommand(syncCmd)
 
-	// --- outdated (file-based kinds only) ---
-	if kind == asset.KindSkill {
+	// --- outdated and update (source-based kinds only) ---
+	if kind != asset.KindMCP {
 		outdatedCmd := &cobra.Command{
 			Use:   "outdated",
 			Short: fmt.Sprintf("Show %ss with available updates", lower),
