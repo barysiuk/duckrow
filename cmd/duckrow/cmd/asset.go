@@ -1128,9 +1128,7 @@ func runAssetUpdate(cmd *cobra.Command, args []string, kind asset.Kind) error {
 			TargetDir:     targetDir,
 			TargetSystems: targetSystems,
 			NameFilter:    u.Name,
-		}
-		if regCommit, ok := registryCommits[u.Source]; ok && regCommit == u.AvailableCommit {
-			installOpts.Commit = u.AvailableCommit
+			Commit:        u.AvailableCommit,
 		}
 
 		results, installErr := orch.InstallFromSource(psource, kind, installOpts)
