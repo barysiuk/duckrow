@@ -620,7 +620,11 @@ func runAssetList(cmd *cobra.Command, kind asset.Kind) error {
 		lf, _ := core.ReadLockFile(targetDir)
 		lockedMCPs := core.AssetsByKind(lf, asset.KindMCP)
 		if len(lockedMCPs) == 0 {
-			fmt.Fprintln(os.Stdout, "No MCPs installed.")
+			if jsonOutput {
+				fmt.Fprintln(os.Stdout, "[]")
+			} else {
+				fmt.Fprintln(os.Stdout, "No MCPs installed.")
+			}
 			return nil
 		}
 		if jsonOutput {
@@ -644,8 +648,12 @@ func runAssetList(cmd *cobra.Command, kind asset.Kind) error {
 
 	// File-based assets (skills).
 	if len(items) == 0 {
-		handler, _ := asset.Get(kind)
-		fmt.Fprintf(os.Stdout, "No %ss installed.\n", strings.ToLower(handler.DisplayName()))
+		if jsonOutput {
+			fmt.Fprintln(os.Stdout, "[]")
+		} else {
+			handler, _ := asset.Get(kind)
+			fmt.Fprintf(os.Stdout, "No %ss installed.\n", strings.ToLower(handler.DisplayName()))
+		}
 		return nil
 	}
 
@@ -935,7 +943,11 @@ func runAssetOutdated(cmd *cobra.Command, kind asset.Kind) error {
 
 	lower := strings.ToLower(string(kind))
 	if len(core.AssetsByKind(lf, kind)) == 0 {
-		fmt.Fprintf(os.Stdout, "Lock file has no %ss.\n", lower)
+		if jsonOutput {
+			fmt.Fprintln(os.Stdout, "[]")
+		} else {
+			fmt.Fprintf(os.Stdout, "Lock file has no %ss.\n", lower)
+		}
 		return nil
 	}
 
@@ -1431,7 +1443,11 @@ func listAgents(targetDir string, jsonOutput bool) error {
 	}
 
 	if len(agentMap) == 0 {
-		fmt.Fprintln(os.Stdout, "No agents installed.")
+		if jsonOutput {
+			fmt.Fprintln(os.Stdout, "[]")
+		} else {
+			fmt.Fprintln(os.Stdout, "No agents installed.")
+		}
 		return nil
 	}
 
