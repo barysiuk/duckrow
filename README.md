@@ -226,9 +226,7 @@ Create a git repository with a `duckrow.json` file. Registries can list both ski
         "description": "Query the internal database",
         "command": "npx",
         "args": ["-y", "@my-org/mcp-db"],
-        "env": {
-          "DB_URL": ""
-        }
+        "env": ["DB_URL"]
       },
       {
         "name": "analytics-api",

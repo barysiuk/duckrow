@@ -48,9 +48,7 @@ The manifest lists the assets your team can install. It supports two asset kinds
         "description": "Query the internal database",
         "command": "npx",
         "args": ["-y", "@my-org/mcp-db"],
-        "env": {
-          "DB_URL": ""
-        }
+        "env": ["DB_URL"]
       }
     ]
   }
@@ -212,7 +210,7 @@ Stdio MCPs run as local processes. The agent launches the command and communicat
 | `description` | No | Human-readable description |
 | `command` | Yes | The executable to run (e.g., `npx`, `uvx`, `node`) |
 | `args` | No | Array of command-line arguments |
-| `env` | No | Map of environment variables required at runtime |
+| `env` | No | Array of environment variable names required at runtime |
 
 ```json
 {
@@ -220,15 +218,13 @@ Stdio MCPs run as local processes. The agent launches the command and communicat
   "description": "Query the internal database",
   "command": "npx",
   "args": ["-y", "@my-org/mcp-db"],
-  "env": {
-    "DB_URL": ""
-  }
+  "env": ["DB_URL"]
 }
 ```
 
 #### Environment variables
 
-The `env` field declares which environment variables the MCP server needs at runtime. The values in the manifest are ignored â€” only the key names matter. duckrow uses them to:
+The `env` field declares which environment variables the MCP server needs at runtime. duckrow uses them to:
 
 1. Prompt for values during TUI install (if not already set)
 2. Record the required vars in the lock file
@@ -325,19 +321,14 @@ Each system has its own JSON structure. duckrow handles the format differences â
         "description": "Query the internal PostgreSQL database",
         "command": "npx",
         "args": ["-y", "@acme/mcp-postgres"],
-        "env": {
-          "DATABASE_URL": ""
-        }
+        "env": ["DATABASE_URL"]
       },
       {
         "name": "jira-search",
         "description": "Search JIRA issues and create tickets",
         "command": "uvx",
         "args": ["mcp-jira"],
-        "env": {
-          "JIRA_URL": "",
-          "JIRA_TOKEN": ""
-        }
+        "env": ["JIRA_URL", "JIRA_TOKEN"]
       },
       {
         "name": "internal-docs",
@@ -395,9 +386,7 @@ A single registry can contain both skills and MCPs. This is the recommended appr
         "description": "Query the internal database",
         "command": "npx",
         "args": ["-y", "@acme/mcp-db"],
-        "env": {
-          "DB_URL": ""
-        }
+        "env": ["DB_URL"]
       },
       {
         "name": "deploy-api",

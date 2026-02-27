@@ -7,7 +7,6 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
-	"regexp"
 	"sort"
 	"strings"
 
@@ -257,23 +256,18 @@ func AssetsByKind(lf *LockFile, kind asset.Kind) []asset.LockedAsset {
 
 // --- Utility functions (kind-agnostic) ---
 
-// envVarRefPattern matches $VAR references in env values.
-var envVarRefPattern = regexp.MustCompile(`\$([A-Za-z_][A-Za-z0-9_]*)`)
-
-// ExtractRequiredEnv extracts environment variable names from $VAR references
-// in an env map. Returns a sorted, deduplicated list.
-func ExtractRequiredEnv(env map[string]string) []string {
-	seen := make(map[string]bool)
-	for _, val := range env {
-		matches := envVarRefPattern.FindAllStringSubmatch(val, -1)
-		for _, match := range matches {
-			seen[match[1]] = true
-		}
+// ExtractRequiredEnv returns a sorted, deduplicated copy of the env var names.
+func ExtractRequiredEnv(env []string) []string {
+	if len(env) == 0 {
+		return nil
 	}
-
-	result := make([]string, 0, len(seen))
-	for name := range seen {
-		result = append(result, name)
+	seen := make(map[string]bool, len(env))
+	var result []string
+	for _, name := range env {
+		if !seen[name] {
+			seen[name] = true
+			result = append(result, name)
+		}
 	}
 	sort.Strings(result)
 	return result
@@ -291,11 +285,10 @@ func ComputeConfigHash(meta asset.MCPMeta) string {
 		m["args"] = meta.Args
 	}
 	if len(meta.Env) > 0 {
-		sortedEnv := make(map[string]string, len(meta.Env))
-		for k, v := range meta.Env {
-			sortedEnv[k] = v
-		}
-		m["env"] = sortedEnv
+		sorted := make([]string, len(meta.Env))
+		copy(sorted, meta.Env)
+		sort.Strings(sorted)
+		m["env"] = sorted
 	}
 	if meta.URL != "" {
 		m["url"] = meta.URL

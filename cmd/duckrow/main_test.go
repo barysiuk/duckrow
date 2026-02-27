@@ -356,13 +356,13 @@ func cmdSetupMCPRegistry(ts *testscript.TestScript, neg bool, args []string) {
 
 	// Build manifest with MCPs
 	type mcpEntry struct {
-		Name        string            `json:"name"`
-		Description string            `json:"description,omitempty"`
-		Command     string            `json:"command,omitempty"`
-		Args        []string          `json:"args,omitempty"`
-		Env         map[string]string `json:"env,omitempty"`
-		URL         string            `json:"url,omitempty"`
-		Type        string            `json:"type,omitempty"`
+		Name        string   `json:"name"`
+		Description string   `json:"description,omitempty"`
+		Command     string   `json:"command,omitempty"`
+		Args        []string `json:"args,omitempty"`
+		Env         []string `json:"env,omitempty"`
+		URL         string   `json:"url,omitempty"`
+		Type        string   `json:"type,omitempty"`
 	}
 	type manifest struct {
 		Name        string     `json:"name"`
@@ -421,10 +421,7 @@ func cmdSetupMCPRegistry(ts *testscript.TestScript, neg bool, args []string) {
 			// Parse env vars if present
 			if len(parts) >= 3 && parts[2] != "" {
 				envVars := splitN(parts[2], ",", -1)
-				entry.Env = make(map[string]string)
-				for _, v := range envVars {
-					entry.Env[v] = "$" + v
-				}
+				entry.Env = envVars
 			}
 
 			m.MCPs = append(m.MCPs, entry)
