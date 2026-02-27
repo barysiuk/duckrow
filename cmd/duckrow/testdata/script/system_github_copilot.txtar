@@ -89,10 +89,9 @@ file-contains myproject/.vscode/mcp.json '"env"'
 file-contains myproject/.vscode/mcp.json '"--mcp"'
 file-contains myproject/.vscode/mcp.json '"psql"'
 
-# Lock file has MCP entry with github-copilot in systems
+# Lock file has MCP entry (systems not stored in lock file)
 file-contains myproject/duckrow.lock.json '"kind": "mcp"'
 file-contains myproject/duckrow.lock.json '"name": "my-db"'
-file-contains myproject/duckrow.lock.json '"github-copilot"'
 file-contains myproject/duckrow.lock.json 'DB_HOST'
 
 # Delete config file to simulate fresh checkout (lock file preserved)

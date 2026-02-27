@@ -8,7 +8,6 @@ import (
 
 	"github.com/barysiuk/duckrow/internal/core"
 	"github.com/barysiuk/duckrow/internal/core/asset"
-	"github.com/barysiuk/duckrow/internal/core/system"
 	"github.com/spf13/cobra"
 )
 
@@ -104,30 +103,16 @@ func showFolderStatus(path string, tracked bool, mcpDescriptions map[string]stri
 	if lf != nil && len(lf.MCPs) > 0 {
 		fmt.Fprintf(os.Stdout, "  MCPs (%d):\n", len(lf.MCPs))
 		for _, m := range lf.MCPs {
-			displayNames := systemDisplayNames(m.Agents)
 			desc := mcpDescriptions[m.Name]
 			if desc != "" {
-				fmt.Fprintf(os.Stdout, "    - %-18s %s  [%s]\n", m.Name, desc, displayNames)
+				fmt.Fprintf(os.Stdout, "    - %-18s %s\n", m.Name, desc)
 			} else {
-				fmt.Fprintf(os.Stdout, "    - %-18s [%s]\n", m.Name, displayNames)
+				fmt.Fprintf(os.Stdout, "    - %s\n", m.Name)
 			}
 		}
 	}
 
 	return nil
-}
-
-// systemDisplayNames converts system names to display names for status output.
-func systemDisplayNames(sysNames []string) string {
-	var names []string
-	for _, name := range sysNames {
-		if sys, ok := system.ByName(name); ok {
-			names = append(names, sys.DisplayName())
-		} else {
-			names = append(names, name)
-		}
-	}
-	return strings.Join(names, ", ")
 }
 
 // buildMCPDescriptionMap loads MCP descriptions from configured registries (best-effort).

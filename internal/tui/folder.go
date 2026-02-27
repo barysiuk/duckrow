@@ -593,13 +593,20 @@ func (m folderModel) removeSelectedMCP(app *App) tea.Cmd {
 
 	folderPath := app.activeFolder
 
+	// Use all MCP-capable systems — the lock file does not track which
+	// systems an MCP was installed for (that's per-user, not committed).
+	var mcpSystems []system.System
+	for _, sys := range system.All() {
+		if sys.Supports(asset.KindMCP) {
+			mcpSystems = append(mcpSystems, sys)
+		}
+	}
+
 	// Build list of system config files that will be modified.
 	var configFiles []string
-	for _, sysName := range lockedSystems(*mcp.locked) {
-		if sys, ok := system.ByName(sysName); ok {
-			if resolver, ok := sys.(interface{ ResolveMCPConfigPathRel(string) string }); ok {
-				configFiles = append(configFiles, resolver.ResolveMCPConfigPathRel(folderPath))
-			}
+	for _, sys := range mcpSystems {
+		if resolver, ok := sys.(interface{ ResolveMCPConfigPathRel(string) string }); ok {
+			configFiles = append(configFiles, resolver.ResolveMCPConfigPathRel(folderPath))
 		}
 	}
 
@@ -612,12 +619,10 @@ func (m folderModel) removeSelectedMCP(app *App) tea.Cmd {
 	}
 
 	deleteCmd := func() tea.Msg {
-		// Remove from system config files.
-		for _, sysName := range lockedSystems(*mcp.locked) {
-			if sys, ok := system.ByName(sysName); ok {
-				if err := sys.Remove(asset.KindMCP, mcp.locked.Name, folderPath); err != nil {
-					return assetRemovedMsg{kind: asset.KindMCP, name: mcp.locked.Name, err: fmt.Errorf("removing MCP %s: %w", mcp.locked.Name, err)}
-				}
+		// Remove from all MCP-capable system config files.
+		for _, sys := range mcpSystems {
+			if err := sys.Remove(asset.KindMCP, mcp.locked.Name, folderPath); err != nil {
+				return assetRemovedMsg{kind: asset.KindMCP, name: mcp.locked.Name, err: fmt.Errorf("removing MCP %s: %w", mcp.locked.Name, err)}
 			}
 		}
 		// Remove lock entry.

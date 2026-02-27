@@ -286,7 +286,6 @@ type LockedMCP struct {
 	Name        string   `json:"name"`
 	Registry    string   `json:"registry"`
 	ConfigHash  string   `json:"configHash"`
-	Agents      []string `json:"agents"`
 	RequiredEnv []string `json:"requiredEnv,omitempty"`
 }
 
@@ -345,17 +344,6 @@ func (lf *LockFile) LockedMCPs() []LockedMCP {
 			if v, ok := a.Data["configHash"].(string); ok {
 				m.ConfigHash = v
 			}
-			if agents, ok := a.Data["systems"].([]interface{}); ok {
-				for _, ag := range agents {
-					if s, ok := ag.(string); ok {
-						m.Agents = append(m.Agents, s)
-					}
-				}
-			}
-			// Also handle []string directly (when data is constructed in Go, not from JSON).
-			if agents, ok := a.Data["systems"].([]string); ok {
-				m.Agents = agents
-			}
 			if envs, ok := a.Data["requiredEnv"].([]interface{}); ok {
 				for _, ev := range envs {
 					if s, ok := ev.(string); ok {
@@ -393,7 +381,6 @@ func AddOrUpdateMCPLockEntry(dir string, entry LockedMCP) error {
 	data := map[string]any{
 		"registry":   entry.Registry,
 		"configHash": entry.ConfigHash,
-		"systems":    entry.Agents,
 	}
 	if len(entry.RequiredEnv) > 0 {
 		data["requiredEnv"] = entry.RequiredEnv

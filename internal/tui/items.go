@@ -38,23 +38,16 @@ func (i assetItem) Title() string {
 }
 
 func (i assetItem) Description() string {
-	// For lock-file items, show system names.
+	// For lock-file items, show description.
 	if i.locked != nil {
-		parts := []string{}
 		if i.desc != "" {
-			parts = append(parts, i.desc)
+			return i.desc
 		}
-		if systems := displaySystemNames(lockedSystems(*i.locked)); len(systems) > 0 {
-			parts = append(parts, strings.Join(systems, ", "))
+		handler, _ := asset.Get(i.kind)
+		if handler != nil {
+			return handler.DisplayName()
 		}
-		if len(parts) == 0 {
-			handler, _ := asset.Get(i.kind)
-			if handler != nil {
-				return handler.DisplayName()
-			}
-			return string(i.kind)
-		}
-		return strings.Join(parts, " · ")
+		return string(i.kind)
 	}
 
 	// For disk-scanned items.
@@ -292,40 +285,4 @@ func descLookupFromAssetItems(items []assetItem) map[string]string {
 		}
 	}
 	return m
-}
-
-func lockedSystems(locked asset.LockedAsset) []string {
-	if locked.Data == nil {
-		return nil
-	}
-	if systems, ok := locked.Data["systems"]; ok {
-		switch v := systems.(type) {
-		case []string:
-			return v
-		case []interface{}:
-			result := make([]string, 0, len(v))
-			for _, item := range v {
-				if s, ok := item.(string); ok {
-					result = append(result, s)
-				}
-			}
-			return result
-		}
-	}
-	return nil
-}
-
-func displaySystemNames(names []string) []string {
-	if len(names) == 0 {
-		return nil
-	}
-	result := make([]string, 0, len(names))
-	for _, name := range names {
-		if sys, ok := system.ByName(name); ok {
-			result = append(result, sys.DisplayName())
-		} else {
-			result = append(result, name)
-		}
-	}
-	return result
 }

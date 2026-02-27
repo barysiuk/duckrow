@@ -125,7 +125,6 @@ func migrateLegacyLockFile(legacy *legacyLockFile) *LockFile {
 		data := map[string]any{
 			"registry":   m.Registry,
 			"configHash": m.ConfigHash,
-			"systems":    m.Agents, // renamed from "agents" to "systems"
 		}
 		if len(m.RequiredEnv) > 0 {
 			data["requiredEnv"] = m.RequiredEnv

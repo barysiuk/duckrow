@@ -350,7 +350,6 @@ func installMCP(
 
 	// Install into each target system.
 	fmt.Fprintln(os.Stdout, "Wrote MCP config to:")
-	var installedSystemNames []string
 	for _, sys := range targetSystems {
 		configPath := resolveMCPConfigPathFromSystem(sys, targetDir)
 
@@ -358,7 +357,6 @@ func installMCP(
 		if err != nil {
 			if strings.Contains(err.Error(), "already exists") {
 				fmt.Fprintf(os.Stdout, "  ! %-24s %q already exists\n", configPath, name)
-				installedSystemNames = append(installedSystemNames, sys.Name())
 				continue
 			}
 			fmt.Fprintf(os.Stderr, "  x %-24s error: %s\n", configPath, err.Error())
@@ -366,7 +364,6 @@ func installMCP(
 		}
 
 		fmt.Fprintf(os.Stdout, "  + %-24s (%s)\n", configPath, sys.DisplayName())
-		installedSystemNames = append(installedSystemNames, sys.Name())
 	}
 
 	// Update lock file.
@@ -375,7 +372,6 @@ func installMCP(
 		data := map[string]any{
 			"registry":   mcpInfo.RegistryName,
 			"configHash": core.ComputeConfigHash(meta),
-			"systems":    installedSystemNames,
 		}
 		if len(requiredEnv) > 0 {
 			data["requiredEnv"] = requiredEnv
@@ -499,7 +495,7 @@ func uninstallMCP(targetDir string, args []string, all, noLock bool) error {
 		}
 
 		for _, m := range lockedMCPs {
-			if err := removeMCPFromSystems(m.Name, lockedSystems(m), targetDir); err != nil {
+			if err := removeMCPFromSystems(m.Name, nil, targetDir); err != nil {
 				return err
 			}
 			fmt.Fprintf(os.Stdout, "Removed: %s\n", m.Name)
@@ -527,7 +523,7 @@ func uninstallMCP(targetDir string, args []string, all, noLock bool) error {
 
 	fmt.Fprintf(os.Stdout, "Removing MCP %q...\n\n", name)
 
-	if err := removeMCPFromSystems(name, lockedSystems(*lockedMCP), targetDir); err != nil {
+	if err := removeMCPFromSystems(name, nil, targetDir); err != nil {
 		return err
 	}
 
@@ -545,10 +541,16 @@ func uninstallMCP(targetDir string, args []string, all, noLock bool) error {
 
 // removeMCPFromSystems removes an MCP entry from agent config files.
 func removeMCPFromSystems(name string, agentNames []string, targetDir string) error {
-	// Resolve systems from lock entry agent names.
-	targetSystems, err := system.ByNames(agentNames)
-	if err != nil {
-		// Some systems may have been removed; fall back to all MCP-capable.
+	var targetSystems []system.System
+	if len(agentNames) > 0 {
+		var err error
+		targetSystems, err = system.ByNames(agentNames)
+		if err != nil {
+			// Some systems may have been removed; fall back to all MCP-capable.
+			targetSystems = filterMCPCapable(system.All())
+		}
+	} else {
+		// No specific systems requested; remove from all MCP-capable systems.
 		targetSystems = filterMCPCapable(system.All())
 	}
 
@@ -564,27 +566,6 @@ func removeMCPFromSystems(name string, agentNames []string, targetDir string) er
 			continue
 		}
 		fmt.Fprintf(os.Stdout, "  - %-24s (%s)\n", configPath, sys.DisplayName())
-	}
-	return nil
-}
-
-func lockedSystems(locked asset.LockedAsset) []string {
-	if locked.Data == nil {
-		return nil
-	}
-	if systems, ok := locked.Data["systems"]; ok {
-		switch v := systems.(type) {
-		case []string:
-			return v
-		case []interface{}:
-			result := make([]string, 0, len(v))
-			for _, item := range v {
-				if s, ok := item.(string); ok {
-					result = append(result, s)
-				}
-			}
-			return result
-		}
 	}
 	return nil
 }
@@ -646,7 +627,7 @@ func runAssetList(cmd *cobra.Command, kind asset.Kind) error {
 			return nil
 		}
 		for _, m := range lockedMCPs {
-			fmt.Fprintf(os.Stdout, "%s  [%s]\n", m.Name, joinStrings(lockedSystems(m)))
+			fmt.Fprintf(os.Stdout, "%s\n", m.Name)
 		}
 		return nil
 	}
@@ -866,13 +847,8 @@ func syncMCPs(
 		// Determine systems for this MCP.
 		systems := targetSystems
 		if len(systems) == 0 {
-			// Use the systems from the lock entry.
-			resolved, resolveErr := system.ByNames(lockedSystems(lockedMCP))
-			if resolveErr != nil {
-				// Fall back to all MCP-capable systems.
-				resolved = filterMCPCapable(system.All())
-			}
-			systems = resolved
+			// Fall back to all MCP-capable systems.
+			systems = filterMCPCapable(system.All())
 		}
 
 		// Build asset and install.
