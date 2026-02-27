@@ -136,7 +136,7 @@ func TestMCPHandler_ParseManifestEntries(t *testing.T) {
 			"description": "Database access",
 			"command": "npx",
 			"args": ["-y", "@internal/db"],
-			"env": {"DB_URL": "$DB_URL"}
+			"env": ["DB_URL"]
 		},
 		{
 			"name": "remote-api",
@@ -168,8 +168,8 @@ func TestMCPHandler_ParseManifestEntries(t *testing.T) {
 	if len(meta0.Args) != 2 {
 		t.Errorf("Args len = %d, want 2", len(meta0.Args))
 	}
-	if meta0.Env["DB_URL"] != "$DB_URL" {
-		t.Errorf("Env[DB_URL] = %q", meta0.Env["DB_URL"])
+	if len(meta0.Env) != 1 || meta0.Env[0] != "DB_URL" {
+		t.Errorf("Env = %v, want [DB_URL]", meta0.Env)
 	}
 
 	// Remote entry.
@@ -194,7 +194,7 @@ func TestMCPHandler_LockData(t *testing.T) {
 		Meta: MCPMeta{
 			Command: "npx",
 			Args:    []string{"-y", "@internal/db"},
-			Env:     map[string]string{"DB_URL": "$DB_URL"},
+			Env:     []string{"DB_URL"},
 		},
 	}
 	info := InstallInfo{

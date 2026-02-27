@@ -3,15 +3,16 @@ package asset
 import (
 	"encoding/json"
 	"fmt"
+	"sort"
 )
 
 // MCPMeta holds MCP-specific metadata.
 type MCPMeta struct {
-	Command   string            `json:"command,omitempty"`
-	Args      []string          `json:"args,omitempty"`
-	Env       map[string]string `json:"env,omitempty"`
-	URL       string            `json:"url,omitempty"`
-	Transport string            `json:"type,omitempty"` // "http", "sse", "streamable-http"
+	Command   string   `json:"command,omitempty"`
+	Args      []string `json:"args,omitempty"`
+	Env       []string `json:"env,omitempty"`
+	URL       string   `json:"url,omitempty"`
+	Transport string   `json:"type,omitempty"` // "http", "sse", "streamable-http"
 }
 
 // AssetKind implements Meta.
@@ -64,13 +65,13 @@ func (h *MCPHandler) Validate(a Asset) error {
 
 // mcpManifestEntry mirrors the JSON structure for an MCP in a v2 registry manifest.
 type mcpManifestEntry struct {
-	Name        string            `json:"name"`
-	Description string            `json:"description,omitempty"`
-	Command     string            `json:"command,omitempty"`
-	Args        []string          `json:"args,omitempty"`
-	Env         map[string]string `json:"env,omitempty"`
-	URL         string            `json:"url,omitempty"`
-	Type        string            `json:"type,omitempty"`
+	Name        string   `json:"name"`
+	Description string   `json:"description,omitempty"`
+	Command     string   `json:"command,omitempty"`
+	Args        []string `json:"args,omitempty"`
+	Env         []string `json:"env,omitempty"`
+	URL         string   `json:"url,omitempty"`
+	Type        string   `json:"type,omitempty"`
 }
 
 // ParseManifestEntries unmarshals MCP entries from a registry manifest.
@@ -118,11 +119,11 @@ func (h *MCPHandler) LockData(a Asset, info InstallInfo) LockedAsset {
 func computeConfigHash(meta MCPMeta) string {
 	// Use a canonical JSON encoding of the config fields.
 	canonical := struct {
-		Command   string            `json:"command,omitempty"`
-		Args      []string          `json:"args,omitempty"`
-		Env       map[string]string `json:"env,omitempty"`
-		URL       string            `json:"url,omitempty"`
-		Transport string            `json:"type,omitempty"`
+		Command   string   `json:"command,omitempty"`
+		Args      []string `json:"args,omitempty"`
+		Env       []string `json:"env,omitempty"`
+		URL       string   `json:"url,omitempty"`
+		Transport string   `json:"type,omitempty"`
 	}{
 		Command:   meta.Command,
 		Args:      meta.Args,
@@ -138,16 +139,21 @@ func computeConfigHash(meta MCPMeta) string {
 	return hashBytes(data)
 }
 
-// extractRequiredEnv returns the env var names that reference $VAR patterns
-// (i.e., variables the user needs to provide at runtime).
-func extractRequiredEnv(env map[string]string) []string {
+// extractRequiredEnv returns the env var names from the Env list.
+// Returns a sorted, deduplicated copy.
+func extractRequiredEnv(env []string) []string {
 	if len(env) == 0 {
 		return nil
 	}
+	seen := make(map[string]bool, len(env))
 	var keys []string
-	for k := range env {
-		keys = append(keys, k)
+	for _, k := range env {
+		if !seen[k] {
+			seen[k] = true
+			keys = append(keys, k)
+		}
 	}
+	sort.Strings(keys)
 	return keys
 }
 

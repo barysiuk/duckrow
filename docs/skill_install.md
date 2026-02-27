@@ -245,9 +245,7 @@ The v2 manifest uses an `assets` map keyed by kind:
         "description": "Query the internal database",
         "command": "npx",
         "args": ["-y", "@acme/mcp-db"],
-        "env": {
-          "DB_URL": ""
-        }
+        "env": ["DB_URL"]
       },
       {
         "name": "analytics-api",

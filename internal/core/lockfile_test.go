@@ -858,47 +858,37 @@ func TestRemoveMCPLockEntry_MCPNotFound(t *testing.T) {
 func TestExtractRequiredEnv(t *testing.T) {
 	tests := []struct {
 		name string
-		env  map[string]string
+		env  []string
 		want []string
 	}{
 		{
 			name: "single var",
-			env:  map[string]string{"DATABASE_URL": "$DATABASE_URL"},
+			env:  []string{"DATABASE_URL"},
 			want: []string{"DATABASE_URL"},
 		},
 		{
-			name: "multiple vars",
-			env:  map[string]string{"DB": "$DATABASE_URL", "TOKEN": "$JIRA_TOKEN"},
+			name: "multiple vars sorted",
+			env:  []string{"JIRA_TOKEN", "DATABASE_URL"},
 			want: []string{"DATABASE_URL", "JIRA_TOKEN"},
 		},
 		{
-			name: "duplicate var reference",
-			env:  map[string]string{"A": "$MY_VAR", "B": "$MY_VAR"},
+			name: "duplicate var",
+			env:  []string{"MY_VAR", "MY_VAR"},
 			want: []string{"MY_VAR"},
 		},
 		{
-			name: "no env vars",
-			env:  map[string]string{"FIXED": "literal-value"},
+			name: "empty env slice",
+			env:  []string{},
 			want: []string{},
 		},
 		{
-			name: "empty env map",
-			env:  map[string]string{},
-			want: []string{},
-		},
-		{
-			name: "nil env map",
+			name: "nil env slice",
 			env:  nil,
 			want: []string{},
 		},
 		{
-			name: "mixed literal and var",
-			env:  map[string]string{"URL": "postgres://$DB_USER:$DB_PASS@localhost/db"},
-			want: []string{"DB_PASS", "DB_USER"},
-		},
-		{
 			name: "var with underscore and digits",
-			env:  map[string]string{"K": "$API_KEY_2"},
+			env:  []string{"API_KEY_2"},
 			want: []string{"API_KEY_2"},
 		},
 	}
@@ -925,7 +915,7 @@ func TestComputeConfigHash(t *testing.T) {
 			Description: "Query databases",
 			Command:     "npx",
 			Args:        []string{"-y", "@acme/mcp-db-server"},
-			Env:         map[string]string{"DATABASE_URL": "$DATABASE_URL"},
+			Env:         []string{"DATABASE_URL"},
 		}
 		hash := ComputeConfigHash(entry.ToMCPMeta())
 		if !strings.HasPrefix(hash, "sha256:") {
@@ -979,7 +969,7 @@ func TestComputeConfigHash(t *testing.T) {
 		entry := MCPEntry{
 			Command: "npx",
 			Args:    []string{"-y", "@acme/mcp-db-server"},
-			Env:     map[string]string{"B": "$B_VAR", "A": "$A_VAR"},
+			Env:     []string{"B_VAR", "A_VAR"},
 		}
 		hash1 := ComputeConfigHash(entry.ToMCPMeta())
 		hash2 := ComputeConfigHash(entry.ToMCPMeta())

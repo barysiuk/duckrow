@@ -408,7 +408,7 @@ type MCPEntry struct {
 	Description string
 	Command     string
 	Args        []string
-	Env         map[string]string
+	Env         []string
 	URL         string
 	Type        string // transport type: "http", "sse", "streamable-http"
 }

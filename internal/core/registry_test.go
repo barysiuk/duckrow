@@ -31,13 +31,13 @@ func skillEntriesToRaw(entries []testSkillEntry) []json.RawMessage {
 
 // testMCPEntry is a test helper for constructing MCP manifest entries.
 type testMCPEntry struct {
-	Name        string            `json:"name"`
-	Description string            `json:"description,omitempty"`
-	Command     string            `json:"command,omitempty"`
-	Args        []string          `json:"args,omitempty"`
-	Env         map[string]string `json:"env,omitempty"`
-	URL         string            `json:"url,omitempty"`
-	Type        string            `json:"type,omitempty"`
+	Name        string   `json:"name"`
+	Description string   `json:"description,omitempty"`
+	Command     string   `json:"command,omitempty"`
+	Args        []string `json:"args,omitempty"`
+	Env         []string `json:"env,omitempty"`
+	URL         string   `json:"url,omitempty"`
+	Type        string   `json:"type,omitempty"`
 }
 
 func mcpEntriesToRaw(entries []testMCPEntry) []json.RawMessage {
@@ -1366,7 +1366,7 @@ func TestReadManifest_WithMCPs(t *testing.T) {
 					Description: "Query databases",
 					Command:     "npx",
 					Args:        []string{"-y", "@acme/mcp-db-server"},
-					Env:         map[string]string{"DATABASE_URL": "$DATABASE_URL"},
+					Env:         []string{"DATABASE_URL"},
 				},
 				{
 					Name:        "docs-search",
@@ -1396,8 +1396,8 @@ func TestReadManifest_WithMCPs(t *testing.T) {
 		if len(mcp0.Args) != 2 || mcp0.Args[1] != "@acme/mcp-db-server" {
 			t.Errorf("MCPs[0].Args = %v, want [-y @acme/mcp-db-server]", mcp0.Args)
 		}
-		if mcp0.Env["DATABASE_URL"] != "$DATABASE_URL" {
-			t.Errorf("MCPs[0].Env[DATABASE_URL] = %q, want %q", mcp0.Env["DATABASE_URL"], "$DATABASE_URL")
+		if len(mcp0.Env) != 1 || mcp0.Env[0] != "DATABASE_URL" {
+			t.Errorf("MCPs[0].Env = %v, want [DATABASE_URL]", mcp0.Env)
 		}
 		mcp1 := parseRawMCP(t, got.MCPs[1])
 		if mcp1.Name != "docs-search" {
