@@ -871,8 +871,13 @@ func syncMCPs(
 		// Determine systems for this MCP.
 		systems := targetSystems
 		if len(systems) == 0 {
-			// Fall back to all MCP-capable systems.
-			systems = filterMCPCapable(system.All())
+			// Default: all MCP-capable systems detected in the folder.
+			detected := system.DetectInFolder(targetDir)
+			systems = filterMCPCapable(detected)
+			if len(systems) == 0 {
+				// Fall back to all MCP-capable systems.
+				systems = filterMCPCapable(system.All())
+			}
 		}
 
 		// Build asset and install.
