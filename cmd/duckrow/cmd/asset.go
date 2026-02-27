@@ -620,7 +620,11 @@ func runAssetList(cmd *cobra.Command, kind asset.Kind) error {
 		lf, _ := core.ReadLockFile(targetDir)
 		lockedMCPs := core.AssetsByKind(lf, asset.KindMCP)
 		if len(lockedMCPs) == 0 {
-			fmt.Fprintln(os.Stdout, "No MCPs installed.")
+			if jsonOutput {
+				fmt.Fprintln(os.Stdout, "[]")
+			} else {
+				fmt.Fprintln(os.Stdout, "No MCPs installed.")
+			}
 			return nil
 		}
 		if jsonOutput {
@@ -644,8 +648,12 @@ func runAssetList(cmd *cobra.Command, kind asset.Kind) error {
 
 	// File-based assets (skills).
 	if len(items) == 0 {
-		handler, _ := asset.Get(kind)
-		fmt.Fprintf(os.Stdout, "No %ss installed.\n", strings.ToLower(handler.DisplayName()))
+		if jsonOutput {
+			fmt.Fprintln(os.Stdout, "[]")
+		} else {
+			handler, _ := asset.Get(kind)
+			fmt.Fprintf(os.Stdout, "No %ss installed.\n", strings.ToLower(handler.DisplayName()))
+		}
 		return nil
 	}
 
@@ -863,8 +871,13 @@ func syncMCPs(
 		// Determine systems for this MCP.
 		systems := targetSystems
 		if len(systems) == 0 {
-			// Fall back to all MCP-capable systems.
-			systems = filterMCPCapable(system.All())
+			// Default: all MCP-capable systems detected in the folder.
+			detected := system.DetectInFolder(targetDir)
+			systems = filterMCPCapable(detected)
+			if len(systems) == 0 {
+				// Fall back to all MCP-capable systems.
+				systems = filterMCPCapable(system.All())
+			}
 		}
 
 		// Build asset and install.
@@ -935,7 +948,11 @@ func runAssetOutdated(cmd *cobra.Command, kind asset.Kind) error {
 
 	lower := strings.ToLower(string(kind))
 	if len(core.AssetsByKind(lf, kind)) == 0 {
-		fmt.Fprintf(os.Stdout, "Lock file has no %ss.\n", lower)
+		if jsonOutput {
+			fmt.Fprintln(os.Stdout, "[]")
+		} else {
+			fmt.Fprintf(os.Stdout, "Lock file has no %ss.\n", lower)
+		}
 		return nil
 	}
 
@@ -996,8 +1013,14 @@ func runAssetUpdate(cmd *cobra.Command, args []string, kind asset.Kind) error {
 	dryRun, _ := cmd.Flags().GetBool("dry-run")
 
 	if len(args) == 0 && !all {
-		return fmt.Errorf("specify a %s name or use --all\n\nUsage:\n  duckrow %s update <%s-name>\n  duckrow %s update --all",
-			lower, lower, lower, lower)
+		article := "a"
+		if strings.HasPrefix(lower, "a") || strings.HasPrefix(lower, "e") ||
+			strings.HasPrefix(lower, "i") || strings.HasPrefix(lower, "o") ||
+			strings.HasPrefix(lower, "u") {
+			article = "an"
+		}
+		return fmt.Errorf("specify %s %s name or use --all\n\nUsage:\n  duckrow %s update <%s-name>\n  duckrow %s update --all",
+			article, lower, lower, lower, lower)
 	}
 
 	targetSystems, err := resolveTargetSystems(cmd)
@@ -1110,9 +1133,7 @@ func runAssetUpdate(cmd *cobra.Command, args []string, kind asset.Kind) error {
 			TargetDir:     targetDir,
 			TargetSystems: targetSystems,
 			NameFilter:    u.Name,
-		}
-		if regCommit, ok := registryCommits[u.Source]; ok && regCommit == u.AvailableCommit {
-			installOpts.Commit = u.AvailableCommit
+			Commit:        u.AvailableCommit,
 		}
 
 		results, installErr := orch.InstallFromSource(psource, kind, installOpts)
@@ -1431,7 +1452,11 @@ func listAgents(targetDir string, jsonOutput bool) error {
 	}
 
 	if len(agentMap) == 0 {
-		fmt.Fprintln(os.Stdout, "No agents installed.")
+		if jsonOutput {
+			fmt.Fprintln(os.Stdout, "[]")
+		} else {
+			fmt.Fprintln(os.Stdout, "No agents installed.")
+		}
 		return nil
 	}
 

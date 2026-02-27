@@ -17,7 +17,7 @@ func NewClaudeCode() *ClaudeCode {
 		agentsDir:       ".claude/agents",
 		globalSkillsDir: "~/.claude/skills",
 		detectPaths:     []string{"~/.claude"},
-		configSignals:   []string{"CLAUDE.md", ".claude"},
+		configSignals:   []string{"CLAUDE.md", ".claude", ".mcp.json"},
 		supportedKinds:  []asset.Kind{asset.KindSkill, asset.KindMCP, asset.KindAgent},
 		mcpConfigPath:   ".mcp.json",
 		mcpConfigKey:    "mcpServers",
