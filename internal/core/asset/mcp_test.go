@@ -198,8 +198,7 @@ func TestMCPHandler_LockData(t *testing.T) {
 		},
 	}
 	info := InstallInfo{
-		Registry:    "my-org",
-		SystemNames: []string{"cursor", "opencode"},
+		Registry: "my-org",
 	}
 
 	locked := h.LockData(a, info)
@@ -222,12 +221,9 @@ func TestMCPHandler_LockData(t *testing.T) {
 		t.Errorf("configHash = %q, want sha256: prefix", hash)
 	}
 
-	systems, ok := locked.Data["systems"].([]string)
-	if !ok {
-		t.Fatalf("systems is %T", locked.Data["systems"])
-	}
-	if len(systems) != 2 {
-		t.Errorf("systems len = %d, want 2", len(systems))
+	// systems should NOT be present in lock data.
+	if _, exists := locked.Data["systems"]; exists {
+		t.Error("systems should not be present in lock data")
 	}
 
 	env, ok := locked.Data["requiredEnv"].([]string)

@@ -78,10 +78,9 @@ type RegistryEntry struct {
 // InstallInfo carries context from the installation process, used by
 // the handler to produce lock file data.
 type InstallInfo struct {
-	Commit      string
-	Ref         string
-	Registry    string
-	SystemNames []string
+	Commit   string
+	Ref      string
+	Registry string
 }
 
 // LockedAsset is the kind-agnostic lock file representation of an installed asset.

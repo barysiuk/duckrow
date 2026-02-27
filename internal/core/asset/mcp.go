@@ -102,7 +102,6 @@ func (h *MCPHandler) LockData(a Asset, info InstallInfo) LockedAsset {
 	data := map[string]any{
 		"registry":   info.Registry,
 		"configHash": computeConfigHash(meta),
-		"systems":    info.SystemNames,
 	}
 	if envKeys := extractRequiredEnv(meta.Env); len(envKeys) > 0 {
 		data["requiredEnv"] = envKeys

@@ -846,7 +846,6 @@ func (m *assetWizardModel) startInstall() tea.Cmd {
 				Data: map[string]any{
 					"registry":   assetInfo.RegistryRepo,
 					"configHash": core.ComputeConfigHash(meta),
-					"systems":    system.Names(targetSystems),
 				},
 			}
 			if required := core.ExtractRequiredEnv(meta.Env); len(required) > 0 {

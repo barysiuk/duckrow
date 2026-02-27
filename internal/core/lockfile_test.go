@@ -557,9 +557,6 @@ func TestReadLockFile_V2WithMCPs(t *testing.T) {
 	if m.ConfigHash != "sha256:a1b2c3d4" {
 		t.Errorf("mcp configHash = %q, want %q", m.ConfigHash, "sha256:a1b2c3d4")
 	}
-	if len(m.Agents) != 2 || m.Agents[0] != "cursor" || m.Agents[1] != "claude-code" {
-		t.Errorf("mcp agents = %v, want [cursor claude-code]", m.Agents)
-	}
 	if len(m.RequiredEnv) != 1 || m.RequiredEnv[0] != "DATABASE_URL" {
 		t.Errorf("mcp requiredEnv = %v, want [DATABASE_URL]", m.RequiredEnv)
 	}
@@ -598,10 +595,10 @@ func TestWriteLockFile_SortsMCPs(t *testing.T) {
 	lf := &LockFile{
 		Assets: []asset.LockedAsset{
 			{Kind: asset.KindMCP, Name: "zeta-mcp", Data: map[string]any{
-				"registry": "reg", "configHash": "sha256:aaa", "systems": []string{"cursor"},
+				"registry": "reg", "configHash": "sha256:aaa",
 			}},
 			{Kind: asset.KindMCP, Name: "alpha-mcp", Data: map[string]any{
-				"registry": "reg", "configHash": "sha256:bbb", "systems": []string{"cursor"},
+				"registry": "reg", "configHash": "sha256:bbb",
 			}},
 		},
 	}
@@ -632,7 +629,7 @@ func TestWriteLockFile_AlwaysWritesCurrentVersion(t *testing.T) {
 		Assets: []asset.LockedAsset{
 			{Kind: asset.KindSkill, Name: "s", Source: "github.com/o/r/s", Commit: "aaa"},
 			{Kind: asset.KindMCP, Name: "m", Data: map[string]any{
-				"registry": "r", "configHash": "sha256:bbb", "systems": []string{"cursor"},
+				"registry": "r", "configHash": "sha256:bbb",
 			}},
 		},
 	}
@@ -711,7 +708,6 @@ func TestAddOrUpdateMCPLockEntry_CreatesNew(t *testing.T) {
 		Name:        "new-mcp",
 		Registry:    "acme",
 		ConfigHash:  "sha256:abc123",
-		Agents:      []string{"cursor", "claude-code"},
 		RequiredEnv: []string{"DATABASE_URL"},
 	}
 
@@ -737,12 +733,12 @@ func TestAddOrUpdateMCPLockEntry_CreatesNew(t *testing.T) {
 func TestAddOrUpdateMCPLockEntry_UpdatesExisting(t *testing.T) {
 	dir := t.TempDir()
 
-	entry1 := LockedMCP{Name: "mcp-a", Registry: "reg", ConfigHash: "sha256:111", Agents: []string{"cursor"}}
+	entry1 := LockedMCP{Name: "mcp-a", Registry: "reg", ConfigHash: "sha256:111"}
 	if err := AddOrUpdateMCPLockEntry(dir, entry1); err != nil {
 		t.Fatal(err)
 	}
 
-	entry2 := LockedMCP{Name: "mcp-a", Registry: "reg", ConfigHash: "sha256:222", Agents: []string{"cursor", "claude-code"}}
+	entry2 := LockedMCP{Name: "mcp-a", Registry: "reg", ConfigHash: "sha256:222"}
 	if err := AddOrUpdateMCPLockEntry(dir, entry2); err != nil {
 		t.Fatal(err)
 	}
@@ -756,9 +752,6 @@ func TestAddOrUpdateMCPLockEntry_UpdatesExisting(t *testing.T) {
 	}
 	if lf.MCPs[0].ConfigHash != "sha256:222" {
 		t.Errorf("configHash = %q, want %q", lf.MCPs[0].ConfigHash, "sha256:222")
-	}
-	if len(lf.MCPs[0].Agents) != 2 {
-		t.Errorf("agents = %v, want [cursor claude-code]", lf.MCPs[0].Agents)
 	}
 }
 
@@ -776,7 +769,7 @@ func TestAddOrUpdateMCPLockEntry_PreservesSkills(t *testing.T) {
 	}
 
 	// Add an MCP.
-	entry := LockedMCP{Name: "mcp-b", Registry: "reg", ConfigHash: "sha256:bbb", Agents: []string{"cursor"}}
+	entry := LockedMCP{Name: "mcp-b", Registry: "reg", ConfigHash: "sha256:bbb"}
 	if err := AddOrUpdateMCPLockEntry(dir, entry); err != nil {
 		t.Fatal(err)
 	}
@@ -802,10 +795,10 @@ func TestRemoveMCPLockEntry_Exists(t *testing.T) {
 	lf := &LockFile{
 		Assets: []asset.LockedAsset{
 			{Kind: asset.KindMCP, Name: "keep", Data: map[string]any{
-				"registry": "reg", "configHash": "sha256:aaa", "systems": []string{"cursor"},
+				"registry": "reg", "configHash": "sha256:aaa",
 			}},
 			{Kind: asset.KindMCP, Name: "remove", Data: map[string]any{
-				"registry": "reg", "configHash": "sha256:bbb", "systems": []string{"cursor"},
+				"registry": "reg", "configHash": "sha256:bbb",
 			}},
 		},
 	}
@@ -841,7 +834,7 @@ func TestRemoveMCPLockEntry_MCPNotFound(t *testing.T) {
 	lf := &LockFile{
 		Assets: []asset.LockedAsset{
 			{Kind: asset.KindMCP, Name: "keep", Data: map[string]any{
-				"registry": "reg", "configHash": "sha256:aaa", "systems": []string{"cursor"},
+				"registry": "reg", "configHash": "sha256:aaa",
 			}},
 		},
 	}
