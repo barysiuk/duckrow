@@ -96,6 +96,11 @@ func newInstallModel() installModel {
 	l.DisableQuitKeybindings()
 	l.SetShowPagination(false)
 
+	// Override AcceptWhileFiltering to remove arrow keys — pressing up/down
+	// while typing a filter should not silently accept the filter and hide
+	// the search input. The user must press Enter to apply the filter.
+	l.KeyMap.AcceptWhileFiltering.SetKeys("enter", "tab", "shift+tab")
+
 	return installModel{
 		list: l,
 	}
@@ -216,8 +221,9 @@ func (m installModel) handleItemSelected() (installModel, tea.Cmd) {
 }
 
 // skipSeparators moves the cursor off separator items.
+// Uses VisibleItems so the index is correct when a filter is applied.
 func (m *installModel) skipSeparators() {
-	items := m.list.Items()
+	items := m.list.VisibleItems()
 	idx := m.list.Index()
 	if idx >= 0 && idx < len(items) {
 		if _, ok := items[idx].(registrySeparatorItem); ok {
