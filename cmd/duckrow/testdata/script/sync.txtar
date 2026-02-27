@@ -15,8 +15,9 @@ stdout 'Installed: test-skill'
 exists myproject/.agents/skills/test-skill/SKILL.md
 exists myproject/duckrow.lock.json
 
-# Verify lock file has the skill
+# Verify lock file has the skill with source
 file-contains myproject/duckrow.lock.json '"name": "test-skill"'
+file-contains myproject/duckrow.lock.json '"source": "github.com/test-owner/test-repo"'
 file-contains myproject/duckrow.lock.json '"commit":'
 
 # Sync with skill already present should skip it

@@ -1,0 +1,63 @@
+# Test that sync works correctly when the lock file source field
+# is populated by the orchestrator (not the CLI fallback).
+# This covers the bug where skills installed via TUI had empty source
+# fields in the lock file, causing sync to fail with:
+#   "invalid lock source "": expected at least host/owner/repo"
+
+# Create a skill repo with skills in subdirectories
+mkdir skill-repo/skills/alpha
+cp alpha-skill skill-repo/skills/alpha/SKILL.md
+mkdir skill-repo/skills/beta
+cp beta-skill skill-repo/skills/beta/SKILL.md
+exec git -C skill-repo init
+exec git -C skill-repo checkout -b main
+exec git -C skill-repo add .
+exec git -C skill-repo -c user.email=test@test.com -c user.name=Test commit -m initial
+
+# Set up config override
+setup-config-override test-owner/test-repo skill-repo
+
+# Create project and install skills
+mkdir myproject
+exec duckrow skill install https://github.com/test-owner/test-repo -d myproject
+stdout 'Installed: alpha'
+stdout 'Installed: beta'
+
+# Verify lock file has source for both skills
+exists myproject/duckrow.lock.json
+file-contains myproject/duckrow.lock.json '"name": "alpha"'
+file-contains myproject/duckrow.lock.json '"name": "beta"'
+file-contains myproject/duckrow.lock.json '"source":'
+
+# Delete both skill directories
+exec rm -rf myproject/.agents/skills/alpha
+exec rm -rf myproject/.agents/skills/beta
+
+# Sync should restore both skills (this fails if source is empty)
+exec duckrow sync -d myproject
+stdout 'Skills: 2 installed, 0 skipped, 0 errors'
+
+# Verify skills are restored
+exists myproject/.agents/skills/alpha/SKILL.md
+exists myproject/.agents/skills/beta/SKILL.md
+
+-- alpha-skill --
+---
+name: alpha
+description: Alpha skill
+metadata:
+  author: tester
+---
+# Alpha Skill
+
+This is the alpha skill.
+-- beta-skill --
+---
+name: beta
+description: Beta skill
+metadata:
+  author: tester
+---
+# Beta Skill
+
+This is the beta skill.
