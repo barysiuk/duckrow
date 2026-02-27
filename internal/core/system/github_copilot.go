@@ -22,7 +22,7 @@ func NewGitHubCopilot() *GitHubCopilot {
 		agentsDir:       ".github/agents",
 		globalSkillsDir: "~/.copilot/skills",
 		detectPaths:     []string{"~/.copilot"},
-		configSignals:   []string{".github/copilot-instructions.md"},
+		configSignals:   []string{".github/copilot-instructions.md", ".vscode/mcp.json"},
 		supportedKinds:  []asset.Kind{asset.KindSkill, asset.KindMCP, asset.KindAgent},
 		mcpConfigPath:   ".vscode/mcp.json",
 		mcpConfigKey:    "servers",
