@@ -666,11 +666,11 @@ func (rm *RegistryManager) FindMCP(registries []Registry, mcpName, registryFilte
 
 // BuildRegistryCommitMap builds a map from canonical source strings to
 // registry commit hashes. This allows update checks to skip network fetches
-// for registry-pinned skills by comparing the installed commit against the
+// for registry-pinned assets by comparing the installed commit against the
 // registry's pinned commit locally.
 //
 // The map is built by merging two sources per registry:
-//  1. Cached commits from duckrow.commits.json (hydrated unpinned skills)
+//  1. Cached commits from duckrow.commits.json (hydrated unpinned assets)
 //  2. Pinned commits from the manifest (explicit commit field in duckrow.json)
 //
 // Pinned commits take precedence over cached commits.
@@ -684,7 +684,7 @@ func BuildRegistryCommitMap(registries []Registry, rm *RegistryManager) map[stri
 	for _, reg := range registries {
 		regDir := filepath.Join(rm.registriesDir, RegistryDirKey(reg.Repo))
 
-		// Layer 1: cached commits (hydrated unpinned skills).
+		// Layer 1: cached commits (hydrated unpinned assets).
 		cached := loadCachedCommits(regDir)
 		for source, commit := range cached {
 			commits[source] = commit
@@ -699,9 +699,11 @@ func BuildRegistryCommitMap(registries []Registry, rm *RegistryManager) map[stri
 		if err != nil {
 			continue
 		}
-		for _, entry := range parsed.Entries[asset.KindSkill] {
-			if entry.Commit != "" && entry.Source != "" {
-				commits[entry.Source] = entry.Commit
+		for _, kind := range sourceBasedKinds() {
+			for _, entry := range parsed.Entries[kind] {
+				if entry.Commit != "" && entry.Source != "" {
+					commits[entry.Source] = entry.Commit
+				}
 			}
 		}
 	}
@@ -751,11 +753,11 @@ func writeCachedCommits(registryDir string, commits map[string]string) error {
 }
 
 // HydrateRegistryCommits resolves the latest commit SHA for each unpinned
-// skill in the configured registries. Unpinned skills are those with a Source
-// but no Commit field in the registry manifest.
+// source-based asset in the configured registries. Unpinned assets are those
+// with a Source but no Commit field in the registry manifest.
 //
 // For each unique source repository, a shallow clone is performed and the
-// latest commit for each skill's sub-path is determined via git log. Results
+// latest commit for each asset's sub-path is determined via git log. Results
 // are cached to duckrow.commits.json in the registry directory so that
 // BuildRegistryCommitMap can include them without additional network calls.
 //
@@ -775,49 +777,51 @@ func (rm *RegistryManager) HydrateRegistryCommits(registries []Registry, overrid
 			continue
 		}
 
-		// Collect unpinned skills (have Source but no Commit).
-		type unpinnedSkill struct {
+		// Collect unpinned assets (have Source but no Commit).
+		type unpinnedAsset struct {
 			source  string
 			subPath string
 		}
 		type repoRefKey struct {
 			repo string
-			ref  string // always "" for registry skills (they don't have a ref field)
+			ref  string // always "" for registry assets (they don't have a ref field)
 		}
 
-		repoGroups := make(map[repoRefKey][]unpinnedSkill)
+		repoGroups := make(map[repoRefKey][]unpinnedAsset)
 		var repoGroupOrder []repoRefKey
 
-		for _, entry := range parsed.Entries[asset.KindSkill] {
-			if entry.Source == "" || entry.Commit != "" {
-				continue // skip: no source or already pinned
-			}
+		for _, kind := range sourceBasedKinds() {
+			for _, entry := range parsed.Entries[kind] {
+				if entry.Source == "" || entry.Commit != "" {
+					continue // skip: no source or already pinned
+				}
 
-			rk := repoKey(entry.Source)
-			sp := skillSubPath(entry.Source)
-			key := repoRefKey{repo: rk}
+				rk := repoKey(entry.Source)
+				sp := skillSubPath(entry.Source)
+				key := repoRefKey{repo: rk}
 
-			if _, exists := repoGroups[key]; !exists {
-				repoGroupOrder = append(repoGroupOrder, key)
+				if _, exists := repoGroups[key]; !exists {
+					repoGroupOrder = append(repoGroupOrder, key)
+				}
+				repoGroups[key] = append(repoGroups[key], unpinnedAsset{
+					source:  entry.Source,
+					subPath: sp,
+				})
 			}
-			repoGroups[key] = append(repoGroups[key], unpinnedSkill{
-				source:  entry.Source,
-				subPath: sp,
-			})
 		}
 
 		if len(repoGroups) == 0 {
-			continue // all skills are pinned
+			continue // all assets are pinned
 		}
 
 		// Resolve commits for each repo group.
 		resolved := make(map[string]string)
 
 		for _, key := range repoGroupOrder {
-			skills := repoGroups[key]
+			entries := repoGroups[key]
 
 			// Parse source to build clone URL.
-			host, owner, repo, _, parseErr := ParseLockSource(skills[0].source)
+			host, owner, repo, _, parseErr := ParseLockSource(entries[0].source)
 			if parseErr != nil {
 				continue
 			}
@@ -835,12 +839,12 @@ func (rm *RegistryManager) HydrateRegistryCommits(registries []Registry, overrid
 				continue // best-effort: skip repos that fail to clone
 			}
 
-			for _, s := range skills {
-				commit, commitErr := GetSkillCommit(tmpDir, s.subPath)
+			for _, e := range entries {
+				commit, commitErr := GetSkillCommit(tmpDir, e.subPath)
 				if commitErr != nil {
 					continue
 				}
-				resolved[s.source] = commit
+				resolved[e.source] = commit
 			}
 
 			_ = os.RemoveAll(tmpDir)
@@ -854,6 +858,12 @@ func (rm *RegistryManager) HydrateRegistryCommits(registries []Registry, overrid
 }
 
 // --- Internal helpers ---
+
+// sourceBasedKinds returns asset kinds that use source+commit tracking
+// (as opposed to config-only kinds like MCP).
+func sourceBasedKinds() []asset.Kind {
+	return []asset.Kind{asset.KindSkill, asset.KindAgent}
+}
 
 // readManifest reads and parses the duckrow.json manifest from a directory.
 // Supports both v1 and v2 formats transparently.

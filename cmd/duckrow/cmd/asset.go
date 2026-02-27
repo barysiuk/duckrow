@@ -909,10 +909,10 @@ func syncMCPs(
 }
 
 // ---------------------------------------------------------------------------
-// runAssetOutdated — show assets with available updates (skill-specific)
+// runAssetOutdated — show assets with available updates
 // ---------------------------------------------------------------------------
 
-func runAssetOutdated(cmd *cobra.Command, _ asset.Kind) error {
+func runAssetOutdated(cmd *cobra.Command, kind asset.Kind) error {
 	d, err := newDeps()
 	if err != nil {
 		return err
@@ -933,8 +933,9 @@ func runAssetOutdated(cmd *cobra.Command, _ asset.Kind) error {
 		return fmt.Errorf("no duckrow.lock.json found in %s", targetDir)
 	}
 
-	if len(core.AssetsByKind(lf, asset.KindSkill)) == 0 {
-		fmt.Fprintln(os.Stdout, "Lock file has no skills.")
+	lower := strings.ToLower(string(kind))
+	if len(core.AssetsByKind(lf, kind)) == 0 {
+		fmt.Fprintf(os.Stdout, "Lock file has no %ss.\n", lower)
 		return nil
 	}
 
@@ -947,7 +948,7 @@ func runAssetOutdated(cmd *cobra.Command, _ asset.Kind) error {
 	rm.HydrateRegistryCommits(cfg.Registries, cfg.Settings.CloneURLOverrides)
 	registryCommits := core.BuildRegistryCommitMap(cfg.Registries, rm)
 
-	updates, err := core.CheckForUpdates(lf, cfg.Settings.CloneURLOverrides, registryCommits)
+	updates, err := core.CheckForUpdates(lf, kind, cfg.Settings.CloneURLOverrides, registryCommits)
 	if err != nil {
 		return fmt.Errorf("checking for updates: %w", err)
 	}
@@ -961,8 +962,9 @@ func runAssetOutdated(cmd *cobra.Command, _ asset.Kind) error {
 		return nil
 	}
 
+	header := strings.ToUpper(lower[:1]) + lower[1:]
 	w := tabwriter.NewWriter(os.Stdout, 0, 0, 2, ' ', 0)
-	fmt.Fprintln(w, "Skill\tInstalled\tAvailable\tSource")
+	fmt.Fprintf(w, "%s\tInstalled\tAvailable\tSource\n", header)
 
 	for _, u := range updates {
 		installed := core.TruncateCommit(u.InstalledCommit)
@@ -979,20 +981,23 @@ func runAssetOutdated(cmd *cobra.Command, _ asset.Kind) error {
 }
 
 // ---------------------------------------------------------------------------
-// runAssetUpdate — update assets to the available commit (skill-specific)
+// runAssetUpdate — update assets to the available commit
 // ---------------------------------------------------------------------------
 
-func runAssetUpdate(cmd *cobra.Command, args []string, _ asset.Kind) error {
+func runAssetUpdate(cmd *cobra.Command, args []string, kind asset.Kind) error {
 	d, err := newDeps()
 	if err != nil {
 		return err
 	}
 
+	lower := strings.ToLower(string(kind))
+
 	all, _ := cmd.Flags().GetBool("all")
 	dryRun, _ := cmd.Flags().GetBool("dry-run")
 
 	if len(args) == 0 && !all {
-		return fmt.Errorf("specify a skill name or use --all\n\nUsage:\n  duckrow skill update <skill-name>\n  duckrow skill update --all")
+		return fmt.Errorf("specify a %s name or use --all\n\nUsage:\n  duckrow %s update <%s-name>\n  duckrow %s update --all",
+			lower, lower, lower, lower)
 	}
 
 	targetSystems, err := resolveTargetSystems(cmd)
@@ -1022,20 +1027,20 @@ func runAssetUpdate(cmd *cobra.Command, args []string, _ asset.Kind) error {
 	rm.HydrateRegistryCommits(cfg.Registries, cfg.Settings.CloneURLOverrides)
 	registryCommits := core.BuildRegistryCommitMap(cfg.Registries, rm)
 
-	// Determine which skills to check.
-	var skillsToCheck *core.LockFile
+	// Determine which assets to check.
+	var assetsToCheck *core.LockFile
 	if all {
-		skillsToCheck = lf
+		assetsToCheck = lf
 	} else {
-		skillName := args[0]
-		found := core.FindLockedAsset(lf, asset.KindSkill, skillName)
+		name := args[0]
+		found := core.FindLockedAsset(lf, kind, name)
 		if found == nil {
-			return fmt.Errorf("skill %q not found in lock file", skillName)
+			return fmt.Errorf("%s %q not found in lock file", lower, name)
 		}
-		skillsToCheck = &core.LockFile{Assets: []asset.LockedAsset{*found}}
+		assetsToCheck = &core.LockFile{Assets: []asset.LockedAsset{*found}}
 	}
 
-	updates, err := core.CheckForUpdates(skillsToCheck, cfg.Settings.CloneURLOverrides, registryCommits)
+	updates, err := core.CheckForUpdates(assetsToCheck, kind, cfg.Settings.CloneURLOverrides, registryCommits)
 	if err != nil {
 		return fmt.Errorf("checking for updates: %w", err)
 	}
@@ -1060,7 +1065,7 @@ func runAssetUpdate(cmd *cobra.Command, args []string, _ asset.Kind) error {
 		}
 
 		// Find the lock entry for ref.
-		lockEntry := core.FindLockedAsset(lf, asset.KindSkill, u.Name)
+		lockEntry := core.FindLockedAsset(lf, kind, u.Name)
 		if lockEntry == nil {
 			fmt.Fprintf(os.Stderr, "Error: %s: lock entry not found\n", u.Name)
 			errors++
@@ -1087,7 +1092,7 @@ func runAssetUpdate(cmd *cobra.Command, args []string, _ asset.Kind) error {
 		psource.ApplyCloneURLOverride(cfg.Settings.CloneURLOverrides)
 
 		// Remove existing.
-		if err := orch.RemoveAsset(asset.KindSkill, u.Name, targetDir, nil); err != nil {
+		if err := orch.RemoveAsset(kind, u.Name, targetDir, nil); err != nil {
 			fmt.Fprintf(os.Stderr, "Error: %s: removing: %v\n", u.Name, err)
 			errors++
 			continue
@@ -1103,7 +1108,7 @@ func runAssetUpdate(cmd *cobra.Command, args []string, _ asset.Kind) error {
 			installOpts.Commit = u.AvailableCommit
 		}
 
-		results, installErr := orch.InstallFromSource(psource, asset.KindSkill, installOpts)
+		results, installErr := orch.InstallFromSource(psource, kind, installOpts)
 		if installErr != nil {
 			fmt.Fprintf(os.Stderr, "Error: %s: installing: %v\n", u.Name, installErr)
 			errors++
@@ -1116,7 +1121,7 @@ func runAssetUpdate(cmd *cobra.Command, args []string, _ asset.Kind) error {
 				src = core.NormalizeSource(psource.Host, psource.Owner, psource.Repo, "")
 			}
 			entry := asset.LockedAsset{
-				Kind:   asset.KindSkill,
+				Kind:   kind,
 				Name:   r.Asset.Name,
 				Source: src,
 				Commit: r.Commit,
@@ -1134,7 +1139,7 @@ func runAssetUpdate(cmd *cobra.Command, args []string, _ asset.Kind) error {
 	fmt.Fprintf(os.Stdout, "\nUpdate: %d updated, %d up-to-date, %d errors\n", updated, skipped, errors)
 
 	if errors > 0 {
-		return fmt.Errorf("%d skill(s) failed to update", errors)
+		return fmt.Errorf("%d %s(s) failed to update", errors, lower)
 	}
 	return nil
 }
