@@ -1,0 +1,32 @@
+# Test duckrow agent sync --dry-run shows plan without making changes
+
+# Create agent source repo
+setup-agent-repo agent-source 'my-agent:A helpful agent'
+
+# Set up config override
+setup-config-override test-owner/test-repo agent-source
+
+# Create project and install an agent (creates lock file)
+mkdir myproject
+exec duckrow agent install https://github.com/test-owner/test-repo -d myproject
+stdout 'installed successfully'
+exists myproject/duckrow.lock.json
+
+# Dry run with agent present should show skip
+exec duckrow agent sync -d myproject --dry-run
+stdout 'skip: my-agent \(already installed\)'
+stdout 'Agents: 0 installed, 1 skipped, 0 errors'
+
+# Delete the agent files from all systems
+exec rm -rf myproject/.claude/agents myproject/.opencode/agents myproject/.github/agents myproject/.gemini/agents
+
+# Verify agent files are gone
+dir-not-exists myproject/.claude/agents
+
+# Dry run should show install plan
+exec duckrow agent sync -d myproject --dry-run
+stdout 'install: my-agent \(commit'
+stdout 'Agents: 1 installed, 0 skipped, 0 errors'
+
+# Verify agent was NOT actually installed (dry run)
+dir-not-exists myproject/.claude/agents

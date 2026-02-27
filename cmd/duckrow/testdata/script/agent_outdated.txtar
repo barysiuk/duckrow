@@ -1,0 +1,46 @@
+# Test duckrow agent outdated shows available updates
+
+# Create agent source repo
+setup-agent-repo agent-source 'my-agent:A helpful agent'
+
+# Set up config override
+setup-config-override test-owner/test-repo agent-source
+
+# Install the agent
+mkdir myproject
+exec duckrow agent install https://github.com/test-owner/test-repo -d myproject
+stdout 'installed successfully'
+exists myproject/duckrow.lock.json
+
+# With no changes, outdated should show up-to-date
+exec duckrow agent outdated -d myproject
+stdout 'my-agent'
+stdout 'up to date'
+
+# Add a new commit to the source repo with updated content
+cp agent-v2 agent-source/my-agent.md
+exec git -C agent-source add .
+exec git -C agent-source -c user.name=Test -c user.email=test@test.com commit -m 'update agent'
+
+# Now outdated should show an available update
+exec duckrow agent outdated -d myproject
+stdout 'my-agent'
+! stdout 'up to date'
+stdout 'github.com/test-owner/test-repo'
+
+# JSON output should work too
+exec duckrow agent outdated -d myproject --json
+stdout '"hasUpdate": true'
+stdout '"name": "my-agent"'
+
+# Outdated without lock file should error
+! exec duckrow agent outdated -d agent-source
+stderr 'no duckrow.lock.json found'
+
+-- agent-v2 --
+---
+name: my-agent
+description: An updated helpful agent
+---
+
+You are my-agent. An updated helpful agent with new capabilities.
