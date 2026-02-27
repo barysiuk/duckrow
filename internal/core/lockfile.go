@@ -411,16 +411,18 @@ func BuildPathIndex(registryCommits map[string]string) map[string]string {
 	return index
 }
 
-// CheckForUpdates checks each locked skill for available updates.
-func CheckForUpdates(lf *LockFile, overrides map[string]string, registryCommits map[string]string) ([]UpdateInfo, error) {
+// CheckForUpdates checks each locked asset of the given kind for available
+// updates. It works for any source-based kind (skills, agents) that uses
+// commit-pinned lock entries.
+func CheckForUpdates(lf *LockFile, kind asset.Kind, overrides map[string]string, registryCommits map[string]string) ([]UpdateInfo, error) {
 	var results []UpdateInfo
 
 	pathIndex := BuildPathIndex(registryCommits)
 
-	// Get all skill assets from the lock file.
-	skills := AssetsByKind(lf, asset.KindSkill)
+	// Get all assets of the requested kind from the lock file.
+	assets := AssetsByKind(lf, kind)
 
-	type pendingSkill struct {
+	type pendingAsset struct {
 		asset   asset.LockedAsset
 		subPath string
 	}
@@ -429,28 +431,28 @@ func CheckForUpdates(lf *LockFile, overrides map[string]string, registryCommits 
 		repo string
 		ref  string
 	}
-	repoGroups := make(map[repoRefKey][]pendingSkill)
+	repoGroups := make(map[repoRefKey][]pendingAsset)
 	var repoGroupOrder []repoRefKey
 
-	for _, skill := range skills {
-		if regCommit := LookupRegistryCommit(skill.Source, registryCommits, pathIndex); regCommit != "" {
+	for _, a := range assets {
+		if regCommit := LookupRegistryCommit(a.Source, registryCommits, pathIndex); regCommit != "" {
 			results = append(results, UpdateInfo{
-				Name:            skill.Name,
-				Source:          skill.Source,
-				InstalledCommit: skill.Commit,
+				Name:            a.Name,
+				Source:          a.Source,
+				InstalledCommit: a.Commit,
 				AvailableCommit: regCommit,
-				HasUpdate:       skill.Commit != regCommit,
+				HasUpdate:       a.Commit != regCommit,
 			})
 			continue
 		}
 
-		key := repoRefKey{repo: repoKey(skill.Source), ref: skill.Ref}
+		key := repoRefKey{repo: repoKey(a.Source), ref: a.Ref}
 		if _, exists := repoGroups[key]; !exists {
 			repoGroupOrder = append(repoGroupOrder, key)
 		}
-		repoGroups[key] = append(repoGroups[key], pendingSkill{
-			asset:   skill,
-			subPath: skillSubPath(skill.Source),
+		repoGroups[key] = append(repoGroups[key], pendingAsset{
+			asset:   a,
+			subPath: skillSubPath(a.Source),
 		})
 	}
 

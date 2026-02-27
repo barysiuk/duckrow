@@ -270,7 +270,7 @@ func InstalledSkillsFromAssets(assets []asset.InstalledAsset) []InstalledSkill {
 }
 
 // ---------------------------------------------------------------------------
-// LockedSkill / LockedMCP — backward-compatible lock file entry types
+// LockedSkill / LockedMCP / LockedAgent — backward-compatible lock file entry types
 // ---------------------------------------------------------------------------
 
 // LockedSkill represents a skill entry in the lock file.
@@ -287,6 +287,14 @@ type LockedMCP struct {
 	Registry    string   `json:"registry"`
 	ConfigHash  string   `json:"configHash"`
 	RequiredEnv []string `json:"requiredEnv,omitempty"`
+}
+
+// LockedAgent represents an agent entry in the lock file.
+type LockedAgent struct {
+	Name   string `json:"name"`
+	Source string `json:"source"`
+	Commit string `json:"commit"`
+	Ref    string `json:"ref,omitempty"`
 }
 
 // LockFile compat helpers — provide .Skills and .MCPs accessors.
@@ -395,6 +403,41 @@ func AddOrUpdateMCPLockEntry(dir string, entry LockedMCP) error {
 // RemoveMCPLockEntry removes a locked MCP entry.
 func RemoveMCPLockEntry(dir string, name string) error {
 	return RemoveAssetEntry(dir, asset.KindMCP, name)
+}
+
+// LockedAgents returns all agent entries from the lock file.
+func (lf *LockFile) LockedAgents() []LockedAgent {
+	if lf == nil {
+		return nil
+	}
+	var result []LockedAgent
+	for _, a := range lf.Assets {
+		if a.Kind == asset.KindAgent {
+			result = append(result, LockedAgent{
+				Name:   a.Name,
+				Source: a.Source,
+				Commit: a.Commit,
+				Ref:    a.Ref,
+			})
+		}
+	}
+	return result
+}
+
+// AddOrUpdateAgentLockEntry upserts a locked agent entry.
+func AddOrUpdateAgentLockEntry(dir string, entry LockedAgent) error {
+	return AddOrUpdateAsset(dir, asset.LockedAsset{
+		Kind:   asset.KindAgent,
+		Name:   entry.Name,
+		Source: entry.Source,
+		Commit: entry.Commit,
+		Ref:    entry.Ref,
+	})
+}
+
+// RemoveAgentLockEntry removes a locked agent entry.
+func RemoveAgentLockEntry(dir string, name string) error {
+	return RemoveAssetEntry(dir, asset.KindAgent, name)
 }
 
 // ---------------------------------------------------------------------------

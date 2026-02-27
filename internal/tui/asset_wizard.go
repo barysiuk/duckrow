@@ -854,6 +854,48 @@ func (m *assetWizardModel) startInstall() tea.Cmd {
 			_ = core.AddOrUpdateAsset(folder, lockEntry)
 
 			return assetInstalledMsg{kind: assetInfo.Kind, name: assetInfo.Entry.Name, folder: folder}
+		case asset.KindAgent:
+			sourceStr := assetInfo.Entry.Source
+			if sourceStr == "" {
+				return assetInstalledMsg{kind: assetInfo.Kind, name: assetInfo.Entry.Name, folder: folder, err: fmt.Errorf("missing source")}
+			}
+			source, err := core.ParseSource(sourceStr)
+			if err != nil {
+				return assetInstalledMsg{kind: assetInfo.Kind, name: assetInfo.Entry.Name, folder: folder, err: fmt.Errorf("parsing source %q: %w", sourceStr, err)}
+			}
+
+			cfg, cfgErr := app.config.Load()
+			if cfgErr == nil {
+				source.ApplyCloneURLOverride(cfg.Settings.CloneURLOverrides)
+			}
+
+			var registryCommit string
+			if assetInfo.Entry.Commit != "" {
+				registryCommit = assetInfo.Entry.Commit
+			}
+
+			targetSystems := m.selectedTargetSystems()
+			results, err := app.orch.InstallFromSource(source, asset.KindAgent, core.OrchestratorInstallOptions{
+				TargetDir:     folder,
+				TargetSystems: targetSystems,
+				Commit:        registryCommit,
+			})
+			if err != nil {
+				return assetInstalledMsg{kind: assetInfo.Kind, name: assetInfo.Entry.Name, folder: folder, err: err}
+			}
+
+			for _, r := range results {
+				entry := asset.LockedAsset{
+					Kind:   asset.KindAgent,
+					Name:   r.Asset.Name,
+					Source: r.Asset.Source,
+					Commit: r.Commit,
+					Ref:    r.Ref,
+				}
+				_ = core.AddOrUpdateAsset(folder, entry)
+			}
+
+			return assetInstalledMsg{kind: assetInfo.Kind, name: assetInfo.Entry.Name, folder: folder}
 		default:
 			return assetInstalledMsg{kind: assetInfo.Kind, name: assetInfo.Entry.Name, folder: folder, err: fmt.Errorf("unsupported asset kind %s", assetInfo.Kind)}
 		}

@@ -17,6 +17,7 @@ type Kind string
 const (
 	KindSkill Kind = "skill"
 	KindMCP   Kind = "mcp"
+	KindAgent Kind = "agent"
 )
 
 // Asset is the system-agnostic envelope describing something to install.
@@ -119,23 +120,26 @@ func All() map[Kind]Handler { return handlers }
 
 // Kinds returns all registered asset kinds in a stable order.
 func Kinds() []Kind {
-	// Return in a deterministic order: skill first, then mcp, then others.
+	// Return in a deterministic order: skill, mcp, agent, then others.
 	var known, other []Kind
 	for k := range handlers {
 		switch k {
-		case KindSkill, KindMCP:
+		case KindSkill, KindMCP, KindAgent:
 			known = append(known, k)
 		default:
 			other = append(other, k)
 		}
 	}
-	// Sort known: skill before mcp
+	// Sort known: skill, mcp, agent
 	result := make([]Kind, 0, len(handlers))
 	if _, ok := handlers[KindSkill]; ok {
 		result = append(result, KindSkill)
 	}
 	if _, ok := handlers[KindMCP]; ok {
 		result = append(result, KindMCP)
+	}
+	if _, ok := handlers[KindAgent]; ok {
+		result = append(result, KindAgent)
 	}
 	// Append any other kinds (future extensibility)
 	_ = known // suppress unused

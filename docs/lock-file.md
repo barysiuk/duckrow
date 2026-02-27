@@ -1,22 +1,22 @@
 # Lock File
 
-How duckrow tracks installed skills and MCP configurations, and enables reproducible setups across a team.
+How duckrow tracks installed skills, agents, and MCP configurations, and enables reproducible setups across a team.
 
 ## Overview
 
-When you install a skill, duckrow records the exact git commit that was installed in a lock file called `duckrow.lock.json`. When you install an MCP server config, duckrow records the MCP name, registry source, and a hash of the config. This file lives at the project root and should be committed to version control.
+When you install a skill or agent, duckrow records the exact git commit that was installed in a lock file called `duckrow.lock.json`. When you install an MCP server config, duckrow records the MCP name, registry source, and a hash of the config. This file lives at the project root and should be committed to version control.
 
 The lock file enables three things:
 
-1. **Reproducible installs** — team members cloning a repo run `duckrow sync` to get identical skills and MCP configs
-2. **Update detection** — `duckrow skill outdated` shows which skills have newer commits available
-3. **Controlled updates** — `duckrow skill update` moves skills forward and updates the lock file
+1. **Reproducible installs** — team members cloning a repo run `duckrow sync` to get identical skills, agents, and MCP configs
+2. **Update detection** — `duckrow skill outdated` and `duckrow agent outdated` show which assets have newer commits available
+3. **Controlled updates** — `duckrow skill update` and `duckrow agent update` move assets forward and update the lock file
 
 Git commit hashes serve as the version identifier for skills. No manual version bumping is needed.
 
 ## The Lock File
 
-`duckrow.lock.json` is created automatically on the first `duckrow skill install` or `duckrow mcp install`. It uses a unified `assets` array where each entry has a `kind` discriminator.
+`duckrow.lock.json` is created automatically on the first `duckrow skill install`, `duckrow agent install`, or `duckrow mcp install`. It uses a unified `assets` array where each entry has a `kind` discriminator.
 
 ```json
 {
@@ -44,6 +44,12 @@ Git commit hashes serve as the version identifier for skills. No manual version 
         "systems": ["opencode", "claude-code", "cursor"],
         "requiredEnv": ["DB_URL"]
       }
+    },
+    {
+      "kind": "agent",
+      "name": "deploy-specialist",
+      "source": "github.com/acme/agents/deploy-specialist",
+      "commit": "b2c3d4e5f6a7890123456789012345678901bcde"
     }
   ]
 }
@@ -54,7 +60,7 @@ Git commit hashes serve as the version identifier for skills. No manual version 
 | Field | Description |
 |-------|-------------|
 | `lockVersion` | Schema version (currently `3`) |
-| `assets[].kind` | Asset type: `"skill"` or `"mcp"` |
+| `assets[].kind` | Asset type: `"skill"`, `"mcp"`, or `"agent"` |
 | `assets[].name` | Asset name |
 
 ### Skill-specific fields
@@ -75,6 +81,16 @@ MCP entries store their metadata in a `data` map:
 | `data.configHash` | SHA-256 hash of the MCP config at install time |
 | `data.systems` | System names whose config files were written |
 | `data.requiredEnv` | Env var names required by this MCP at runtime |
+
+### Agent-specific fields
+
+Agent lock entries use the same top-level fields as skills — no `data` map:
+
+| Field | Description |
+|-------|-------------|
+| `source` | Canonical source path: `host/owner/repo/path/to/agent` |
+| `commit` | Full 40-character git commit SHA that was installed |
+| `ref` | Branch or tag hint (optional) |
 
 Assets are sorted by kind then name in the file to keep diffs stable.
 
@@ -104,9 +120,12 @@ duckrow skill install acme/skills@go-review
 duckrow mcp install internal-db
 duckrow mcp install analytics-api
 
+# Install agents
+duckrow agent install deploy-specialist
+
 # Commit the lock file
 git add duckrow.lock.json
-git commit -m "Add skill and MCP dependencies"
+git commit -m "Add skill, MCP, and agent dependencies"
 git push
 ```
 
@@ -118,19 +137,23 @@ cd <repo>
 duckrow sync
 # All skills installed at the exact pinned commits
 # All MCP configs written to system config files
+# All agents rendered into system agent directories
 ```
 
-### Updating Skills
+### Updating Skills and Agents
 
 ```bash
 # See what has updates available
 duckrow skill outdated
+duckrow agent outdated
 
-# Update a specific skill
+# Update a specific skill or agent
 duckrow skill update slack-digest
+duckrow agent update deploy-specialist
 
 # Or update everything
 duckrow skill update --all
+duckrow agent update --all
 
 # Commit the updated lock file
 git add duckrow.lock.json
@@ -141,7 +164,7 @@ git commit -m "Update slack-digest"
 
 ### duckrow sync
 
-Installs all skills and MCP configs from the lock file.
+Installs all skills, agents, and MCP configs from the lock file.
 
 ```bash
 duckrow sync
@@ -161,6 +184,7 @@ duckrow sync --force
 Behavior:
 
 - **Skills**: if a skill directory already exists, it is skipped (not reinstalled); if missing, installed at the pinned commit
+- **Agents**: if an agent file already exists in a system's agents directory, it is skipped unless `--force` is used; if missing, rendered and written at the pinned commit
 - **MCPs**: if an MCP entry already exists in the system config file, it is skipped unless `--force` is used; if missing, the config is written from the current registry
 - Errors are reported per item; other items continue processing
 
@@ -170,6 +194,7 @@ Output:
 Syncing from duckrow.lock.json...
 
 Skills: 2 installed, 0 skipped, 0 errors
+Agents: 1 installed, 0 skipped, 0 errors
 MCPs:   1 installed, 0 skipped, 0 errors
 
 ! The following environment variables are required:
@@ -284,9 +309,13 @@ Update: 1 updated, 1 up-to-date, 0 errors
 
 Update reinstalls the skill: the existing directory and system symlinks are removed, then the skill is installed from the source at the new commit.
 
+### Agent equivalents
+
+`duckrow agent outdated` and `duckrow agent update` work identically to their skill counterparts. They use the same commit resolution logic, registry commit map, and hydration process. The only difference is that agent updates re-render agent files into each system's agents directory instead of copying skill directories.
+
 ### How the Available Commit Is Determined
 
-Both `outdated` and `update` use the same precedence to find the available commit for each skill:
+Both `outdated` and `update` use the same precedence to find the available commit for each source-based asset (skill or agent):
 
 1. **Registry commit** — if a configured registry has a commit for this skill (pinned in the manifest or resolved via hydration), that commit is used. No network fetch is needed.
 2. **Lock entry ref** — if the lock entry has a `ref` (branch or tag), the latest commit on that ref is fetched from the source repository.
@@ -312,8 +341,8 @@ Hydration happens automatically during:
 
 - **TUI startup** — registries are refreshed asynchronously in the background
 - **TUI `[r]` refresh** — triggers a full registry refresh including hydration
-- **CLI `duckrow skill outdated`** — hydrates before checking for updates
-- **CLI `duckrow skill update`** — hydrates before applying updates
+- **CLI `duckrow skill outdated` / `duckrow agent outdated`** — hydrates before checking for updates
+- **CLI `duckrow skill update` / `duckrow agent update`** — hydrates before applying updates
 
 The cache file (`duckrow.commits.json`) is stored alongside the registry clone at `~/.duckrow/registries/<registry-key>/duckrow.commits.json`. It is not meant to be edited manually.
 
@@ -379,6 +408,40 @@ duckrow skill uninstall --all
 
 Use `--no-lock` to remove skills without touching the lock file.
 
+### agent install
+
+`duckrow agent install` automatically creates or updates the lock file's assets array.
+
+```bash
+# Install and record in lock file (default)
+duckrow agent install acme/agents@deploy-specialist
+
+# Install without recording in lock file
+duckrow agent install acme/agents@deploy-specialist --no-lock
+```
+
+### agent uninstall
+
+`duckrow agent uninstall` automatically removes the agent from the lock file.
+
+```bash
+# Uninstall and remove from lock file (default)
+duckrow agent uninstall deploy-specialist
+
+# Uninstall without modifying the lock file
+duckrow agent uninstall deploy-specialist --no-lock
+```
+
+### agent uninstall --all
+
+`duckrow agent uninstall --all` removes all agent entries from the lock file (it does not remove skill or MCP entries):
+
+```bash
+duckrow agent uninstall --all
+```
+
+Use `--no-lock` to remove agents without touching the lock file.
+
 ### mcp install
 
 `duckrow mcp install` adds an entry to the lock file's assets array.
@@ -405,7 +468,7 @@ duckrow mcp uninstall internal-db --no-lock
 
 ## The --no-lock Flag
 
-The `--no-lock` flag is available on `skill install`, `skill uninstall`, `mcp install`, and `mcp uninstall`. It skips all lock file reads and writes for that command.
+The `--no-lock` flag is available on `skill install`, `skill uninstall`, `agent install`, `agent uninstall`, `mcp install`, and `mcp uninstall`. It skips all lock file reads and writes for that command.
 
 Use cases:
 
@@ -414,7 +477,7 @@ Use cases:
 
 ## CI/CD Integration
 
-The lock file and `duckrow sync` are designed for CI/CD pipelines where you need skills and MCP configs installed reproducibly.
+The lock file and `duckrow sync` are designed for CI/CD pipelines where you need skills, agents, and MCP configs installed reproducibly.
 
 ```yaml
 # .github/workflows/test.yml
@@ -424,7 +487,7 @@ jobs:
       - uses: actions/checkout@v4
       - name: Install duckrow
         run: brew install barysiuk/tap/duckrow
-      - name: Install skills and MCPs
+      - name: Install skills, agents, and MCPs
         run: duckrow sync
         env:
           DB_URL: ${{ secrets.DB_URL }}
@@ -432,7 +495,7 @@ jobs:
         run: opencode "Run the tests"
 ```
 
-Skills are installed at pinned commits. MCP configs are written to system files. For stdio MCPs with required env vars, pass those vars via CI secrets — `duckrow env` resolves them from the process environment at the highest priority.
+Skills are installed at pinned commits. Agents are rendered at pinned commits. MCP configs are written to system files. For stdio MCPs with required env vars, pass those vars via CI secrets — `duckrow env` resolves them from the process environment at the highest priority.
 
 Since `sync` installs from pinned versions, builds are deterministic regardless of upstream changes.
 

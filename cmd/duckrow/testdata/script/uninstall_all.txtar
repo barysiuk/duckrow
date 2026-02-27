@@ -20,15 +20,27 @@ exec duckrow skill install https://github.com/test-owner/source-b -d myproject
 exists myproject/.agents/skills/alpha/SKILL.md
 exists myproject/.agents/skills/beta/SKILL.md
 
-# Uninstall all
+# Also install an agent so we can verify it survives skill uninstall --all
+setup-agent-repo agent-source 'my-agent:A helpful agent'
+setup-config-override test-owner/agent-source agent-source
+exec duckrow agent install https://github.com/test-owner/agent-source -d myproject
+file-contains myproject/duckrow.lock.json '"kind": "agent"'
+file-contains myproject/duckrow.lock.json '"kind": "skill"'
+
+# Uninstall all skills
 exec duckrow skill uninstall --all -d myproject
 stdout 'Removed: alpha'
 stdout 'Removed: beta'
 stdout 'Removed 2 skill'
 
-# Verify all gone
+# Verify all skills gone
 dir-not-exists myproject/.agents/skills/alpha
 dir-not-exists myproject/.agents/skills/beta
+
+# Verify agent lock entry survived (not wiped by skill uninstall --all)
+file-contains myproject/duckrow.lock.json '"kind": "agent"'
+file-contains myproject/duckrow.lock.json '"name": "my-agent"'
+! file-contains myproject/duckrow.lock.json '"kind": "skill"'
 
 # Uninstall --all on empty project
 exec duckrow skill uninstall --all -d myproject

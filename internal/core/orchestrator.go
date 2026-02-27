@@ -177,13 +177,15 @@ func (o *Orchestrator) RemoveAsset(
 	projectDir string,
 	targetSystems []system.System,
 ) error {
-	// For file-based assets, verify the canonical copy exists before removing.
+	// For file-based assets with canonical copies, verify they exist before removing.
 	if kind == asset.KindSkill {
 		canonicalPath := filepath.Join(projectDir, canonicalSkillsDir, name)
 		if _, err := os.Stat(canonicalPath); os.IsNotExist(err) {
 			return fmt.Errorf("skill %q not found in %s", name, projectDir)
 		}
 	}
+	// Agents don't have a canonical copy — each system has its own rendered file.
+	// No pre-check needed; the per-system Remove() calls handle missing files.
 
 	if len(targetSystems) == 0 {
 		// Use all systems to ensure cleanup even if a system was
@@ -200,7 +202,7 @@ func (o *Orchestrator) RemoveAsset(
 		}
 	}
 
-	// For file-based assets, remove the canonical copy.
+	// For file-based assets with canonical copies, remove the canonical copy.
 	if kind == asset.KindSkill {
 		_ = removeCanonical(name, projectDir)
 	}
@@ -333,14 +335,30 @@ func getAssetCommit(repoDir string, a asset.Asset) (string, error) {
 
 // isAssetPresent checks if an asset from the lock file is already installed.
 func isAssetPresent(locked asset.LockedAsset, targetDir string) bool {
-	if locked.Kind == asset.KindSkill {
+	switch locked.Kind {
+	case asset.KindSkill:
 		// Check if canonical directory exists.
 		canonical := filepath.Join(targetDir, canonicalSkillsDir, locked.Name)
 		info, err := os.Stat(canonical)
 		return err == nil && info.IsDir()
+	case asset.KindAgent:
+		// Check if any system has the rendered agent file.
+		filename := sanitizeName(locked.Name) + ".md"
+		for _, sys := range system.Supporting(asset.KindAgent) {
+			agentDir := sys.AssetDir(asset.KindAgent, targetDir)
+			if agentDir == "" {
+				continue
+			}
+			agentPath := filepath.Join(agentDir, filename)
+			if _, err := os.Stat(agentPath); err == nil {
+				return true
+			}
+		}
+		return false
+	default:
+		// For other kinds (MCP), always re-evaluate.
+		return false
 	}
-	// For other kinds (MCP), always re-evaluate.
-	return false
 }
 
 // deduplicateInstalled merges new assets into existing, deduplicating by name.

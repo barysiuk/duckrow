@@ -11,7 +11,7 @@ cmd/duckrow/              CLI entrypoint and integration tests
   main.go                 Entrypoint
   main_test.go            TestMain + testscript runner + custom commands
 internal/core/            Core library (zero UI dependencies)
-  asset/                  Asset handler interfaces and implementations (skill, MCP)
+  asset/                  Asset handler interfaces and implementations (skill, MCP, agent)
   system/                 System interfaces and implementations (7 systems)
   auth.go                 Clone error classification, SSH/HTTPS hints
   compat.go               Legacy type adapters for backward compatibility
@@ -50,7 +50,7 @@ internal/tui/             Interactive terminal UI (Bubble Tea)
 3. **TUI consumes core** — `internal/tui/` builds the interactive UI on top of core
 4. **CLI commands are thin wrappers** — subcommands in `cmd/` delegate to core; the root command launches the TUI
 5. **Core is independently testable** — unit tests without CLI or TUI
-6. **Pluggable architecture** — new asset kinds (skill, MCP, future: rule) and systems are added by implementing interfaces, not by modifying switch blocks
+6. **Pluggable architecture** — new asset kinds (skill, MCP, agent, future: rule) and systems are added by implementing interfaces, not by modifying switch blocks
 
 ## Running Tests
 
@@ -78,6 +78,11 @@ Custom testscript commands available:
 - `dir-not-exists <path>` — assert directory does not exist
 - `setup-git-repo <dir> <name> [skills...]` — create a local git repo with a duckrow.json manifest
 - `setup-config-override <repo-key> <clone-url>` — create a config with a clone URL override mapping
+- `setup-registry-config <override-key> <override-url>` — add a clone URL override to the existing config (preserving registries)
+- `setup-mcp-registry <dir> <registry-name> <mcp-spec...>` — create a git repo with a duckrow.json containing MCP entries
+- `setup-agent-repo <dir> <agent-name:description...>` — create a local git repo containing agent .md files
+- `setup-agent-registry <dir> <registry-name> <agent-name:description:source...>` — create a git repo with a duckrow.json manifest listing agent entries and .md files
+- `write-env-file <dir> <key=value...>` — write key=value pairs to a .env.duckrow file
 
 ## Key Concepts
 
@@ -85,7 +90,7 @@ Custom testscript commands available:
 - **Non-universal systems** (Cursor, Claude Code, Goose) get symlinks from their own skills dir to `.agents/skills/`
 - **Skills** are directories containing a `SKILL.md` file with YAML frontmatter
 - **MCP servers** are config entries written into system-specific config files
-- **Registries** are git repos with a `duckrow.json` manifest listing available skills and MCPs
+- **Registries** are git repos with a `duckrow.json` manifest listing available skills, MCPs, and agents
 - **Asset handlers** (`asset.Handler`) define how each kind is discovered, installed, and removed
 - **Systems** (`system.System`) define where assets are stored and how configs are written
 

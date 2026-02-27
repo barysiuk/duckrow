@@ -322,3 +322,5 @@ Both commands accept `--dir` to target a specific directory and `--no-lock` to s
 Every install records the exact git commit in `duckrow.lock.json`. This enables reproducible installs via `duckrow sync`, update detection via `duckrow skill outdated`, and controlled updates via `duckrow skill update`.
 
 See [lock-file.md](lock-file.md) for the full reference.
+
+> **Note:** Agents (custom subagent personas) follow a similar git-based install flow but render per-system files instead of using a canonical copy. See the [README](../README.md#how-agents-work) for details.

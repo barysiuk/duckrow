@@ -14,10 +14,11 @@ func NewGeminiCLI() *GeminiCLI {
 		displayName:     "Gemini CLI",
 		universal:       true,
 		skillsDir:       ".agents/skills",
+		agentsDir:       ".gemini/agents",
 		globalSkillsDir: "~/.gemini/skills",
 		detectPaths:     []string{"~/.gemini"},
 		configSignals:   []string{"GEMINI.md"},
-		supportedKinds:  []asset.Kind{asset.KindSkill},
+		supportedKinds:  []asset.Kind{asset.KindSkill, asset.KindAgent},
 	}}
 }
 

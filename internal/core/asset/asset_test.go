@@ -25,22 +25,25 @@ func TestHandlerRegistry(t *testing.T) {
 
 func TestAll(t *testing.T) {
 	all := All()
-	if len(all) < 2 {
-		t.Errorf("expected at least 2 handlers, got %d", len(all))
+	if len(all) < 3 {
+		t.Errorf("expected at least 3 handlers, got %d", len(all))
 	}
 }
 
 func TestKinds(t *testing.T) {
 	kinds := Kinds()
-	if len(kinds) < 2 {
-		t.Fatalf("expected at least 2 kinds, got %d", len(kinds))
+	if len(kinds) < 3 {
+		t.Fatalf("expected at least 3 kinds, got %d", len(kinds))
 	}
-	// Should be deterministic: skill first, then mcp.
+	// Should be deterministic: skill, mcp, agent.
 	if kinds[0] != KindSkill {
 		t.Errorf("kinds[0] = %q, want %q", kinds[0], KindSkill)
 	}
 	if kinds[1] != KindMCP {
 		t.Errorf("kinds[1] = %q, want %q", kinds[1], KindMCP)
+	}
+	if kinds[2] != KindAgent {
+		t.Errorf("kinds[2] = %q, want %q", kinds[2], KindAgent)
 	}
 }
 

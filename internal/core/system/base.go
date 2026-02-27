@@ -20,6 +20,7 @@ type BaseSystem struct {
 	universal       bool         // shares .agents/skills/ directly
 	skillsDir       string       // project-relative skill directory
 	altSkillsDirs   []string     // additional native skill directories
+	agentsDir       string       // project-relative agents directory (e.g., ".claude/agents")
 	globalSkillsDir string       // global skill directory (with ~ or $VAR)
 	detectPaths     []string     // files/dirs to check for global installation
 	configSignals   []string     // project files indicating active use
@@ -84,10 +85,17 @@ func (b *BaseSystem) DetectionSignals() []string {
 }
 
 func (b *BaseSystem) AssetDir(kind asset.Kind, projectDir string) string {
-	if kind == asset.KindSkill {
+	switch kind {
+	case asset.KindSkill:
 		return filepath.Join(projectDir, b.skillsDir)
+	case asset.KindAgent:
+		if b.agentsDir != "" {
+			return filepath.Join(projectDir, b.agentsDir)
+		}
+		return ""
+	default:
+		return ""
 	}
-	return ""
 }
 
 // SkillsDir returns the project-relative skill directory path.
@@ -124,6 +132,8 @@ func (b *BaseSystem) Install(a asset.Asset, projectDir string, opts InstallOptio
 		return b.installSkill(a, projectDir, opts)
 	case asset.KindMCP:
 		return b.installMCP(a, projectDir, opts)
+	case asset.KindAgent:
+		return b.installAgent(a, projectDir, opts)
 	default:
 		return fmt.Errorf("system %s does not support asset kind %s", b.name, a.Kind)
 	}
@@ -136,6 +146,8 @@ func (b *BaseSystem) Remove(kind asset.Kind, name string, projectDir string) err
 		return b.removeSkill(name, projectDir)
 	case asset.KindMCP:
 		return b.removeMCP(name, projectDir)
+	case asset.KindAgent:
+		return b.removeAgent(name, projectDir)
 	default:
 		return fmt.Errorf("system %s does not support asset kind %s", b.name, kind)
 	}
@@ -146,6 +158,8 @@ func (b *BaseSystem) Scan(kind asset.Kind, projectDir string) ([]asset.Installed
 	switch kind {
 	case asset.KindSkill:
 		return b.scanSkills(projectDir)
+	case asset.KindAgent:
+		return b.scanAgents(projectDir)
 	default:
 		return nil, nil
 	}
@@ -339,6 +353,117 @@ func parseSkillMdForScan(path string) (*skillScanInfo, error) {
 	}
 
 	return &skillScanInfo{name: name, description: desc}, nil
+}
+
+// --- Agent Installation ---
+
+// installAgent renders the agent for this system and writes it to the agents dir.
+func (b *BaseSystem) installAgent(a asset.Asset, projectDir string, opts InstallOptions) error {
+	if b.agentsDir == "" {
+		return fmt.Errorf("system %s does not support agents", b.displayName)
+	}
+
+	meta, ok := a.Meta.(asset.AgentDataMeta)
+	if !ok {
+		return fmt.Errorf("expected AgentDataMeta, got %T", a.Meta)
+	}
+
+	agentsPath := filepath.Join(projectDir, b.agentsDir)
+	if err := os.MkdirAll(agentsPath, 0o755); err != nil {
+		return fmt.Errorf("creating agents dir for %s: %w", b.displayName, err)
+	}
+
+	filename := sanitizeName(a.Name) + ".md"
+	filePath := filepath.Join(agentsPath, filename)
+
+	// Check for existing file.
+	if pathExists(filePath) && !opts.Force {
+		return ErrAlreadyExists
+	}
+
+	// Render agent content for this system using the merge algorithm.
+	rendered, err := asset.RenderForSystem(meta.Data, b.name)
+	if err != nil {
+		return fmt.Errorf("rendering agent %q for %s: %w", a.Name, b.displayName, err)
+	}
+
+	if err := os.WriteFile(filePath, rendered, 0o644); err != nil {
+		return fmt.Errorf("writing agent file for %s: %w", b.displayName, err)
+	}
+
+	return nil
+}
+
+// removeAgent removes an agent .md file from this system's agents directory.
+func (b *BaseSystem) removeAgent(name string, projectDir string) error {
+	if b.agentsDir == "" {
+		return nil
+	}
+
+	filename := sanitizeName(name) + ".md"
+	filePath := filepath.Join(projectDir, b.agentsDir, filename)
+
+	if !pathExists(filePath) {
+		return nil // nothing to remove
+	}
+
+	if err := os.Remove(filePath); err != nil {
+		return fmt.Errorf("removing agent %s for %s: %w", name, b.displayName, err)
+	}
+
+	// Clean up empty agents directory, then its parent.
+	agentsPath := filepath.Join(projectDir, b.agentsDir)
+	cleanupEmptyDir(agentsPath)
+	cleanupEmptyDir(filepath.Dir(agentsPath))
+
+	return nil
+}
+
+// scanAgents finds agent .md files installed for this system.
+func (b *BaseSystem) scanAgents(projectDir string) ([]asset.InstalledAsset, error) {
+	if b.agentsDir == "" {
+		return nil, nil
+	}
+
+	agentsPath := filepath.Join(projectDir, b.agentsDir)
+	entries, err := os.ReadDir(agentsPath)
+	if err != nil {
+		return nil, nil // directory doesn't exist
+	}
+
+	var result []asset.InstalledAsset
+	for _, entry := range entries {
+		if entry.IsDir() || !strings.HasSuffix(entry.Name(), ".md") {
+			continue
+		}
+
+		filePath := filepath.Join(agentsPath, entry.Name())
+		data, err := asset.ParseAgentFile(filePath)
+		if err != nil {
+			continue
+		}
+
+		// Derive name from filename (strip .md extension).
+		name := strings.TrimSuffix(entry.Name(), ".md")
+
+		description, _ := data.Frontmatter["description"].(string)
+
+		result = append(result, asset.InstalledAsset{
+			Kind:        asset.KindAgent,
+			Name:        name,
+			Description: description,
+			Path:        filePath,
+			Meta:        asset.AgentMeta{},
+			SystemName:  b.name,
+		})
+	}
+
+	// Sort by name for deterministic output.
+	sort.Slice(result, func(i, j int) bool {
+		return result[i].Name < result[j].Name
+	})
+
+	return result, nil
 }
 
 // --- MCP Installation ---

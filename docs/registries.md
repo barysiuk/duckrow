@@ -1,10 +1,10 @@
 # Registries
 
-How to create and use private registries to distribute skills and MCP server configurations across your team.
+How to create and use private registries to distribute skills, agents, and MCP server configurations across your team.
 
 ## Overview
 
-A registry is a git repository containing a `duckrow.json` manifest at the root. The manifest catalogs available skills and MCP server configurations. Teams use registries to maintain a curated set of approved assets that any developer can install by name.
+A registry is a git repository containing a `duckrow.json` manifest at the root. The manifest catalogs available skills, agents, and MCP server configurations. Teams use registries to maintain a curated set of approved assets that any developer can install by name.
 
 ```bash
 # Add a registry
@@ -15,6 +15,9 @@ duckrow skill install code-review
 
 # Install an MCP by name
 duckrow mcp install internal-db
+
+# Install an agent by name
+duckrow agent install deploy-specialist
 ```
 
 Registries are cloned locally to `~/.duckrow/registries/` and refreshed on demand. Authentication is handled by git — if you can `git clone` the URL, duckrow can use it.
@@ -27,13 +30,13 @@ Any git repository works — GitHub, GitLab, Bitbucket, self-hosted, etc. The re
 
 ### 2. Write the manifest
 
-The manifest lists the assets your team can install. It supports two asset kinds: **skills** and **MCP servers**.
+The manifest lists the assets your team can install. It supports three asset kinds: **skills**, **MCP servers**, and **agents**.
 
 ```json
 {
   "version": 2,
   "name": "my-org",
-  "description": "Our team's approved skills and MCPs",
+  "description": "Our team's approved skills, MCPs, and agents",
   "assets": {
     "skill": [
       {
@@ -49,6 +52,13 @@ The manifest lists the assets your team can install. It supports two asset kinds
         "command": "npx",
         "args": ["-y", "@my-org/mcp-db"],
         "env": ["DB_URL"]
+      }
+    ],
+    "agent": [
+      {
+        "name": "deploy-specialist",
+        "description": "Deployment automation agent",
+        "source": "github.com/my-org/agents/deploy-specialist"
       }
     ]
   }
@@ -74,7 +84,7 @@ Share the clone URL with your team. Each developer adds the registry once and ca
 | `version` | No | Manifest version. Use `2` for the current format. Omitting defaults to v1. |
 | `name` | Yes | Display name for the registry (used in CLI output and TUI) |
 | `description` | No | Human-readable description |
-| `assets` | Yes (v2) | Map of asset arrays, keyed by kind (`"skill"`, `"mcp"`) |
+| `assets` | Yes (v2) | Map of asset arrays, keyed by kind (`"skill"`, `"mcp"`, `"agent"`) |
 
 ### Legacy v1 format
 
@@ -357,15 +367,77 @@ duckrow mcp install internal-db --systems opencode,cursor
 duckrow mcp install internal-db --force
 ```
 
-## Combining Skills and MCPs
+## Adding Agents to a Registry
 
-A single registry can contain both skills and MCPs. This is the recommended approach — one registry per team or organization.
+Agents in a registry point to a source repository where the agent markdown files live. Like skills, the registry manifest doesn't contain the agent content — it tells duckrow where to find it.
+
+### Agent entry fields
+
+| Field | Required | Description |
+|-------|----------|-------------|
+| `name` | Yes | Agent name (must match the `name` field in the agent's YAML frontmatter) |
+| `description` | No | Human-readable description (shown in TUI and `registry list --verbose`) |
+| `source` | Yes | Canonical source path in `host/owner/repo/path/to/agent` format |
+| `commit` | No | Pin to a specific git commit SHA. Omit to track the latest. |
+
+### Example: agent registry entries
+
+```json
+{
+  "version": 2,
+  "name": "acme-agents",
+  "description": "ACME custom agents",
+  "assets": {
+    "agent": [
+      {
+        "name": "deploy-specialist",
+        "description": "Deployment automation agent",
+        "source": "github.com/acme/agents/deploy-specialist",
+        "commit": "b2c3d4e5f6a7890123456789012345678901bcde"
+      },
+      {
+        "name": "code-architect",
+        "description": "System design and architecture agent",
+        "source": "github.com/acme/agents/code-architect"
+      }
+    ]
+  }
+}
+```
+
+### Installing an agent from a registry
+
+```bash
+# Install by name — duckrow looks it up in configured registries
+duckrow agent install deploy-specialist
+
+# If the same name exists in multiple registries, disambiguate
+duckrow agent install deploy-specialist --registry acme-agents
+
+# Install into a specific directory
+duckrow agent install deploy-specialist -d ~/code/my-project
+```
+
+When an agent name is used (not a URL or GitHub shorthand), duckrow:
+
+1. Searches all configured registries for an agent with that name
+2. If found in exactly one registry, reads the `source` field
+3. Clones the source repo (at the pinned commit if set, or latest otherwise)
+4. Renders the agent for each agent-capable system (Claude Code, OpenCode, GitHub Copilot, Gemini CLI)
+5. Writes the rendered files into each system's agents directory
+6. Records the commit in `duckrow.lock.json`
+
+If the agent is found in multiple registries, duckrow returns an error asking you to use `--registry` to disambiguate.
+
+## Combining Skills, MCPs, and Agents
+
+A single registry can contain skills, MCPs, and agents. This is the recommended approach — one registry per team or organization.
 
 ```json
 {
   "version": 2,
   "name": "acme",
-  "description": "ACME team skills and tools",
+  "description": "ACME team skills, MCPs, and agents",
   "assets": {
     "skill": [
       {
@@ -394,6 +466,14 @@ A single registry can contain both skills and MCPs. This is the recommended appr
         "url": "https://mcp.acme.internal/deploy",
         "type": "http"
       }
+    ],
+    "agent": [
+      {
+        "name": "deploy-specialist",
+        "description": "Deployment automation agent",
+        "source": "github.com/acme/agents/deploy-specialist",
+        "commit": "b2c3d4e5f6a7890123456789012345678901bcde"
+      }
     ]
   }
 }
@@ -413,9 +493,12 @@ duckrow skill install test-generation
 duckrow mcp install internal-db
 duckrow mcp install deploy-api
 
+# Install agents
+duckrow agent install deploy-specialist
+
 # Commit the lock file so teammates can sync
 git add duckrow.lock.json
-git commit -m "Add team skills and MCP dependencies"
+git commit -m "Add team skills, MCP, and agent dependencies"
 ```
 
 ## Managing Registries
@@ -452,7 +535,7 @@ duckrow registry refresh
 duckrow registry refresh acme
 ```
 
-Refreshing pulls the latest changes from the remote and runs commit hydration for unpinned skills.
+Refreshing pulls the latest changes from the remote and runs commit hydration for unpinned skills and agents.
 
 ### Removing a registry
 
@@ -476,21 +559,21 @@ duckrow skill install code-review --registry acme
 
 ## Commit Hydration
 
-When a registry lists skills without a `commit` field (unpinned), duckrow needs to determine what the latest commit is. This process is called **commit hydration**.
+When a registry lists source-based assets (skills or agents) without a `commit` field (unpinned), duckrow needs to determine what the latest commit is. This process is called **commit hydration**.
 
 ### How it works
 
-1. Groups unpinned skills by source repository
+1. Groups unpinned source-based assets by source repository
 2. Performs a shallow clone of each unique source repo
-3. Runs `git log` to determine the latest commit for each skill's sub-path
+3. Runs `git log` to determine the latest commit for each asset's sub-path
 4. Caches the resolved commits to `duckrow.commits.json` alongside the registry clone
 
 ### When it runs
 
 - **TUI startup** — registries are refreshed asynchronously in the background
 - **TUI `[r]` refresh** — triggers a full registry refresh including hydration
-- **`duckrow skill outdated`** — hydrates before checking for updates
-- **`duckrow skill update`** — hydrates before applying updates
+- **`duckrow skill outdated` / `duckrow agent outdated`** — hydrates before checking for updates
+- **`duckrow skill update` / `duckrow agent update`** — hydrates before applying updates
 - **`duckrow registry refresh`** — hydrates as part of the refresh
 
 ### Pinned vs hydrated precedence
@@ -520,11 +603,12 @@ The TUI provides visual workflows for registry management.
 ### Installing from a registry
 
 1. Press `i` from the folder view to open the install picker
-2. The picker shows all available assets from configured registries (filtered by the active tab — Skills or MCP Servers)
+2. The picker shows all available assets from configured registries (filtered by the active tab — Skills, MCP Servers, or Agents)
 3. Select an asset and press `enter`
 4. **For skills**: a system selection step appears if non-universal systems are detected
 5. **For MCPs**: a multi-step wizard handles system selection, env var preview, and value entry
-6. The asset is installed and the lock file is updated
+6. **For agents**: a system selection step appears to choose which agent-capable systems to target
+7. The asset is installed and the lock file is updated
 
 ### Managing registries
 

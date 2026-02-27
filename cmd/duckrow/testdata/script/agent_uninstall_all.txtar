@@ -1,0 +1,48 @@
+# Test uninstalling all agents with --all flag
+
+# Create agent source repo with multiple agents
+setup-agent-repo agent-source 'agent-a:First agent' 'agent-b:Second agent'
+
+# Set up config override
+setup-config-override test-owner/test-repo agent-source
+
+# Setup: create project and install agents
+mkdir myproject
+exec duckrow agent install https://github.com/test-owner/test-repo -d myproject
+exists myproject/.claude/agents/agent-a.md
+exists myproject/.claude/agents/agent-b.md
+
+# Also install a skill so we can verify it survives agent uninstall --all
+mkdir skill-source
+cp skill-md skill-source/SKILL.md
+setup-git-repo skill-source test-skills my-skill
+setup-registry-config test-owner/skill-source skill-source
+exec duckrow skill install https://github.com/test-owner/skill-source -d myproject
+file-contains myproject/duckrow.lock.json '"kind": "skill"'
+file-contains myproject/duckrow.lock.json '"kind": "agent"'
+
+# Uninstall all agents
+exec duckrow agent uninstall --all -d myproject
+stdout 'Removed: agent-a'
+stdout 'Removed: agent-b'
+stdout 'Removed 2 agent'
+
+# Verify all agent files gone
+dir-not-exists myproject/.claude/agents
+dir-not-exists myproject/.opencode/agents
+
+# Verify skill lock entry survived (not wiped by agent uninstall --all)
+file-contains myproject/duckrow.lock.json '"kind": "skill"'
+file-contains myproject/duckrow.lock.json '"name": "my-skill"'
+! file-contains myproject/duckrow.lock.json '"kind": "agent"'
+
+# Uninstall --all on empty project (no agents)
+exec duckrow agent uninstall --all -d myproject
+stdout 'No agents installed'
+
+-- skill-md --
+---
+name: my-skill
+description: A test skill
+---
+# My Skill

@@ -67,6 +67,19 @@ func TestScript(t *testing.T) {
 			// Remote: "name:remote:url" or "name:remote:url:type"
 			"setup-mcp-registry": cmdSetupMCPRegistry,
 
+			// setup-agent-repo creates a local git repo containing agent .md files.
+			// Usage: setup-agent-repo <dir> <agent-name:description> [agent-name:description...]
+			// Each agent-name:description pair creates a <name>.md file with frontmatter.
+			"setup-agent-repo": cmdSetupAgentRepo,
+
+			// setup-agent-registry creates a local git repo with a duckrow.json manifest
+			// listing agent entries AND the corresponding agent .md files.
+			// Usage: setup-agent-registry <dir> <registry-name> <agent-name:description:source> [...]
+			// Each spec creates an agent entry in the manifest. If source contains "SELF",
+			// the agent .md file is created in the same repo and source is set to
+			// "registry-name/agent-name".
+			"setup-agent-registry": cmdSetupAgentRegistry,
+
 			// write-env-file writes key=value pairs to a .env.duckrow file.
 			// Usage: write-env-file <dir> <key>=<value> [key=value...]
 			"write-env-file": cmdWriteEnvFile,
@@ -532,4 +545,154 @@ func lastIndexOf(s, substr string) int {
 		}
 	}
 	return -1
+}
+
+// cmdSetupAgentRepo creates a local git repo containing agent .md files.
+// Usage: setup-agent-repo <dir> <name:description> [name:description...]
+func cmdSetupAgentRepo(ts *testscript.TestScript, neg bool, args []string) {
+	if neg {
+		ts.Fatalf("setup-agent-repo does not support negation")
+	}
+	if len(args) < 2 {
+		ts.Fatalf("usage: setup-agent-repo <dir> <name:description> [name:description...]")
+	}
+
+	dir := ts.MkAbs(args[0])
+	agentSpecs := args[1:]
+
+	if err := os.MkdirAll(dir, 0o755); err != nil {
+		ts.Fatalf("creating dir: %v", err)
+	}
+
+	for _, spec := range agentSpecs {
+		parts := splitN(spec, ":", 2)
+		if len(parts) < 2 {
+			ts.Fatalf("invalid agent spec %q: expected name:description", spec)
+		}
+		name := parts[0]
+		description := parts[1]
+
+		content := fmt.Sprintf("---\nname: %s\ndescription: %s\n---\n\nYou are %s. %s\n",
+			name, description, name, description)
+
+		if err := os.WriteFile(filepath.Join(dir, name+".md"), []byte(content), 0o644); err != nil {
+			ts.Fatalf("writing agent file: %v", err)
+		}
+	}
+
+	// Initialize git repo.
+	gitEnv := append(os.Environ(),
+		"GIT_AUTHOR_NAME=Test",
+		"GIT_AUTHOR_EMAIL=test@test.com",
+		"GIT_COMMITTER_NAME=Test",
+		"GIT_COMMITTER_EMAIL=test@test.com",
+	)
+
+	runGit := func(gitArgs ...string) {
+		c := exec.Command("git", gitArgs...)
+		c.Dir = dir
+		c.Env = gitEnv
+		out, err := c.CombinedOutput()
+		if err != nil {
+			ts.Fatalf("git %v: %v\n%s", gitArgs, err, out)
+		}
+	}
+
+	runGit("init")
+	runGit("checkout", "-b", "main")
+	runGit("add", ".")
+	runGit("commit", "-m", "initial")
+}
+
+// cmdSetupAgentRegistry creates a local git repo with a duckrow.json manifest
+// listing agent entries AND the corresponding agent .md source files.
+// Usage: setup-agent-registry <dir> <registry-name> <name:description> [name:description...]
+func cmdSetupAgentRegistry(ts *testscript.TestScript, neg bool, args []string) {
+	if neg {
+		ts.Fatalf("setup-agent-registry does not support negation")
+	}
+	if len(args) < 3 {
+		ts.Fatalf("usage: setup-agent-registry <dir> <registry-name> <name:description> [name:description...]")
+	}
+
+	dir := ts.MkAbs(args[0])
+	registryName := args[1]
+	agentSpecs := args[2:]
+
+	if err := os.MkdirAll(dir, 0o755); err != nil {
+		ts.Fatalf("creating dir: %v", err)
+	}
+
+	type agentEntry struct {
+		Name        string `json:"name"`
+		Description string `json:"description"`
+		Source      string `json:"source"`
+	}
+	type manifest struct {
+		Name        string       `json:"name"`
+		Description string       `json:"description,omitempty"`
+		Skills      []struct{}   `json:"skills"`
+		MCPs        []struct{}   `json:"mcps"`
+		Agents      []agentEntry `json:"agents"`
+	}
+
+	m := manifest{
+		Name:        registryName,
+		Description: registryName + " registry",
+		Skills:      []struct{}{},
+		MCPs:        []struct{}{},
+	}
+
+	for _, spec := range agentSpecs {
+		parts := splitN(spec, ":", 2)
+		if len(parts) < 2 {
+			ts.Fatalf("invalid agent spec %q: expected name:description", spec)
+		}
+		name := parts[0]
+		description := parts[1]
+
+		m.Agents = append(m.Agents, agentEntry{
+			Name:        name,
+			Description: description,
+			Source:      registryName + "/" + name,
+		})
+
+		// Create the agent .md file in the repo.
+		content := fmt.Sprintf("---\nname: %s\ndescription: %s\n---\n\nYou are %s. %s\n",
+			name, description, name, description)
+		if err := os.WriteFile(filepath.Join(dir, name+".md"), []byte(content), 0o644); err != nil {
+			ts.Fatalf("writing agent file: %v", err)
+		}
+	}
+
+	data, err := json.MarshalIndent(m, "", "  ")
+	if err != nil {
+		ts.Fatalf("marshaling manifest: %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(dir, "duckrow.json"), data, 0o644); err != nil {
+		ts.Fatalf("writing manifest: %v", err)
+	}
+
+	// Initialize git repo.
+	gitEnv := append(os.Environ(),
+		"GIT_AUTHOR_NAME=Test",
+		"GIT_AUTHOR_EMAIL=test@test.com",
+		"GIT_COMMITTER_NAME=Test",
+		"GIT_COMMITTER_EMAIL=test@test.com",
+	)
+
+	runGit := func(gitArgs ...string) {
+		c := exec.Command("git", gitArgs...)
+		c.Dir = dir
+		c.Env = gitEnv
+		out, err := c.CombinedOutput()
+		if err != nil {
+			ts.Fatalf("git %v: %v\n%s", gitArgs, err, out)
+		}
+	}
+
+	runGit("init")
+	runGit("checkout", "-b", "main")
+	runGit("add", ".")
+	runGit("commit", "-m", "initial")
 }

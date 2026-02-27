@@ -1,0 +1,51 @@
+# Test installing a specific agent from a multi-agent repo using URL subpath
+
+# Create a project directory
+mkdir myproject
+
+# Create multi-agent source repo with agents in a subdirectory
+mkdir multi-agents/agents
+cp agent-a multi-agents/agents/agent-a.md
+cp agent-b multi-agents/agents/agent-b.md
+cp agent-c multi-agents/agents/agent-c.md
+
+# Initialize as git repo
+exec git -C multi-agents init
+exec git -C multi-agents checkout -b main
+exec git -C multi-agents add .
+exec git -C multi-agents -c user.name=Test -c user.email=test@test.com commit -m initial
+
+# Set up config override
+setup-config-override test-owner/multi-agents multi-agents
+
+# Install only "agent-b" from a multi-agent source using URL subpath
+exec duckrow agent install https://github.com/test-owner/multi-agents/tree/main/agents/agent-b.md -d myproject
+stdout 'agent-b'
+! stdout 'agent-a'
+! stdout 'agent-c'
+
+# Verify only agent-b was installed
+exists myproject/.claude/agents/agent-b.md
+file-contains myproject/.claude/agents/agent-b.md 'Agent B'
+
+-- agent-a --
+---
+name: agent-a
+description: Agent A
+---
+
+You are agent-a. Agent A instructions.
+-- agent-b --
+---
+name: agent-b
+description: Agent B
+---
+
+You are agent-b. Agent B instructions.
+-- agent-c --
+---
+name: agent-c
+description: Agent C
+---
+
+You are agent-c. Agent C instructions.

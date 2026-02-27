@@ -1,0 +1,41 @@
+# Test duckrow agent update applies updates and refreshes lock file
+
+# Create agent source repo
+setup-agent-repo agent-source 'my-agent:A helpful agent'
+
+# Set up config override
+setup-config-override test-owner/test-repo agent-source
+
+# Install the agent
+mkdir myproject
+exec duckrow agent install https://github.com/test-owner/test-repo -d myproject
+stdout 'installed successfully'
+
+# Verify original content
+file-contains myproject/.claude/agents/my-agent.md 'A helpful agent'
+
+# Add a new commit to the source repo with updated content
+cp agent-v2 agent-source/my-agent.md
+exec git -C agent-source add .
+exec git -C agent-source -c user.name=Test -c user.email=test@test.com commit -m 'update agent'
+
+# Update the agent
+exec duckrow agent update my-agent -d myproject
+stdout 'Updated: my-agent'
+stdout 'Update: 1 updated, 0 up-to-date, 0 errors'
+
+# Verify the content was updated in all systems
+file-contains myproject/.claude/agents/my-agent.md 'An updated helpful agent'
+file-contains myproject/.opencode/agents/my-agent.md 'An updated helpful agent'
+
+# Running update again should be a no-op (already up to date)
+exec duckrow agent update my-agent -d myproject
+stdout 'Update: 0 updated, 1 up-to-date, 0 errors'
+
+-- agent-v2 --
+---
+name: my-agent
+description: An updated helpful agent
+---
+
+You are my-agent. An updated helpful agent with new capabilities.
