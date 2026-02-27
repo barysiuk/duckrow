@@ -1008,8 +1008,14 @@ func runAssetUpdate(cmd *cobra.Command, args []string, kind asset.Kind) error {
 	dryRun, _ := cmd.Flags().GetBool("dry-run")
 
 	if len(args) == 0 && !all {
-		return fmt.Errorf("specify a %s name or use --all\n\nUsage:\n  duckrow %s update <%s-name>\n  duckrow %s update --all",
-			lower, lower, lower, lower)
+		article := "a"
+		if strings.HasPrefix(lower, "a") || strings.HasPrefix(lower, "e") ||
+			strings.HasPrefix(lower, "i") || strings.HasPrefix(lower, "o") ||
+			strings.HasPrefix(lower, "u") {
+			article = "an"
+		}
+		return fmt.Errorf("specify %s %s name or use --all\n\nUsage:\n  duckrow %s update <%s-name>\n  duckrow %s update --all",
+			article, lower, lower, lower, lower)
 	}
 
 	targetSystems, err := resolveTargetSystems(cmd)
