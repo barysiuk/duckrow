@@ -1005,6 +1005,13 @@ func runAssetUpdate(cmd *cobra.Command, args []string, kind asset.Kind) error {
 		return err
 	}
 
+	// Agents are rendered per-system and include non-universal systems
+	// (e.g. Claude Code). Ensure all agent-capable systems are targeted
+	// so updates are written everywhere, not just universal systems.
+	if kind == asset.KindAgent && targetSystems == nil {
+		targetSystems = filterAgentCapable(system.All())
+	}
+
 	targetDir, err := resolveTargetDir(cmd)
 	if err != nil {
 		return err
