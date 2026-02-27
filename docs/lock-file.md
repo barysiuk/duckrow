@@ -9,8 +9,8 @@ When you install a skill or agent, duckrow records the exact git commit that was
 The lock file enables three things:
 
 1. **Reproducible installs** — team members cloning a repo run `duckrow sync` to get identical skills, agents, and MCP configs
-2. **Update detection** — `duckrow skill outdated` shows which skills have newer commits available
-3. **Controlled updates** — `duckrow skill update` moves skills forward and updates the lock file
+2. **Update detection** — `duckrow skill outdated` and `duckrow agent outdated` show which assets have newer commits available
+3. **Controlled updates** — `duckrow skill update` and `duckrow agent update` move assets forward and update the lock file
 
 Git commit hashes serve as the version identifier for skills. No manual version bumping is needed.
 
@@ -140,17 +140,20 @@ duckrow sync
 # All agents rendered into system agent directories
 ```
 
-### Updating Skills
+### Updating Skills and Agents
 
 ```bash
 # See what has updates available
 duckrow skill outdated
+duckrow agent outdated
 
-# Update a specific skill
+# Update a specific skill or agent
 duckrow skill update slack-digest
+duckrow agent update deploy-specialist
 
 # Or update everything
 duckrow skill update --all
+duckrow agent update --all
 
 # Commit the updated lock file
 git add duckrow.lock.json
@@ -306,9 +309,13 @@ Update: 1 updated, 1 up-to-date, 0 errors
 
 Update reinstalls the skill: the existing directory and system symlinks are removed, then the skill is installed from the source at the new commit.
 
+### Agent equivalents
+
+`duckrow agent outdated` and `duckrow agent update` work identically to their skill counterparts. They use the same commit resolution logic, registry commit map, and hydration process. The only difference is that agent updates re-render agent files into each system's agents directory instead of copying skill directories.
+
 ### How the Available Commit Is Determined
 
-Both `outdated` and `update` use the same precedence to find the available commit for each skill:
+Both `outdated` and `update` use the same precedence to find the available commit for each source-based asset (skill or agent):
 
 1. **Registry commit** — if a configured registry has a commit for this skill (pinned in the manifest or resolved via hydration), that commit is used. No network fetch is needed.
 2. **Lock entry ref** — if the lock entry has a `ref` (branch or tag), the latest commit on that ref is fetched from the source repository.
@@ -334,8 +341,8 @@ Hydration happens automatically during:
 
 - **TUI startup** — registries are refreshed asynchronously in the background
 - **TUI `[r]` refresh** — triggers a full registry refresh including hydration
-- **CLI `duckrow skill outdated`** — hydrates before checking for updates
-- **CLI `duckrow skill update`** — hydrates before applying updates
+- **CLI `duckrow skill outdated` / `duckrow agent outdated`** — hydrates before checking for updates
+- **CLI `duckrow skill update` / `duckrow agent update`** — hydrates before applying updates
 
 The cache file (`duckrow.commits.json`) is stored alongside the registry clone at `~/.duckrow/registries/<registry-key>/duckrow.commits.json`. It is not meant to be edited manually.
 

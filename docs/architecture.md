@@ -190,7 +190,7 @@ Registry manifests (`duckrow.json`) use a v2 format with an `assets` map keyed b
 
 ### CLI
 
-CLI commands are generated dynamically. The `registerAssetCommands()` function iterates `asset.Kinds()` and creates a full set of subcommands (`install`, `uninstall`, `list`, `sync`) for each kind. The `outdated` and `update` subcommands are only generated for skills. The `--systems` flag lets users target specific systems.
+CLI commands are generated dynamically. The `registerAssetCommands()` function iterates `asset.Kinds()` and creates a full set of subcommands (`install`, `uninstall`, `list`, `sync`) for each kind. The `outdated` and `update` subcommands are generated for source-based kinds (skills and agents) but not for MCPs. The `--systems` flag lets users target specific systems.
 
 ### TUI
 

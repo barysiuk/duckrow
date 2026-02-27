@@ -154,6 +154,8 @@ Press `r` in the folder view to manually trigger a registry refresh. This:
 
 The refresh runs asynchronously with a spinner in the status bar. You can continue browsing while it runs.
 
+> **Note:** Update detection in the TUI currently applies to skills only. Agent updates are fully supported via the CLI (`duckrow agent outdated`, `duckrow agent update`) but the TUI does not yet display update badges or offer inline update actions for agents. This is a known limitation planned for a future release.
+
 ## Status Bar
 
 The status bar occupies the bottom line of the terminal and has three zones:

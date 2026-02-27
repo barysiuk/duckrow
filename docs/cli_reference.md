@@ -383,6 +383,171 @@ duckrow mcp sync --force
 | `--force` | - | bool | false | Overwrite existing MCP entries in system config files |
 | `--systems` | - | string | - | Comma-separated system names to target |
 
+## Agent Management
+
+Agents are managed through the `duckrow agent` subcommand group. Agents work identically to skills for source-based operations (install, outdated, update) but are rendered per-system rather than copied to a canonical location.
+
+### agent install
+
+Install agents from a git repository or configured registry.
+
+```bash
+# Install an agent from a configured registry (by name)
+duckrow agent install deploy-specialist
+
+# Install all agents from a GitHub repo
+duckrow agent install acme/agents
+
+# Install a specific agent using @ syntax
+duckrow agent install acme/agents@deploy-specialist
+
+# Install from a full URL
+duckrow agent install https://github.com/acme/agents.git
+
+# Install into a specific project directory
+duckrow agent install acme/agents --dir /path/to/project
+
+# Install for specific systems only
+duckrow agent install acme/agents --systems claude-code,opencode
+```
+
+| Argument | Required | Description |
+|----------|----------|-------------|
+| `source-or-name` | Yes | Source to install from (repo shorthand, URL, SSH, or registry agent name) |
+
+| Flag | Short | Type | Default | Description |
+|------|-------|------|---------|-------------|
+| `--dir` | `-d` | string | Current directory | Target project directory |
+| `--registry` | `-r` | string | - | Registry to search (disambiguates duplicates) |
+| `--systems` | - | string | - | Comma-separated system names to target |
+| `--no-lock` | - | bool | false | Skip writing to lock file |
+| `--force` | - | bool | false | Overwrite existing |
+
+### agent uninstall
+
+Remove an installed agent. Deletes the agent file from all system agent directories.
+
+```bash
+# Remove a specific agent from current directory
+duckrow agent uninstall deploy-specialist
+
+# Remove from a specific directory
+duckrow agent uninstall deploy-specialist --dir /path/to/project
+
+# Remove all installed agents
+duckrow agent uninstall --all
+```
+
+| Argument | Required | Description |
+|----------|----------|-------------|
+| `name` | No* | Name of the agent to remove |
+
+*Either `name` or `--all` is required.
+
+| Flag | Short | Type | Default | Description |
+|------|-------|------|---------|-------------|
+| `--dir` | `-d` | string | Current directory | Target directory |
+| `--all` | - | bool | false | Remove all installed agents |
+| `--no-lock` | - | bool | false | Skip writing to lock file |
+
+### agent list
+
+List installed agents in a directory.
+
+```bash
+# List agents in current directory
+duckrow agent list
+
+# List in a specific directory
+duckrow agent list --dir /path/to/project
+
+# Output as JSON
+duckrow agent list --json
+```
+
+| Flag | Short | Type | Default | Description |
+|------|-------|------|---------|-------------|
+| `--dir` | `-d` | string | Current directory | Target directory |
+| `--json` | - | bool | false | Output as JSON |
+
+### agent outdated
+
+Show which installed agents have newer commits available. Before checking, this command refreshes the commit cache for unpinned registry agents (see [commit hydration](lock-file.md#commit-hydration)).
+
+```bash
+# Check current directory
+duckrow agent outdated
+
+# Check a specific directory
+duckrow agent outdated --dir /path/to/project
+
+# Output as JSON for scripting
+duckrow agent outdated --json
+```
+
+| Flag | Short | Type | Default | Description |
+|------|-------|------|---------|-------------|
+| `--dir` | `-d` | string | Current directory | Target directory |
+| `--json` | - | bool | false | Output as JSON for scripting |
+
+### agent update
+
+Update one or all agents to the available commit and update the lock file. Before checking for updates, this command refreshes the commit cache for unpinned registry agents (see [commit hydration](lock-file.md#commit-hydration)).
+
+```bash
+# Update a specific agent
+duckrow agent update deploy-specialist
+
+# Update all agents
+duckrow agent update --all
+
+# Preview what would be updated
+duckrow agent update --all --dry-run
+
+# Update for specific systems
+duckrow agent update deploy-specialist --systems claude-code
+```
+
+Running `duckrow agent update` without arguments or `--all` returns an error with a usage hint.
+
+| Argument | Required | Default | Description |
+|----------|----------|---------|-------------|
+| `name` | No* | - | Name of the agent to update |
+
+*Either `name` or `--all` is required.
+
+| Flag | Short | Type | Default | Description |
+|------|-------|------|---------|-------------|
+| `--dir` | `-d` | string | Current directory | Target directory |
+| `--all` | - | bool | false | Update all agents in the lock file |
+| `--dry-run` | - | bool | false | Show what would be updated without making changes |
+| `--systems` | - | string | - | Comma-separated system names to target |
+
+### agent sync
+
+Install agents from the lock file at their pinned versions.
+
+```bash
+# Sync agents in current directory
+duckrow agent sync
+
+# Sync into a specific directory
+duckrow agent sync --dir /path/to/project
+
+# Preview what would be installed
+duckrow agent sync --dry-run
+
+# Target specific systems
+duckrow agent sync --systems claude-code,opencode
+```
+
+| Flag | Short | Type | Default | Description |
+|------|-------|------|---------|-------------|
+| `--dir` | `-d` | string | Current directory | Target directory |
+| `--dry-run` | - | bool | false | Show what would be done without making changes |
+| `--force` | - | bool | false | Overwrite existing |
+| `--systems` | - | string | - | Comma-separated system names to target |
+
 ## Top-Level Sync
 
 ### sync
@@ -586,6 +751,14 @@ duckrow                              Launch interactive TUI
       --dir, -d <path>                   Target directory
       --dry-run                          Preview without changes
       --force                            Overwrite existing
+      --systems <names>                  System names to target
+    outdated                           Show agents with available updates
+      --dir, -d <path>                   Target directory
+      --json                             Output as JSON
+    update [name]                      Update agent(s) to available commit
+      --dir, -d <path>                   Target directory
+      --all                              Update all agents
+      --dry-run                          Preview without changes
       --systems <names>                  System names to target
   env --mcp <name> -- <cmd> [args]   Runtime env injector (internal use)
   registry                           Manage skill registries

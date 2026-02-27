@@ -20,7 +20,7 @@ duckrow fixes this. It gives your team a single way to distribute, install, and 
 - **Install agents by name** — `duckrow agent install deploy-specialist` renders the agent into each system's agents directory
 - **Pin with a lock file** — every install records the exact git commit (skills, agents) or config hash (MCPs) in `duckrow.lock.json`, just like `package-lock.json` or `uv.lock`
 - **Sync across the team** — teammates run `duckrow sync` and get identical skills, MCP configs, and agents, no manual setup
-- **Update when ready** — `duckrow skill outdated` shows what changed, `duckrow skill update` moves forward
+- **Update when ready** — `duckrow skill outdated` / `duckrow agent outdated` shows what changed, `duckrow skill update` / `duckrow agent update` moves forward
 
 One binary, no dependencies. Works with any git host. Has a nice intuitive TUI.
 
@@ -177,6 +177,8 @@ duckrow agent install <source>    Install agent(s) from a source or registry
 duckrow agent uninstall <name>    Remove an installed agent
 duckrow agent uninstall --all     Remove all installed agents
 duckrow agent list                List installed agents
+duckrow agent outdated            Show agents with available updates
+duckrow agent update [name]       Update agent(s) to the available commit
 duckrow agent sync                Install agents from lock file
 ```
 
@@ -374,12 +376,17 @@ Every `duckrow skill install` records the exact git commit in `duckrow.lock.json
 # Teammates clone the repo and run sync to get identical skills and MCP configs
 duckrow sync
 
-# Check which skills have newer commits available
+# Check which skills or agents have newer commits available
 duckrow skill outdated
+duckrow agent outdated
 
 # Update a specific skill (or all at once)
 duckrow skill update go-review
 duckrow skill update --all
+
+# Same for agents
+duckrow agent update deploy-specialist
+duckrow agent update --all
 ```
 
 See [docs/lock-file.md](docs/lock-file.md) for the full lock file reference.

@@ -535,7 +535,7 @@ duckrow registry refresh
 duckrow registry refresh acme
 ```
 
-Refreshing pulls the latest changes from the remote and runs commit hydration for unpinned skills.
+Refreshing pulls the latest changes from the remote and runs commit hydration for unpinned skills and agents.
 
 ### Removing a registry
 
@@ -559,21 +559,21 @@ duckrow skill install code-review --registry acme
 
 ## Commit Hydration
 
-When a registry lists skills without a `commit` field (unpinned), duckrow needs to determine what the latest commit is. This process is called **commit hydration**.
+When a registry lists source-based assets (skills or agents) without a `commit` field (unpinned), duckrow needs to determine what the latest commit is. This process is called **commit hydration**.
 
 ### How it works
 
-1. Groups unpinned skills by source repository
+1. Groups unpinned source-based assets by source repository
 2. Performs a shallow clone of each unique source repo
-3. Runs `git log` to determine the latest commit for each skill's sub-path
+3. Runs `git log` to determine the latest commit for each asset's sub-path
 4. Caches the resolved commits to `duckrow.commits.json` alongside the registry clone
 
 ### When it runs
 
 - **TUI startup** — registries are refreshed asynchronously in the background
 - **TUI `[r]` refresh** — triggers a full registry refresh including hydration
-- **`duckrow skill outdated`** — hydrates before checking for updates
-- **`duckrow skill update`** — hydrates before applying updates
+- **`duckrow skill outdated` / `duckrow agent outdated`** — hydrates before checking for updates
+- **`duckrow skill update` / `duckrow agent update`** — hydrates before applying updates
 - **`duckrow registry refresh`** — hydrates as part of the refresh
 
 ### Pinned vs hydrated precedence
