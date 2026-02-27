@@ -459,9 +459,10 @@ func uninstallSkill(orch *core.Orchestrator, targetDir string, args []string, al
 		fmt.Fprintf(os.Stdout, "\nRemoved %d skill(s).\n", len(skills))
 
 		if !noLock {
-			emptyLock := &core.LockFile{Assets: []asset.LockedAsset{}}
-			if lockErr := core.WriteLockFile(targetDir, emptyLock); lockErr != nil {
-				fmt.Fprintf(os.Stderr, "Warning: failed to update lock file: %v\n", lockErr)
+			for _, s := range skills {
+				if lockErr := core.RemoveAssetEntry(targetDir, asset.KindSkill, s.Name); lockErr != nil {
+					fmt.Fprintf(os.Stderr, "Warning: failed to update lock file for %q: %v\n", s.Name, lockErr)
+				}
 			}
 		}
 		return nil
